@@ -111,6 +111,55 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(safe['Brand'].tolist(), ["'=cmd", "'+sum", "'-bad", "'@risk", 'safe'])
         self.assertEqual(safe['GRP'].tolist(), [1, 2, 3, 4, 5])
 
+    def test_mapping_profile_and_preview_show_interpretation_quality(self):
+        raw = pd.DataFrame({
+            'Channel': ['Station A', '', 'Station B'],
+            'Program': ['Morning Show', 'Evening Show', ''],
+            'Spots': ['2', 'bad', '3'],
+        })
+        raw.attrs['source_data_start_row'] = 5
+        mapping = {
+            'channel': 'Channel',
+            'programme': 'Program',
+            'spots': 'Spots',
+            'medium': '-- none --',
+        }
+
+        profile = calc.profile_mapping(
+            raw,
+            mapping,
+            ['channel', 'programme', 'spots', 'medium'],
+            numeric_fields=['spots'],
+        )
+        spots_profile = profile.loc[profile['Field'].eq('spots')].iloc[0]
+        medium_profile = profile.loc[profile['Field'].eq('medium')].iloc[0]
+
+        self.assertEqual(int(spots_profile['Filled Rows']), 3)
+        self.assertEqual(int(spots_profile['Numeric Rows']), 2)
+        self.assertFalse(bool(medium_profile['Mapped']))
+        self.assertEqual(
+            calc.mapping_ready_rows(raw, mapping, ['channel', 'programme', 'spots'], numeric_fields=['spots']),
+            1,
+        )
+
+        preview = calc.mapped_field_preview(
+            raw,
+            mapping,
+            ['medium', 'channel', 'programme', 'spots'],
+            defaults={'medium': 'TV'},
+            labels={
+                'medium': 'Medium',
+                'channel': 'Channel / Station',
+                'programme': 'Programme / Time Band',
+                'spots': 'Spots',
+            },
+            numeric_fields=['spots'],
+        )
+
+        self.assertEqual(int(preview.loc[0, 'Input Row']), 5)
+        self.assertEqual(preview.loc[1, 'Medium'], 'TV')
+        self.assertTrue(pd.isna(preview.loc[1, 'Spots']))
+
 
 if __name__ == '__main__':
     unittest.main()

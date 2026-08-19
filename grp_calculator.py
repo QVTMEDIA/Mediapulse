@@ -99,6 +99,10 @@ def uploaded_display_name(uploaded):
     return Path(str(uploaded.name)).name or 'uploaded_file'
 
 
+def inferred_brand_name(file_name):
+    return Path(str(file_name)).stem or 'uploaded_file'
+
+
 def upload_size(uploaded):
     size = getattr(uploaded, 'size', None)
     if size is not None:
@@ -288,6 +292,90 @@ def display_safe_df(df):
     return df.astype('string').fillna('')
 
 
+def sample_values(series, limit=3):
+    filled = series.astype('string')
+    filled = filled[filled.notna() & filled.str.strip().ne('') & filled.str.strip().str.lower().ne('nan')]
+    samples = []
+    seen = set()
+    for value in filled.astype(str):
+        cleaned = re.sub(r'\s+', ' ', value.strip())
+        if not cleaned or cleaned in seen:
+            continue
+        samples.append(cleaned)
+        seen.add(cleaned)
+        if len(samples) == limit:
+            break
+    return ', '.join(samples)
+
+
+def profile_mapping(df, mapping, fields, numeric_fields=()):
+    total_rows = len(df)
+    numeric_set = set(numeric_fields)
+    rows = []
+    for logical in fields:
+        mapped_column = mapping.get(logical, '-- none --')
+        mapped = bool(mapped_column and mapped_column != '-- none --' and mapped_column in df.columns)
+        row = {
+            'Field': logical,
+            'Mapped Column': mapped_column if mapped else '-- none --',
+            'Mapped': mapped,
+            'Filled Rows': 0,
+            'Fill Rate': 0.0,
+            'Numeric Rows': pd.NA,
+            'Numeric Fill Rate': pd.NA,
+            'Sample Values': '',
+        }
+        if mapped:
+            series = df[mapped_column]
+            filled_mask = non_empty_mask(series)
+            filled_rows = int(filled_mask.sum())
+            row['Filled Rows'] = filled_rows
+            row['Fill Rate'] = filled_rows / total_rows if total_rows else 0.0
+            row['Sample Values'] = sample_values(series)
+            if logical in numeric_set:
+                numeric_values = pd.to_numeric(series, errors='coerce')
+                numeric_rows = int((filled_mask & numeric_values.notna()).sum())
+                row['Numeric Rows'] = numeric_rows
+                row['Numeric Fill Rate'] = numeric_rows / filled_rows if filled_rows else 0.0
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def mapping_ready_rows(df, mapping, required_fields, numeric_fields=()):
+    if df.empty:
+        return 0
+    numeric_set = set(numeric_fields)
+    ready_mask = pd.Series(True, index=df.index)
+    for logical in required_fields:
+        mapped_column = mapping.get(logical, '-- none --')
+        if not mapped_column or mapped_column == '-- none --' or mapped_column not in df.columns:
+            return 0
+        series = df[mapped_column]
+        field_mask = non_empty_mask(series)
+        if logical in numeric_set:
+            field_mask = field_mask & pd.to_numeric(series, errors='coerce').notna()
+        ready_mask = ready_mask & field_mask
+    return int(ready_mask.sum())
+
+
+def mapped_field_preview(df, mapping, fields, defaults=None, labels=None, numeric_fields=(), max_rows=10):
+    defaults = defaults or {}
+    labels = labels or {}
+    numeric_set = set(numeric_fields)
+    preview = pd.DataFrame(index=df.index)
+    preview['Input Row'] = input_row_numbers(df)
+    for logical in fields:
+        mapped_column = mapping.get(logical, '-- none --')
+        if mapped_column and mapped_column != '-- none --' and mapped_column in df.columns:
+            values = df[mapped_column]
+        else:
+            values = pd.Series([defaults.get(logical, '')] * len(df), index=df.index)
+        if logical in numeric_set:
+            values = pd.to_numeric(values, errors='coerce')
+        preview[labels.get(logical, logical)] = values
+    return preview.head(max_rows).reset_index(drop=True)
+
+
 def build_ratings_lookup(ratings_raw, mapping, default_medium='TV'):
     rating_values = pd.to_numeric(safe_col(ratings_raw, mapping['rating']), errors='coerce')
     ratings_all = pd.DataFrame({
@@ -316,7 +404,7 @@ def build_ratings_lookup(ratings_raw, mapping, default_medium='TV'):
 
 
 def build_brand_report(raw, mapping, file_name, default_medium='TV'):
-    inferred_brand = Path(file_name).stem
+    inferred_brand = inferred_brand_name(file_name)
     brand_series = safe_col(raw, mapping['brand'], inferred_brand).fillna('').astype(str).str.strip()
     brand_series = brand_series.mask(brand_series.eq(''), inferred_brand)
 
@@ -351,7 +439,7 @@ def build_brand_report(raw, mapping, file_name, default_medium='TV'):
 
 
 def build_composite_report(raw, mapping, file_name, default_medium='TV'):
-    inferred_brand = Path(file_name).stem
+    inferred_brand = inferred_brand_name(file_name)
     brand_series = safe_col(raw, mapping['brand'], inferred_brand).fillna('').astype(str).str.strip()
     brand_series = brand_series.mask(brand_series.eq(''), inferred_brand)
 

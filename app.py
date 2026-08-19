@@ -11,6 +11,19 @@ import grp_calculator as calc
 
 st.set_page_config(page_title='Mediapulse', page_icon=':bar_chart:', layout='wide')
 
+FIELD_LABELS = {
+    'brand': 'Brand',
+    'medium': 'Medium',
+    'date': 'Date',
+    'day': 'Day',
+    'channel': 'Channel / Station',
+    'programme': 'Programme / Time Band',
+    'spots': 'Spots',
+    'rating': 'Rating (%)',
+    'grp': 'GRP',
+    'source': 'Source / Period',
+}
+
 
 def configured_password():
     env_password = os.environ.get('GRP_APP_PASSWORD', '').strip()
@@ -106,6 +119,16 @@ def load_tabular_with_controls(uploaded, key, expected_fields, expanded=False):
     return df
 
 
+def field_label(logical):
+    return FIELD_LABELS.get(logical, logical.replace('_', ' ').title())
+
+
+def format_rate(value):
+    if pd.isna(value):
+        return ''
+    return f'{float(value):.0%}'
+
+
 def mapping_ui(df, prefix, required, optional=()):
     options = ['-- none --'] + list(df.columns)
     mapping = {}
@@ -115,13 +138,79 @@ def mapping_ui(df, prefix, required, optional=()):
         detected = calc.detect_column(df.columns, logical)
         default_idx = options.index(detected) if detected in options else 0
         with cols[i % len(cols)]:
+            label = field_label(logical)
+            if logical in required:
+                label = f'{label} *'
             mapping[logical] = st.selectbox(
-                logical.replace('_', ' ').title(),
+                label,
                 options,
                 index=default_idx,
                 key=f'{prefix}_{logical}',
             )
     return mapping
+
+
+def render_mapping_review(
+    df,
+    mapping,
+    key,
+    required,
+    optional=(),
+    numeric_fields=(),
+    defaults=None,
+    expanded=False,
+):
+    fields = list(required) + list(optional)
+    defaults = defaults or {}
+    missing_required = [field for field in required if mapping.get(field) == '-- none --']
+    ready_rows = calc.mapping_ready_rows(df, mapping, required, numeric_fields=numeric_fields)
+    mapped_required = len(required) - len(missing_required)
+    labels = {field: field_label(field) for field in fields}
+    review_expanded = expanded or bool(missing_required) or ready_rows < len(df)
+
+    with st.expander('Mapping review', expanded=review_expanded):
+        metric_cols = st.columns(3)
+        metric_cols[0].metric('Required mapped', f'{mapped_required}/{len(required)}')
+        metric_cols[1].metric('Ready rows', f'{ready_rows:,}/{len(df):,}')
+        metric_cols[2].metric('Parsed columns', f'{len(df.columns):,}')
+
+        if missing_required:
+            st.warning('Map required fields before calculating: ' + ', '.join(field_label(field) for field in missing_required))
+
+        if defaults:
+            default_notes = [f'{field_label(field)} = {value}' for field, value in defaults.items() if value]
+            if default_notes:
+                st.caption('Defaults applied when a field is not mapped: ' + '; '.join(default_notes))
+
+        profile = calc.profile_mapping(df, mapping, fields, numeric_fields=numeric_fields)
+        if len(profile):
+            profile_view = profile.copy()
+            profile_view['Field'] = profile_view['Field'].map(field_label)
+            profile_view['Mapped'] = profile_view['Mapped'].map({True: 'Yes', False: 'No'})
+            profile_view['Fill Rate'] = profile_view['Fill Rate'].map(format_rate)
+            profile_view['Numeric Fill Rate'] = profile_view['Numeric Fill Rate'].map(format_rate)
+            st.dataframe(profile_view, width='stretch', hide_index=True)
+
+            numeric_issues = profile[
+                profile['Field'].isin(numeric_fields)
+                & profile['Mapped']
+                & profile['Numeric Rows'].notna()
+                & profile['Filled Rows'].gt(profile['Numeric Rows'])
+            ]
+            if len(numeric_issues):
+                issue_names = ', '.join(field_label(field) for field in numeric_issues['Field'])
+                st.warning(f'Some mapped numeric values could not be read as numbers: {issue_names}.')
+
+        preview = calc.mapped_field_preview(
+            df,
+            mapping,
+            fields,
+            defaults=defaults,
+            labels=labels,
+            numeric_fields=numeric_fields,
+        )
+        st.caption('Interpreted row preview')
+        st.dataframe(calc.display_safe_df(preview), width='stretch', height=260)
 
 
 def default_medium_selector(mapping, key):
@@ -133,6 +222,15 @@ def default_medium_selector(mapping, key):
         key=key,
         help='Used when the uploaded file has no Medium column.',
     )
+
+
+def default_values_for_mapping(mapping, default_medium='', file_name=''):
+    defaults = {}
+    if mapping.get('medium') == '-- none --' and default_medium:
+        defaults['medium'] = default_medium
+    if mapping.get('brand') == '-- none --' and file_name:
+        defaults['brand'] = calc.inferred_brand_name(file_name)
+    return defaults
 
 
 def make_template(kind):
@@ -368,6 +466,16 @@ if workflow_mode == 'Composite Report':
             ['channel', 'programme', 'spots'],
             ['brand', 'medium', 'date', 'day', 'rating', 'grp'],
         )
+        default_medium = default_medium_selector(cmap, f'composite_{idx}_default_medium')
+        render_mapping_review(
+            raw,
+            cmap,
+            f'composite_{idx}_review',
+            ['channel', 'programme', 'spots'],
+            ['brand', 'medium', 'date', 'day', 'rating', 'grp'],
+            numeric_fields=['spots', 'rating', 'grp'],
+            defaults=default_values_for_mapping(cmap, default_medium, file_name),
+        )
 
         required_missing = [x for x in ['channel', 'programme', 'spots'] if cmap[x] == '-- none --']
         if required_missing:
@@ -380,7 +488,6 @@ if workflow_mode == 'Composite Report':
             st.warning(f'Map either Rating or GRP for {file_name}.')
             continue
 
-        default_medium = default_medium_selector(cmap, f'composite_{idx}_default_medium')
         report, issues = calc.build_composite_report(raw, cmap, file_name, default_medium)
         if len(issues):
             composite_issues.append(issues)
@@ -428,12 +535,21 @@ except Exception as e:
     st.stop()
 
 st.write('Map the ratings fields:')
-rmap = mapping_ui(ratings_raw, 'ratings', ['medium', 'channel', 'day', 'programme', 'rating'], ['source'])
+rmap = mapping_ui(ratings_raw, 'ratings', ['channel', 'day', 'programme', 'rating'], ['medium', 'source'])
+ratings_default_medium = default_medium_selector(rmap, 'ratings_default_medium')
+render_mapping_review(
+    ratings_raw,
+    rmap,
+    'ratings_review',
+    ['channel', 'day', 'programme', 'rating'],
+    ['medium', 'source'],
+    numeric_fields=['rating'],
+    defaults=default_values_for_mapping(rmap, ratings_default_medium),
+)
 if any(rmap[x] == '-- none --' for x in ['channel', 'day', 'programme', 'rating']):
     st.warning('Map all required ratings fields to continue.')
     st.stop()
 
-ratings_default_medium = default_medium_selector(rmap, 'ratings_default_medium')
 ratings, invalid_ratings, dup_keys, ratings_lookup = calc.build_ratings_lookup(ratings_raw, rmap, ratings_default_medium)
 if ratings.empty:
     st.error('No valid ratings found. Ratings must be numeric values from 0 to 100.')
@@ -484,9 +600,20 @@ for idx, uploaded in enumerate(brand_files):
         st.caption('Using the first report mapping for this compatible file.')
         with st.expander('Override mapping for this report'):
             if st.checkbox('Use a custom mapping for this report', key=f'brand_override_{idx}'):
-                bmap = mapping_ui(raw, f'brand_{idx}', ['medium', 'channel', 'programme', 'spots'], ['brand', 'date', 'day'])
+                bmap = mapping_ui(raw, f'brand_{idx}', ['channel', 'programme', 'spots'], ['brand', 'medium', 'date', 'day'])
     else:
-        bmap = mapping_ui(raw, f'brand_{idx}', ['medium', 'channel', 'programme', 'spots'], ['brand', 'date', 'day'])
+        bmap = mapping_ui(raw, f'brand_{idx}', ['channel', 'programme', 'spots'], ['brand', 'medium', 'date', 'day'])
+
+    brand_default_medium = default_medium_selector(bmap, f'brand_{idx}_default_medium')
+    render_mapping_review(
+        raw,
+        bmap,
+        f'brand_{idx}_review',
+        ['channel', 'programme', 'spots'],
+        ['brand', 'medium', 'date', 'day'],
+        numeric_fields=['spots'],
+        defaults=default_values_for_mapping(bmap, brand_default_medium, file_name),
+    )
 
     required_missing = [x for x in ['channel', 'programme', 'spots'] if bmap[x] == '-- none --']
     if required_missing:
@@ -499,7 +626,6 @@ for idx, uploaded in enumerate(brand_files):
     if first_brand_mapping is None:
         first_brand_mapping = bmap.copy()
 
-    brand_default_medium = default_medium_selector(bmap, f'brand_{idx}_default_medium')
     report, issues = calc.build_brand_report(raw, bmap, file_name, brand_default_medium)
     if len(issues):
         report_issue_frames.append(issues)

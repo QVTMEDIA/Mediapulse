@@ -20,7 +20,8 @@ Use this before sharing a new version of the app.
 - Build Docker image if deploying by container:
   - `docker build -t mediapulse .`
 - Update README if workflow, limits, or run commands changed
+- Update `CHANGELOG.md`
 - Commit with a clear release message
 - Tag stable releases:
-  - `git tag v0.1`
-  - `git push origin v0.1`
+  - `git tag vX.Y`
+  - `git push origin vX.Y`

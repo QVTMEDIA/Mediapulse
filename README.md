@@ -89,6 +89,8 @@ GitHub Actions are configured in `.github/workflows/ci.yml` to run:
 
 Before sharing a new version, follow `RELEASE_CHECKLIST.md`. Before deploying to a server, follow `DEPLOYMENT_CHECKLIST.md`.
 
+Release history is tracked in `CHANGELOG.md`.
+
 ## Password gate
 
 The app supports a simple password gate for shared deployments. Set either:

@@ -56,6 +56,51 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(suspicious_mediums, [])
         self.assertAlmostEqual(float(summary.iloc[0]['Total GRPs']), 113.70, places=2)
 
+    def test_unmatched_rows_get_rating_suggestions(self):
+        ratings = pd.DataFrame({
+            'Medium': ['TV', 'TV', 'TV'],
+            'Channel / Station': ['Station A', 'Station A', 'Station B'],
+            'Day': ['Mon', 'Mon', 'Tue'],
+            'Programme / Time Band': ['Morning Show', 'Evening News', 'Morning Show'],
+            'Rating (%)': [2.5, 3.0, 4.0],
+        })
+        ratings['Match Key'] = calc.make_key(
+            ratings['Medium'],
+            ratings['Channel / Station'],
+            ratings['Day'],
+            ratings['Programme / Time Band'],
+        )
+        media = pd.DataFrame({
+            'Brand': ['Brand A', 'Brand A'],
+            'Source File': ['brand.xlsx', 'brand.xlsx'],
+            'Medium': ['TV', 'TV'],
+            'Channel / Station': ['Station A', 'Station A'],
+            'Day': ['Mon', 'Mon'],
+            'Programme / Time Band': ['Morning Shw', 'Evening News'],
+            'Match Status': ['NO RATING MATCH', 'MATCHED'],
+            'Match Key': ['TV|STATION A|MON|MORNING SHW', 'TV|STATION A|MON|EVENING NEWS'],
+        })
+
+        suggestions = calc.build_unmatched_suggestions(media, ratings, max_suggestions_per_row=1, min_score=0.5)
+
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions.loc[0, 'Input Programme / Time Band'], 'Morning Shw')
+        self.assertEqual(suggestions.loc[0, 'Suggested Programme / Time Band'], 'Morning Show')
+        self.assertEqual(suggestions.loc[0, 'Suggested Rating (%)'], 2.5)
+        self.assertEqual(suggestions.loc[0, 'Confidence'], 'High')
+        self.assertEqual(suggestions.loc[0, 'Suggestion Basis'], 'Same medium, channel, and day')
+
+    def test_unmatched_suggestions_are_empty_without_ratings(self):
+        media = pd.DataFrame({
+            'Match Status': ['NO RATING MATCH'],
+            'Programme / Time Band': ['Morning Show'],
+        })
+
+        suggestions = calc.build_unmatched_suggestions(media, None)
+
+        self.assertEqual(suggestions.columns.tolist(), calc.SUGGESTION_COLUMNS)
+        self.assertEqual(len(suggestions), 0)
+
     @unittest.skipUnless(COMPOSITE_PATH.exists(), 'Composite 2026.xlsx is not available locally')
     def test_composite_report_excludes_total_row_and_uses_uploaded_grps(self):
         with COMPOSITE_PATH.open('rb') as uploaded:

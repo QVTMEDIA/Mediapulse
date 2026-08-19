@@ -321,6 +321,7 @@ def render_results(
         dup_keys=dup_keys,
         suspicious_mediums=suspicious_mediums,
     )
+    unmatched_suggestions = calc.build_unmatched_suggestions(media, ratings)
 
     audit_cols = [
         'Brand', 'Medium', 'Date', 'Day', 'Channel / Station', 'Programme / Time Band',
@@ -404,6 +405,9 @@ def render_results(
         if unmatched:
             with st.expander('Unmatched rows', expanded=True):
                 st.dataframe(media.loc[media['Match Status'].eq('NO RATING MATCH'), audit_cols], width='stretch')
+        if len(unmatched_suggestions):
+            with st.expander('Suggested rating matches for unmatched rows', expanded=True):
+                st.dataframe(unmatched_suggestions, width='stretch')
         if not any([len(dup_keys), len(invalid_ratings), len(report_issues), len(suspicious_mediums), unmatched]):
             st.success('No validation issues found in this run.')
 
@@ -437,6 +441,8 @@ def render_results(
             calc.excel_safe_df(report_issues).to_excel(writer, sheet_name='Report Input Issues', index=False)
         if unmatched:
             calc.excel_safe_df(media.loc[media['Match Status'].eq('NO RATING MATCH'), export_cols]).to_excel(writer, sheet_name='Unmatched Rows', index=False)
+        if len(unmatched_suggestions):
+            calc.excel_safe_df(unmatched_suggestions).to_excel(writer, sheet_name='Unmatched Suggestions', index=False)
         if suspicious_mediums:
             calc.excel_safe_df(pd.DataFrame({'Medium': suspicious_mediums})).to_excel(writer, sheet_name='Suspicious Media', index=False)
     output.seek(0)

@@ -1,5 +1,6 @@
 import math
 import re
+from difflib import SequenceMatcher
 from pathlib import Path
 
 import pandas as pd
@@ -38,6 +39,23 @@ MAX_UPLOAD_COLUMNS = 100
 AUTH_SESSION_TIMEOUT_SECONDS = 8 * 60 * 60
 AUTH_MAX_FAILED_ATTEMPTS = 5
 AUTH_LOCKOUT_SECONDS = 5 * 60
+SUGGESTION_COLUMNS = [
+    'Brand',
+    'Source File',
+    'Input Medium',
+    'Input Channel / Station',
+    'Input Day',
+    'Input Programme / Time Band',
+    'Suggested Channel / Station',
+    'Suggested Day',
+    'Suggested Programme / Time Band',
+    'Suggested Rating (%)',
+    'Similarity Score',
+    'Confidence',
+    'Suggestion Basis',
+    'Input Match Key',
+    'Suggested Match Key',
+]
 TEMPLATE_DEFINITIONS = {
     'ratings': (
         'Ratings Template',
@@ -107,6 +125,22 @@ def normalize_text(v):
     if pd.isna(v):
         return ''
     return re.sub(r'\s+', ' ', str(v).strip()).upper()
+
+
+def text_similarity(left, right):
+    left_norm = normalize_text(left)
+    right_norm = normalize_text(right)
+    if not left_norm or not right_norm:
+        return 0.0
+    return float(SequenceMatcher(None, left_norm, right_norm).ratio())
+
+
+def suggestion_confidence(score):
+    if score >= 0.9:
+        return 'High'
+    if score >= 0.7:
+        return 'Medium'
+    return 'Low'
 
 
 def normalize_medium_type(v):
@@ -318,6 +352,12 @@ def make_key(medium, channel, day, programme):
         day.map(normalize_day) + '|' +
         programme.map(normalize_text)
     )
+
+
+def normalized_series(df, column, normalizer=normalize_text):
+    if column not in df.columns:
+        return pd.Series([''] * len(df), index=df.index)
+    return df[column].map(normalizer)
 
 
 def safe_col(df, col, default=''):
@@ -558,6 +598,98 @@ def build_validation_summary(media, invalid_ratings=None, report_issues=None, du
         ),
     ]
     return pd.DataFrame(rows, columns=['Area', 'Count', 'Status', 'Notes'])
+
+
+def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_score=0.55):
+    if ratings is None or len(ratings) == 0 or len(media) == 0:
+        return pd.DataFrame(columns=SUGGESTION_COLUMNS)
+    if 'Match Status' not in media.columns:
+        return pd.DataFrame(columns=SUGGESTION_COLUMNS)
+
+    unmatched = media.loc[media['Match Status'].eq('NO RATING MATCH')].copy()
+    if unmatched.empty:
+        return pd.DataFrame(columns=SUGGESTION_COLUMNS)
+
+    ratings_index = ratings.copy()
+    ratings_index['_MediumNorm'] = normalized_series(ratings_index, 'Medium')
+    ratings_index['_ChannelNorm'] = normalized_series(ratings_index, 'Channel / Station')
+    ratings_index['_DayNorm'] = normalized_series(ratings_index, 'Day', normalize_day)
+    ratings_index['_ProgrammeNorm'] = normalized_series(ratings_index, 'Programme / Time Band')
+
+    suggestions = []
+    for media_index, row in unmatched.iterrows():
+        medium_norm = normalize_text(row.get('Medium', ''))
+        channel_norm = normalize_text(row.get('Channel / Station', ''))
+        day_norm = normalize_day(row.get('Day', ''))
+        programme = row.get('Programme / Time Band', '')
+
+        candidate_sets = [
+            (
+                'Same medium, channel, and day',
+                ratings_index[
+                    ratings_index['_MediumNorm'].eq(medium_norm)
+                    & ratings_index['_ChannelNorm'].eq(channel_norm)
+                    & ratings_index['_DayNorm'].eq(day_norm)
+                ],
+            ),
+            (
+                'Same medium and channel',
+                ratings_index[
+                    ratings_index['_MediumNorm'].eq(medium_norm)
+                    & ratings_index['_ChannelNorm'].eq(channel_norm)
+                ],
+            ),
+            (
+                'Same medium and day',
+                ratings_index[
+                    ratings_index['_MediumNorm'].eq(medium_norm)
+                    & ratings_index['_DayNorm'].eq(day_norm)
+                ],
+            ),
+        ]
+
+        candidate_rows = pd.DataFrame()
+        basis = ''
+        for candidate_basis, candidates in candidate_sets:
+            if not candidates.empty:
+                candidate_rows = candidates.copy()
+                basis = candidate_basis
+                break
+        if candidate_rows.empty:
+            continue
+
+        candidate_rows['_Similarity'] = candidate_rows['Programme / Time Band'].map(
+            lambda candidate: text_similarity(programme, candidate)
+        )
+        candidate_rows = candidate_rows.loc[candidate_rows['_Similarity'].ge(min_score)].copy()
+        if candidate_rows.empty:
+            continue
+        candidate_rows = candidate_rows.sort_values(['_Similarity', 'Rating (%)'], ascending=[False, False])
+        candidate_rows = candidate_rows.drop_duplicates(
+            subset=['Channel / Station', 'Day', 'Programme / Time Band', 'Rating (%)']
+        ).head(max_suggestions_per_row)
+
+        for _, candidate in candidate_rows.iterrows():
+            score = round(float(candidate['_Similarity']), 3)
+            suggestions.append({
+                'Brand': row.get('Brand', ''),
+                'Source File': row.get('Source File', ''),
+                'Input Medium': row.get('Medium', ''),
+                'Input Channel / Station': row.get('Channel / Station', ''),
+                'Input Day': row.get('Day', ''),
+                'Input Programme / Time Band': programme,
+                'Suggested Channel / Station': candidate.get('Channel / Station', ''),
+                'Suggested Day': candidate.get('Day', ''),
+                'Suggested Programme / Time Band': candidate.get('Programme / Time Band', ''),
+                'Suggested Rating (%)': candidate.get('Rating (%)', pd.NA),
+                'Similarity Score': score,
+                'Confidence': suggestion_confidence(score),
+                'Suggestion Basis': basis,
+                'Input Match Key': row.get('Match Key', ''),
+                'Suggested Match Key': candidate.get('Match Key', ''),
+            })
+
+    return pd.DataFrame(suggestions, columns=SUGGESTION_COLUMNS)
 
 
 def build_ratings_lookup(ratings_raw, mapping, default_medium='TV'):

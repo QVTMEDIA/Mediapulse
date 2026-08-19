@@ -22,6 +22,8 @@
 
 ## Streamlit Community Cloud
 
+- Live app:
+  - `https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/`
 - Use repository `QVTMEDIA/Mediapulse`
 - Use branch `main`
 - Use main file path `app.py`

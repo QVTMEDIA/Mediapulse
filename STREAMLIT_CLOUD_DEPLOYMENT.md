@@ -8,6 +8,7 @@ Use this guide to deploy Mediapulse from the GitHub repository.
 - Branch: `main`
 - Main file path: `app.py`
 - Suggested app URL/subdomain: `mediapulse`
+- Current live app: `https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/`
 - Preferred Python version: `3.14`
 
 The app has been tested locally on Python `3.14.3`, and GitHub Actions also runs Python `3.14`.
@@ -46,6 +47,7 @@ Do not commit a real `.streamlit/secrets.toml` file. The repo includes `.streaml
 
 ## After deployment
 
+- Open the live app: `https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/`
 - Keep `APP_PASSWORD` strong and rotate it if shared outside the team.
 - Do not upload files larger than 10 MB.
 - If the app fails to build, check the Streamlit build log first. Most deployment failures will be caused by Python runtime or package version mismatches.

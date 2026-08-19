@@ -2,6 +2,8 @@
 
 Mediapulse is a Streamlit app for automatically calculating TV/Radio GRPs and GRP-based Share of Voice from programme ratings, brand media reports, and composite media reports.
 
+Live app: https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/
+
 ## What it does
 
 - Upload programme ratings in Excel or CSV.
@@ -73,6 +75,8 @@ Then open `http://localhost:8501`.
 ## Deploy to Streamlit Community Cloud
 
 Use `STREAMLIT_CLOUD_DEPLOYMENT.md` for the exact GitHub repo, branch, entrypoint, Python version, and secret settings.
+
+Current deployment: https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/
 
 ## CI and release checks
 

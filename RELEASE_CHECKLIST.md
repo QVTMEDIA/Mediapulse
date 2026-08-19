@@ -11,7 +11,15 @@ Use this before sharing a new version of the app.
   - `Mediapulse_Matched_GRP_SOV_results.xlsx`
 - Confirm `.xlsm` uploads are blocked
 - Confirm `GRP_APP_PASSWORD` is set for any shared deployment
+- Confirm the live Streamlit app opens:
+  - `https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/`
+- Confirm the live Streamlit app can run both workflows after login:
+  - Composite Report
+  - Ratings + Brand Reports
 - Build Docker image if deploying by container:
   - `docker build -t mediapulse .`
 - Update README if workflow, limits, or run commands changed
 - Commit with a clear release message
+- Tag stable releases:
+  - `git tag v0.1`
+  - `git push origin v0.1`

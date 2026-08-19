@@ -2,6 +2,7 @@ import io
 import hmac
 import os
 import re
+from datetime import datetime
 
 import altair as alt
 import pandas as pd
@@ -306,6 +307,14 @@ def render_results(
     ])
     st.progress(matched / total_rows if total_rows else 0, text=f'{progress_label}: {(matched / total_rows * 100 if total_rows else 0):.1f}%')
 
+    validation_summary = calc.build_validation_summary(
+        media,
+        invalid_ratings=invalid_ratings,
+        report_issues=report_issues,
+        dup_keys=dup_keys,
+        suspicious_mediums=suspicious_mediums,
+    )
+
     audit_cols = [
         'Brand', 'Medium', 'Date', 'Day', 'Channel / Station', 'Programme / Time Band',
         'Spots', 'Matched Rating (%)', 'GRP', 'GRP Source', 'Match Status', 'Source File',
@@ -372,6 +381,7 @@ def render_results(
 
     with validation_tab:
         st.subheader('Rows Needing Review')
+        st.dataframe(validation_summary, width='stretch', hide_index=True)
         if len(dup_keys):
             with st.expander('Duplicate rating keys', expanded=True):
                 st.dataframe(dup_keys, width='stretch')
@@ -392,17 +402,36 @@ def render_results(
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        run_summary = calc.build_run_summary(
+            media,
+            summary_df,
+            category_grps,
+            ratings=ratings,
+            invalid_ratings=invalid_ratings,
+            report_issues=report_issues,
+            dup_keys=dup_keys,
+            suspicious_mediums=suspicious_mediums,
+            generated_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            row_label=row_label,
+            matched_label=matched_label,
+            unmatched_label=unmatched_label,
+            progress_label=progress_label,
+        )
+        calc.excel_safe_df(run_summary).to_excel(writer, sheet_name='Run Summary', index=False)
+        calc.excel_safe_df(validation_summary).to_excel(writer, sheet_name='Validation Summary', index=False)
+        calc.excel_safe_df(summary_df).to_excel(writer, sheet_name='Brand GRP Summary', index=False)
         if ratings is not None and len(ratings):
             calc.excel_safe_df(ratings).to_excel(writer, sheet_name='Ratings Used', index=False)
         export_cols = audit_cols + (['Match Key'] if 'Match Key' in media.columns else [])
         calc.excel_safe_df(media[export_cols]).to_excel(writer, sheet_name='Spot Level GRP', index=False)
-        calc.excel_safe_df(summary_df).to_excel(writer, sheet_name='Brand GRP Summary', index=False)
         if len(invalid_ratings):
             calc.excel_safe_df(invalid_ratings).to_excel(writer, sheet_name='Invalid Ratings', index=False)
         if len(report_issues):
             calc.excel_safe_df(report_issues).to_excel(writer, sheet_name='Report Input Issues', index=False)
         if unmatched:
             calc.excel_safe_df(media.loc[media['Match Status'].eq('NO RATING MATCH'), export_cols]).to_excel(writer, sheet_name='Unmatched Rows', index=False)
+        if suspicious_mediums:
+            calc.excel_safe_df(pd.DataFrame({'Medium': suspicious_mediums})).to_excel(writer, sheet_name='Suspicious Media', index=False)
     output.seek(0)
     st.download_button('Download Mediapulse Results (Excel)', data=output, file_name=export_file_name, mime=calc.TEMPLATE_MIME)
 

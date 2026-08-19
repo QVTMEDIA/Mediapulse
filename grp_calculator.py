@@ -376,6 +376,97 @@ def mapped_field_preview(df, mapping, fields, defaults=None, labels=None, numeri
     return preview.head(max_rows).reset_index(drop=True)
 
 
+def build_run_summary(
+    media,
+    summary_df,
+    category_grps,
+    ratings=None,
+    invalid_ratings=None,
+    report_issues=None,
+    dup_keys=None,
+    suspicious_mediums=None,
+    generated_at='',
+    row_label='Report rows',
+    matched_label='Matched rows',
+    unmatched_label='Unmatched rows',
+    progress_label='Match rate',
+):
+    ratings = ratings if ratings is not None else pd.DataFrame()
+    invalid_ratings = invalid_ratings if invalid_ratings is not None else pd.DataFrame()
+    report_issues = report_issues if report_issues is not None else pd.DataFrame()
+    dup_keys = dup_keys if dup_keys is not None else pd.DataFrame()
+    suspicious_mediums = suspicious_mediums or []
+
+    total_rows = len(media)
+    unmatched_rows = int(media['Match Status'].eq('NO RATING MATCH').sum()) if 'Match Status' in media.columns else 0
+    matched_rows = total_rows - unmatched_rows
+    coverage = matched_rows / total_rows if total_rows else 0
+    total_spots = float(media['Spots'].sum()) if 'Spots' in media.columns and total_rows else 0
+    total_tv_grps = float(summary_df['TV GRPs'].sum()) if 'TV GRPs' in summary_df.columns and len(summary_df) else 0
+    total_radio_grps = float(summary_df['Radio GRPs'].sum()) if 'Radio GRPs' in summary_df.columns and len(summary_df) else 0
+
+    rows = [
+        ('Generated At', generated_at, 'Local app time when the workbook was created.'),
+        ('Brands', summary_df['Brand'].nunique() if 'Brand' in summary_df.columns else 0, 'Unique brands included in the summary.'),
+        (row_label, total_rows, 'Rows included in the calculation output.'),
+        (matched_label, matched_rows, 'Rows with enough information to calculate GRPs.'),
+        (unmatched_label, unmatched_rows, 'Rows that need review before final reporting.'),
+        (progress_label, coverage, 'Calculated as matched rows divided by included rows.'),
+        ('Total Spots', total_spots, 'Sum of included spot counts.'),
+        ('TV GRPs', total_tv_grps, 'Total GRPs where Medium resolves to TV.'),
+        ('Radio GRPs', total_radio_grps, 'Total GRPs where Medium resolves to Radio.'),
+        ('Total Category GRPs', float(category_grps), 'Sum of all brand Total GRPs.'),
+        ('Ratings Rows', len(ratings), 'Valid rating rows used for matching, when applicable.'),
+        ('Duplicate Rating Keys', len(dup_keys), 'Rating match keys that appeared more than once.'),
+        ('Invalid Rating Rows', len(invalid_ratings), 'Rating rows excluded before matching.'),
+        ('Report Input Issues', len(report_issues), 'Report rows excluded before calculation.'),
+        ('Suspicious Medium Values', len(suspicious_mediums), 'Medium values outside TV/Radio aliases.'),
+    ]
+    return pd.DataFrame(rows, columns=['Metric', 'Value', 'Notes'])
+
+
+def build_validation_summary(media, invalid_ratings=None, report_issues=None, dup_keys=None, suspicious_mediums=None):
+    invalid_ratings = invalid_ratings if invalid_ratings is not None else pd.DataFrame()
+    report_issues = report_issues if report_issues is not None else pd.DataFrame()
+    dup_keys = dup_keys if dup_keys is not None else pd.DataFrame()
+    suspicious_mediums = suspicious_mediums or []
+    unmatched_rows = int(media['Match Status'].eq('NO RATING MATCH').sum()) if 'Match Status' in media.columns else 0
+
+    rows = [
+        (
+            'Duplicate rating keys',
+            len(dup_keys),
+            'Review' if len(dup_keys) else 'OK',
+            'Duplicate keys are averaged before matching.',
+        ),
+        (
+            'Invalid ratings',
+            len(invalid_ratings),
+            'Review' if len(invalid_ratings) else 'OK',
+            'Rows with missing fields or non-numeric/out-of-range ratings are excluded.',
+        ),
+        (
+            'Report input issues',
+            len(report_issues),
+            'Review' if len(report_issues) else 'OK',
+            'Rows with missing fields, invalid spots, or invalid GRP values are excluded.',
+        ),
+        (
+            'Unmatched rows',
+            unmatched_rows,
+            'Review' if unmatched_rows else 'OK',
+            'Rows without a rating match contribute no GRPs until fixed.',
+        ),
+        (
+            'Suspicious medium values',
+            len(suspicious_mediums),
+            'Review' if len(suspicious_mediums) else 'OK',
+            'Medium values that do not resolve to TV or Radio.',
+        ),
+    ]
+    return pd.DataFrame(rows, columns=['Area', 'Count', 'Status', 'Notes'])
+
+
 def build_ratings_lookup(ratings_raw, mapping, default_medium='TV'):
     rating_values = pd.to_numeric(safe_col(ratings_raw, mapping['rating']), errors='coerce')
     ratings_all = pd.DataFrame({

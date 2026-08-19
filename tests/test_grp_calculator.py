@@ -160,6 +160,53 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(preview.loc[1, 'Medium'], 'TV')
         self.assertTrue(pd.isna(preview.loc[1, 'Spots']))
 
+    def test_export_summaries_capture_run_and_validation_counts(self):
+        media = pd.DataFrame({
+            'Brand': ['Brand A', 'Brand A', 'Brand B'],
+            'Medium': ['TV', 'RADIO', 'TV'],
+            'Spots': [2, 1, 3],
+            'GRP': [10.0, 2.5, 0.0],
+            'Match Status': ['MATCHED', 'MATCHED', 'NO RATING MATCH'],
+        })
+        summary, category_grps, suspicious_mediums = calc.summarize_media(media)
+        invalid_ratings = pd.DataFrame({'Issue': ['Invalid or out-of-range rating']})
+        report_issues = pd.DataFrame({'Issue': ['Invalid, zero, or negative spots']})
+        dup_keys = pd.DataFrame({'Match Key': ['TV|A|MON|SHOW'], 'Rows': [2]})
+
+        run_summary = calc.build_run_summary(
+            media,
+            summary,
+            category_grps,
+            ratings=pd.DataFrame({'Rating (%)': [1.0, 2.0]}),
+            invalid_ratings=invalid_ratings,
+            report_issues=report_issues,
+            dup_keys=dup_keys,
+            suspicious_mediums=suspicious_mediums,
+            generated_at='2026-08-19 16:30:00',
+        )
+        validation_summary = calc.build_validation_summary(
+            media,
+            invalid_ratings=invalid_ratings,
+            report_issues=report_issues,
+            dup_keys=dup_keys,
+            suspicious_mediums=suspicious_mediums,
+        )
+
+        metrics = dict(zip(run_summary['Metric'], run_summary['Value']))
+        validations = dict(zip(validation_summary['Area'], validation_summary['Status']))
+
+        self.assertEqual(metrics['Generated At'], '2026-08-19 16:30:00')
+        self.assertEqual(metrics['Report rows'], 3)
+        self.assertEqual(metrics['Matched rows'], 2)
+        self.assertEqual(metrics['Unmatched rows'], 1)
+        self.assertAlmostEqual(float(metrics['Total Category GRPs']), 12.5)
+        self.assertEqual(metrics['Duplicate Rating Keys'], 1)
+        self.assertEqual(validations['Duplicate rating keys'], 'Review')
+        self.assertEqual(validations['Invalid ratings'], 'Review')
+        self.assertEqual(validations['Report input issues'], 'Review')
+        self.assertEqual(validations['Unmatched rows'], 'Review')
+        self.assertEqual(validations['Suspicious medium values'], 'OK')
+
 
 if __name__ == '__main__':
     unittest.main()

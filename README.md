@@ -14,7 +14,7 @@ Live app: https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/
 - Calculate row GRP = Spots x Matched Rating.
 - Calculate TV GRPs, Radio GRPs, Total GRPs, Total Category GRPs and GRP-based SOV.
 - Flag unmatched rows.
-- Export results to Excel.
+- Export results to Excel with run and validation summary sheets.
 - If a brand column is missing, uses the uploaded filename as the brand name.
 
 ## Run locally

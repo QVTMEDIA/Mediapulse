@@ -20,6 +20,16 @@
 - Confirm browser access:
   - `http://localhost:8501`
 
+## Streamlit Community Cloud
+
+- Use repository `QVTMEDIA/Mediapulse`
+- Use branch `main`
+- Use main file path `app.py`
+- Set Python version to `3.14` if available
+- Add secret:
+  - `APP_PASSWORD = "replace-with-a-strong-password"`
+- Follow `STREAMLIT_CLOUD_DEPLOYMENT.md`
+
 ## Operational Notes
 
 - Upload limits are enforced in the app:

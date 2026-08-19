@@ -70,6 +70,10 @@ docker compose up --build
 
 Then open `http://localhost:8501`.
 
+## Deploy to Streamlit Community Cloud
+
+Use `STREAMLIT_CLOUD_DEPLOYMENT.md` for the exact GitHub repo, branch, entrypoint, Python version, and secret settings.
+
 ## CI and release checks
 
 GitHub Actions are configured in `.github/workflows/ci.yml` to run:

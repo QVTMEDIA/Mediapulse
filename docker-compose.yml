@@ -1,0 +1,9 @@
+services:
+  grp-sov-app:
+    build: .
+    image: grp-sov-app:local
+    ports:
+      - "8501:8501"
+    environment:
+      GRP_APP_PASSWORD: ${GRP_APP_PASSWORD:-}
+    restart: unless-stopped

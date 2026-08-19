@@ -99,6 +99,8 @@ For local Streamlit secrets, copy `.streamlit/secrets.toml.example` to `.streaml
 
 If no password is configured, the app runs with the password gate disabled and shows a warning.
 
+For shared deployments, the password gate also expires authenticated sessions after 8 hours and temporarily locks the form after 5 failed attempts.
+
 ## Recommended input fields
 
 ### Ratings file

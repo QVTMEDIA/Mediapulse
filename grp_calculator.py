@@ -1,3 +1,4 @@
+import math
 import re
 from pathlib import Path
 
@@ -34,6 +35,9 @@ MAX_UPLOAD_SIZE_MB = 10
 MAX_UPLOAD_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 MAX_UPLOAD_ROWS = 100_000
 MAX_UPLOAD_COLUMNS = 100
+AUTH_SESSION_TIMEOUT_SECONDS = 8 * 60 * 60
+AUTH_MAX_FAILED_ATTEMPTS = 5
+AUTH_LOCKOUT_SECONDS = 5 * 60
 
 
 def canon(s):
@@ -101,6 +105,34 @@ def uploaded_display_name(uploaded):
 
 def inferred_brand_name(file_name):
     return Path(str(file_name)).stem or 'uploaded_file'
+
+
+def auth_session_is_valid(authenticated, authenticated_at, now, timeout_seconds=AUTH_SESSION_TIMEOUT_SECONDS):
+    if not authenticated:
+        return False
+    try:
+        authenticated_at = float(authenticated_at)
+    except (TypeError, ValueError):
+        return False
+    return 0 <= float(now) - authenticated_at <= timeout_seconds
+
+
+def lockout_remaining_seconds(locked_until, now):
+    try:
+        remaining = float(locked_until) - float(now)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, int(math.ceil(remaining)))
+
+
+def next_login_failure_state(failed_attempts, now, max_attempts=AUTH_MAX_FAILED_ATTEMPTS, lockout_seconds=AUTH_LOCKOUT_SECONDS):
+    try:
+        failures = int(failed_attempts)
+    except (TypeError, ValueError):
+        failures = 0
+    failures += 1
+    locked_until = float(now) + lockout_seconds if failures >= max_attempts else 0
+    return failures, locked_until
 
 
 def upload_size(uploaded):

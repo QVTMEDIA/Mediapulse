@@ -2,6 +2,7 @@ import io
 import hmac
 import os
 import re
+import time
 from datetime import datetime
 
 import altair as alt
@@ -43,25 +44,56 @@ def require_password_gate():
         st.warning('Password gate is disabled. Set GRP_APP_PASSWORD or Streamlit secret APP_PASSWORD before shared deployment.')
         return
 
-    if st.session_state.get('authenticated'):
+    now = time.time()
+    if calc.auth_session_is_valid(
+        st.session_state.get('authenticated'),
+        st.session_state.get('authenticated_at'),
+        now,
+    ):
         with st.sidebar:
             st.caption('Access: authenticated')
             if st.button('Log out'):
-                st.session_state['authenticated'] = False
+                clear_auth_state()
                 st.rerun()
         return
+    if st.session_state.get('authenticated'):
+        clear_auth_state()
+        st.warning('Your session expired. Enter the app password again.')
 
     st.title('Mediapulse')
     st.caption('Enter the app password to continue.')
+    remaining_lockout = calc.lockout_remaining_seconds(st.session_state.get('locked_until'), now)
+    if remaining_lockout:
+        st.error(f'Too many incorrect attempts. Try again in {remaining_lockout} seconds.')
+        st.stop()
+    if st.session_state.get('locked_until'):
+        st.session_state['failed_login_attempts'] = 0
+        st.session_state['locked_until'] = 0
+
     with st.form('password_gate'):
         submitted_password = st.text_input('Password', type='password')
         submitted = st.form_submit_button('Continue')
     if submitted:
         if hmac.compare_digest(submitted_password, password):
             st.session_state['authenticated'] = True
+            st.session_state['authenticated_at'] = now
+            st.session_state['failed_login_attempts'] = 0
+            st.session_state['locked_until'] = 0
             st.rerun()
-        st.error('Incorrect password.')
+        failures, locked_until = calc.next_login_failure_state(st.session_state.get('failed_login_attempts'), now)
+        st.session_state['failed_login_attempts'] = failures
+        st.session_state['locked_until'] = locked_until
+        if locked_until:
+            st.error(f'Too many incorrect attempts. Try again in {calc.lockout_remaining_seconds(locked_until, now)} seconds.')
+        else:
+            attempts_left = calc.AUTH_MAX_FAILED_ATTEMPTS - failures
+            st.error(f'Incorrect password. {attempts_left} attempts remaining.')
     st.stop()
+
+
+def clear_auth_state():
+    for key in ['authenticated', 'authenticated_at', 'failed_login_attempts', 'locked_until']:
+        st.session_state.pop(key, None)
 
 
 def sheet_selector(uploaded, key):

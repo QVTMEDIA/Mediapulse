@@ -3,6 +3,8 @@
 ## Required
 
 - Set a strong `GRP_APP_PASSWORD`
+- Confirm password login works
+- Confirm repeated incorrect passwords trigger a temporary lockout
 - Use `.xlsx`, `.xls`, or `.csv` inputs only
 - Keep `.streamlit/secrets.toml` out of git
 - Run tests before deployment:

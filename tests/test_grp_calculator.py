@@ -102,6 +102,24 @@ class GrpCalculatorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Macro-enabled'):
             calc.validate_uploaded_file(uploaded)
 
+    def test_auth_session_timeout_and_lockout_helpers(self):
+        self.assertTrue(calc.auth_session_is_valid(True, 100, 200, timeout_seconds=200))
+        self.assertFalse(calc.auth_session_is_valid(True, 100, 400, timeout_seconds=200))
+        self.assertFalse(calc.auth_session_is_valid(False, 100, 120, timeout_seconds=200))
+        self.assertFalse(calc.auth_session_is_valid(True, None, 120, timeout_seconds=200))
+
+        self.assertEqual(calc.lockout_remaining_seconds(165.1, 100), 66)
+        self.assertEqual(calc.lockout_remaining_seconds(100, 120), 0)
+        self.assertEqual(calc.lockout_remaining_seconds(None, 120), 0)
+
+        failures, locked_until = calc.next_login_failure_state(3, 100, max_attempts=5, lockout_seconds=60)
+        self.assertEqual(failures, 4)
+        self.assertEqual(locked_until, 0)
+
+        failures, locked_until = calc.next_login_failure_state(4, 100, max_attempts=5, lockout_seconds=60)
+        self.assertEqual(failures, 5)
+        self.assertEqual(locked_until, 160)
+
     def test_excel_formula_values_are_escaped_for_export(self):
         df = pd.DataFrame({
             'Brand': ['=cmd', '+sum', '-bad', '@risk', 'safe'],

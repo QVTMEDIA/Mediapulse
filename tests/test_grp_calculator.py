@@ -97,6 +97,33 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertAlmostEqual(float(summary.iloc[0]['Total GRPs']), 113.70, places=2)
         self.assertEqual(suspicious_mediums, [])
 
+    def test_composite_template_maps_and_calculates(self):
+        template, sheet_name = calc.template_dataframe('composite')
+
+        self.assertEqual(sheet_name, 'Composite Template')
+        self.assertEqual(calc.detect_column(template.columns, 'day'), 'WD')
+        self.assertEqual(calc.detect_column(template.columns, 'programme'), 'Program')
+        self.assertEqual(calc.detect_column(template.columns, 'rating'), 'Rch %')
+        self.assertEqual(calc.detect_column(template.columns, 'grp'), 'Grps')
+
+        mapping = {
+            'brand': 'Brand',
+            'medium': 'Medium',
+            'date': '-- none --',
+            'day': 'WD',
+            'channel': 'Channel',
+            'programme': 'Program',
+            'spots': 'Spots',
+            'rating': 'Rch %',
+            'grp': 'Grps',
+        }
+        media, issues = calc.build_composite_report(template, mapping, 'composite_report_template.xlsx')
+
+        self.assertEqual(len(issues), 0)
+        self.assertEqual(len(media), 1)
+        self.assertEqual(media.loc[0, 'GRP Source'], 'Uploaded GRP')
+        self.assertAlmostEqual(float(media.loc[0, 'GRP']), 2.5)
+
     def test_xlsm_uploads_are_blocked(self):
         uploaded = NamedBytes(b'not a real workbook', 'macro_report.xlsm')
         with self.assertRaisesRegex(ValueError, 'Macro-enabled'):

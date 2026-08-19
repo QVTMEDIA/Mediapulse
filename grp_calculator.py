@@ -38,10 +38,57 @@ MAX_UPLOAD_COLUMNS = 100
 AUTH_SESSION_TIMEOUT_SECONDS = 8 * 60 * 60
 AUTH_MAX_FAILED_ATTEMPTS = 5
 AUTH_LOCKOUT_SECONDS = 5 * 60
+TEMPLATE_DEFINITIONS = {
+    'ratings': (
+        'Ratings Template',
+        {
+            'Medium': 'TV',
+            'Channel / Station': 'Sample Station',
+            'Day': 'Mon',
+            'Programme / Time Band': '20:00-20:15',
+            'Rating (%)': 2.5,
+            'Source / Period': 'Sample wave',
+        },
+    ),
+    'brand': (
+        'Brand Report Template',
+        {
+            'Brand': 'Sample Brand',
+            'Medium': 'TV',
+            'Date': '',
+            'Day': 'Mon',
+            'Channel / Station': 'Sample Station',
+            'Programme / Time Band': '20:00-20:15',
+            'Spots': 1,
+        },
+    ),
+    'composite': (
+        'Composite Template',
+        {
+            'Brand': 'Sample Brand',
+            'Medium': 'TV',
+            'Date': '',
+            'WD': 'Mon',
+            'Channel': 'Sample Station',
+            'Program': '20:00-20:15',
+            'Spots': 1,
+            'Rch %': 2.5,
+            'Grps': 2.5,
+        },
+    ),
+}
 
 
 def canon(s):
     return re.sub(r'\s+', ' ', str(s).strip()).lower()
+
+
+def template_dataframe(kind):
+    if kind not in TEMPLATE_DEFINITIONS:
+        supported = ', '.join(sorted(TEMPLATE_DEFINITIONS))
+        raise ValueError(f'Unknown template "{kind}". Supported templates: {supported}.')
+    sheet_name, row = TEMPLATE_DEFINITIONS[kind]
+    return pd.DataFrame([row]), sheet_name
 
 
 def detect_column(columns, logical):

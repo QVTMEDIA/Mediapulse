@@ -119,6 +119,15 @@ For shared deployments, the password gate also expires authenticated sessions af
 - Programme / Time Band
 - Spots
 
+### Composite report
+- Brand (optional; filename is used when absent)
+- Medium (optional; app default can be used)
+- Date or Day
+- Channel / Station
+- Programme / Time Band
+- Spots
+- Rating (%) or GRP
+
 ## Matching logic
 
 The normalized match key is:

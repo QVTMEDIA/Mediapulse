@@ -263,27 +263,7 @@ def default_values_for_mapping(mapping, default_medium='', file_name=''):
 
 def make_template(kind):
     output = io.BytesIO()
-    if kind == 'ratings':
-        data = pd.DataFrame([{
-            'Medium': 'TV',
-            'Channel / Station': 'Sample Station',
-            'Day': 'Mon',
-            'Programme / Time Band': '20:00-20:15',
-            'Rating (%)': 2.5,
-            'Source / Period': 'Sample wave',
-        }])
-        sheet_name = 'Ratings Template'
-    else:
-        data = pd.DataFrame([{
-            'Brand': 'Sample Brand',
-            'Medium': 'TV',
-            'Date': '',
-            'Day': 'Mon',
-            'Channel / Station': 'Sample Station',
-            'Programme / Time Band': '20:00-20:15',
-            'Spots': 1,
-        }])
-        sheet_name = 'Brand Report Template'
+    data, sheet_name = calc.template_dataframe(kind)
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         data.to_excel(writer, sheet_name=sheet_name, index=False)
     output.seek(0)
@@ -473,6 +453,7 @@ with st.sidebar:
     st.markdown('Choose **Composite Report** for one workbook with spots and ratings/GRPs, or **Separate Ratings + Brand Reports** when ratings and activity are separate files.')
     st.info('GRP per row = Spots x Matched Rating. Brand SOV = Brand GRPs / Total Category GRPs.')
     st.header('Templates')
+    st.download_button('Composite template', data=make_template('composite'), file_name='composite_report_template.xlsx', mime=calc.TEMPLATE_MIME)
     st.download_button('Ratings template', data=make_template('ratings'), file_name='ratings_template.xlsx', mime=calc.TEMPLATE_MIME)
     st.download_button('Brand report template', data=make_template('brand'), file_name='brand_report_template.xlsx', mime=calc.TEMPLATE_MIME)
 

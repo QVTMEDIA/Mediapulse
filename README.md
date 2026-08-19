@@ -1,6 +1,6 @@
-# GRP & Share of Voice Web App
+# Mediapulse
 
-A Streamlit MVP for automatically calculating TV/Radio GRPs and GRP-based Share of Voice from programme ratings and brand media reports.
+Mediapulse is a Streamlit app for automatically calculating TV/Radio GRPs and GRP-based Share of Voice from programme ratings, brand media reports, and composite media reports.
 
 ## What it does
 
@@ -45,20 +45,20 @@ python -m unittest discover -s tests -v
 Build the image:
 
 ```bash
-docker build -t grp-sov-app .
+docker build -t mediapulse .
 ```
 
 Run locally without a password gate:
 
 ```bash
-docker run --rm -p 8501:8501 grp-sov-app
+docker run --rm -p 8501:8501 mediapulse
 ```
 
 Run with a password gate:
 
 ```powershell
 $env:GRP_APP_PASSWORD = "replace-with-a-strong-password"
-docker run --rm -p 8501:8501 -e GRP_APP_PASSWORD=$env:GRP_APP_PASSWORD grp-sov-app
+docker run --rm -p 8501:8501 -e GRP_APP_PASSWORD=$env:GRP_APP_PASSWORD mediapulse
 ```
 
 Or use Docker Compose:

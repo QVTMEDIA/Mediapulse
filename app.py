@@ -9,7 +9,7 @@ import streamlit as st
 
 import grp_calculator as calc
 
-st.set_page_config(page_title='GRP & SOV Calculator', page_icon=':bar_chart:', layout='wide')
+st.set_page_config(page_title='Mediapulse', page_icon=':bar_chart:', layout='wide')
 
 
 def configured_password():
@@ -37,7 +37,7 @@ def require_password_gate():
                 st.rerun()
         return
 
-    st.title('GRP & Share of Voice Calculator')
+    st.title('Mediapulse')
     st.caption('Enter the app password to continue.')
     with st.form('password_gate'):
         submitted_password = st.text_input('Password', type='password')
@@ -183,7 +183,7 @@ def render_results(
     input_issues_label='Input issues',
     input_issues_help='Rows excluded because required values were missing or invalid.',
     progress_label='Match rate',
-    export_file_name='GRP_SOV_results.xlsx',
+    export_file_name='Mediapulse_GRP_SOV_results.xlsx',
 ):
     invalid_ratings = invalid_ratings if invalid_ratings is not None else pd.DataFrame()
     report_issues = report_issues if report_issues is not None else pd.DataFrame()
@@ -306,12 +306,12 @@ def render_results(
         if unmatched:
             calc.excel_safe_df(media.loc[media['Match Status'].eq('NO RATING MATCH'), export_cols]).to_excel(writer, sheet_name='Unmatched Rows', index=False)
     output.seek(0)
-    st.download_button('Download GRP & SOV Results (Excel)', data=output, file_name=export_file_name, mime=calc.TEMPLATE_MIME)
+    st.download_button('Download Mediapulse Results (Excel)', data=output, file_name=export_file_name, mime=calc.TEMPLATE_MIME)
 
 
 require_password_gate()
 
-st.title('GRP & Share of Voice Calculator')
+st.title('Mediapulse')
 st.caption('Upload programme ratings and brand TV/Radio media reports. The app matches each airing to its rating, calculates GRPs, and summarizes brand SOV.')
 
 with st.sidebar:
@@ -407,7 +407,7 @@ if workflow_mode == 'Composite Report':
         input_issues_label='Excluded rows',
         input_issues_help='Composite rows excluded from calculations, usually total rows or rows missing required fields.',
         progress_label='Calculation coverage',
-        export_file_name='Composite_GRP_SOV_results.xlsx',
+        export_file_name='Mediapulse_Composite_GRP_SOV_results.xlsx',
     )
     st.stop()
 
@@ -525,5 +525,5 @@ render_results(
     input_issues_label='Input issues',
     input_issues_help='Ratings or brand-report rows excluded because required values were missing or invalid.',
     progress_label='Match rate',
-    export_file_name='Matched_GRP_SOV_results.xlsx',
+    export_file_name='Mediapulse_Matched_GRP_SOV_results.xlsx',
 )

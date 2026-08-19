@@ -21,6 +21,9 @@ tests
 GRP_SOV_results.xlsx
 Composite_GRP_SOV_results.xlsx
 Matched_GRP_SOV_results.xlsx
+Mediapulse_GRP_SOV_results.xlsx
+Mediapulse_Composite_GRP_SOV_results.xlsx
+Mediapulse_Matched_GRP_SOV_results.xlsx
 ratings_template.xlsx
 brand_report_template.xlsx
 ~$*.xlsx

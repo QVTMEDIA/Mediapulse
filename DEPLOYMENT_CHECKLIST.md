@@ -14,7 +14,7 @@
 
 - Install Docker Desktop or Docker Engine
 - Build:
-  - `docker build -t grp-sov-app .`
+  - `docker build -t mediapulse .`
 - Run:
   - `docker compose up --build`
 - Confirm browser access:

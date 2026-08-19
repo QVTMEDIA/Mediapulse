@@ -1,7 +1,7 @@
 services:
-  grp-sov-app:
+  mediapulse:
     build: .
-    image: grp-sov-app:local
+    image: mediapulse:local
     ports:
       - "8501:8501"
     environment:

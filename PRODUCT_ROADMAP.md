@@ -13,7 +13,8 @@ Every final GRP must remain auditable back to the individual media placement and
 The current app supports:
 
 - Project setup metadata
-- Session-based Projects home with create, open, duplicate, archive, delete, export, and import
+- Projects home with create, open, duplicate, archive, delete, export, and import
+- Local SQLite project metadata store
 - Composite report workflow
 - Separate Ratings + Brand Reports workflow
 - Upload interpretation and column mapping review
@@ -64,7 +65,7 @@ Inside each project, the long-term navigation should become:
 
 ## Phase 3: Enterprise
 
-- Persistent database storage
+- Production database storage
 - Multiple users
 - Teams and workspaces
 - Client accounts

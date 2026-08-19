@@ -9,8 +9,9 @@ Live app: https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/
 - Upload programme ratings in Excel or CSV.
 - Upload multiple brand TV/Radio reports.
 - Upload one or more composite reports that already contain spots and ratings/GRPs.
-- Create, open, duplicate, archive, delete, export, and import session-based project workspaces.
+- Create, open, duplicate, archive, delete, export, and import project workspaces.
 - Capture project metadata with client, category, owner, market, audience, dates, and media assumptions.
+- Save project metadata to a local SQLite store for the current deployment.
 - Auto-detect common column names and let the user correct the mapping.
 - Match on Medium + Channel/Station + Day + Programme/Time Band.
 - Calculate row GRP = Spots x Matched Rating.
@@ -85,7 +86,16 @@ Current deployment: https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/
 
 The long-term project-based platform direction is tracked in `PRODUCT_ROADMAP.md`.
 
-The current Projects home is session-based. Export the project manifest if you need to move metadata between app sessions; persistent database storage is still a roadmap item.
+The current Projects home saves metadata to a local SQLite store. Export the project manifest if you need to move metadata between deployments or app environments. Supabase/Postgres storage is still the recommended next step for durable multi-user use.
+
+## Project storage
+
+By default, project metadata is stored at `.streamlit/mediapulse_projects.db`. You can override that path with:
+
+- environment variable `MEDIAPULSE_PROJECT_DB`, or
+- Streamlit secret `PROJECT_DB_PATH`
+
+This SQLite store is useful for local work and a single Streamlit deployment. It is not a replacement for production database storage with users, permissions, version history, and audit logs.
 
 ## CI and release checks
 

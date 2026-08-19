@@ -1,5 +1,7 @@
 .streamlit-run/
 .streamlit/secrets.toml
+.streamlit/*.db
+.streamlit/*.db-*
 
 __pycache__/
 */__pycache__/
@@ -13,6 +15,7 @@ docker-compose.override.yml
 
 .pytest_cache/
 .coverage
+.test-output/
 
 GRP_SOV_results.xlsx
 Composite_GRP_SOV_results.xlsx

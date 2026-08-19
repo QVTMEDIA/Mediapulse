@@ -6,12 +6,14 @@ import re
 import time
 import uuid
 from datetime import date, datetime
+from pathlib import Path
 
 import altair as alt
 import pandas as pd
 import streamlit as st
 
 import grp_calculator as calc
+import project_store
 
 st.set_page_config(page_title='Mediapulse', page_icon=':bar_chart:', layout='wide')
 
@@ -32,7 +34,10 @@ PROJECT_STATUS_OPTIONS = ['Setup', 'Data Review', 'Complete']
 MEDIA_TYPE_OPTIONS = ['TV', 'Radio']
 PROJECTS_STATE_KEY = 'projects'
 ACTIVE_PROJECT_STATE_KEY = 'active_project_id'
+PROJECT_STORE_LOADED_STATE_KEY = 'project_store_loaded'
+PROJECT_STORE_ERROR_STATE_KEY = 'project_store_error'
 PROJECT_MANIFEST_FILE_NAME = 'mediapulse_projects_manifest.json'
+DEFAULT_PROJECT_DB_PATH = Path('.streamlit') / 'mediapulse_projects.db'
 
 
 def configured_password():
@@ -137,6 +142,69 @@ def project_id():
     return f'MP-{uuid.uuid4().hex[:8].upper()}'
 
 
+def configured_project_db_path():
+    env_path = os.environ.get('MEDIAPULSE_PROJECT_DB', '').strip()
+    if env_path:
+        return env_path
+    try:
+        secret_path = st.secrets.get('PROJECT_DB_PATH', '')
+    except Exception:
+        secret_path = ''
+    return str(secret_path).strip() or str(DEFAULT_PROJECT_DB_PATH)
+
+
+def record_project_store_error(exc):
+    st.session_state[PROJECT_STORE_ERROR_STATE_KEY] = str(exc)
+
+
+def clear_project_store_error():
+    st.session_state.pop(PROJECT_STORE_ERROR_STATE_KEY, None)
+
+
+def load_persisted_projects():
+    try:
+        projects = project_store.load_projects(configured_project_db_path())
+    except Exception as exc:
+        record_project_store_error(exc)
+        return {}
+    clear_project_store_error()
+    return projects
+
+
+def persist_project(project):
+    try:
+        project_store.upsert_project(configured_project_db_path(), project)
+    except Exception as exc:
+        record_project_store_error(exc)
+        return False
+    clear_project_store_error()
+    return True
+
+
+def persist_project_deletion(project_id_value):
+    try:
+        project_store.delete_project(configured_project_db_path(), project_id_value)
+    except Exception as exc:
+        record_project_store_error(exc)
+        return False
+    clear_project_store_error()
+    return True
+
+
+def render_project_storage_notice():
+    store_error = st.session_state.get(PROJECT_STORE_ERROR_STATE_KEY)
+    if store_error:
+        st.warning(
+            'Project database is unavailable, so project metadata is only kept in this browser session. '
+            f'Error: {store_error}'
+        )
+        return
+    st.info(
+        'Project metadata is saved to a local SQLite store for this deployment. Export a manifest before '
+        'redeploying or moving the app; use Supabase/Postgres later for durable multi-user storage.'
+    )
+
+
 def default_project_info():
     today = date.today()
     timestamp = project_timestamp()
@@ -181,6 +249,8 @@ def normalize_project_info(values, touch=True):
     media_types = project.get('media_types') or []
     if isinstance(media_types, str):
         media_types = [item.strip() for item in media_types.split(',')]
+    elif not isinstance(media_types, (list, tuple, set)):
+        media_types = [media_types]
     project['media_types'] = [media for media in list(media_types) if str(media).strip()]
     project['start_date'] = str(parse_project_date(project.get('start_date')))
     project['end_date'] = str(parse_project_date(project.get('end_date')))
@@ -212,12 +282,19 @@ def project_setup_error(project):
 def ensure_projects_state():
     projects = st.session_state.get(PROJECTS_STATE_KEY)
     if not isinstance(projects, dict):
-        projects = {}
+        projects = load_persisted_projects()
+        st.session_state[PROJECT_STORE_LOADED_STATE_KEY] = True
+    elif not st.session_state.get(PROJECT_STORE_LOADED_STATE_KEY):
+        persisted_projects = load_persisted_projects()
+        persisted_projects.update(projects)
+        projects = persisted_projects
+        st.session_state[PROJECT_STORE_LOADED_STATE_KEY] = True
 
     legacy_project = st.session_state.pop('project_info', None)
     if legacy_project:
         migrated_project = normalize_project_info(legacy_project, touch=False)
         projects[migrated_project['project_id']] = migrated_project
+        persist_project(migrated_project)
         st.session_state[ACTIVE_PROJECT_STATE_KEY] = migrated_project['project_id']
 
     active_project_id = st.session_state.get(ACTIVE_PROJECT_STATE_KEY)
@@ -237,6 +314,7 @@ def save_project(project, make_active=True):
     projects = ensure_projects_state()
     normalized_project = normalize_project_info(project)
     projects[normalized_project['project_id']] = normalized_project
+    persist_project(normalized_project)
     st.session_state[PROJECTS_STATE_KEY] = projects
     if make_active:
         st.session_state[ACTIVE_PROJECT_STATE_KEY] = normalized_project['project_id']
@@ -301,6 +379,7 @@ def import_projects_from_payload(payload):
         if project['project_id'] in projects:
             project['project_id'] = project_id()
         projects[project['project_id']] = project
+        persist_project(project)
         imported_count += 1
     st.session_state[PROJECTS_STATE_KEY] = projects
     return imported_count
@@ -398,6 +477,7 @@ def render_project_row(project):
                 projects = ensure_projects_state()
                 projects[project_key]['archived'] = not projects[project_key].get('archived')
                 projects[project_key]['updated_at'] = project_timestamp()
+                persist_project(projects[project_key])
                 st.session_state[PROJECTS_STATE_KEY] = projects
                 st.rerun()
         with action_columns[1]:
@@ -409,6 +489,7 @@ def render_project_row(project):
                     if st.session_state.get(ACTIVE_PROJECT_STATE_KEY) == project_key:
                         st.session_state.pop(ACTIVE_PROJECT_STATE_KEY, None)
                     st.session_state.pop('delete_project_id', None)
+                    persist_project_deletion(project_key)
                     st.session_state[PROJECTS_STATE_KEY] = projects
                     st.rerun()
             elif st.button('Delete', key=f'delete_{project_key}'):
@@ -419,10 +500,7 @@ def render_project_row(project):
 
 def render_projects_home(projects):
     st.header('Home / Projects')
-    st.warning(
-        'Projects are stored in this app session for now. Export a project manifest before restarting '
-        'or redeploying the app.'
-    )
+    render_project_storage_notice()
 
     metric_columns = st.columns(3)
     archived_count = sum(1 for project in projects.values() if project.get('archived'))

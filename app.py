@@ -192,14 +192,9 @@ def render_mapping_review(
             profile_view['Numeric Fill Rate'] = profile_view['Numeric Fill Rate'].map(format_rate)
             st.dataframe(profile_view, width='stretch', hide_index=True)
 
-            numeric_issues = profile[
-                profile['Field'].isin(numeric_fields)
-                & profile['Mapped']
-                & profile['Numeric Rows'].notna()
-                & profile['Filled Rows'].gt(profile['Numeric Rows'])
-            ]
-            if len(numeric_issues):
-                issue_names = ', '.join(field_label(field) for field in numeric_issues['Field'])
+            numeric_issues = calc.numeric_issue_fields_from_profile(profile, numeric_fields)
+            if numeric_issues:
+                issue_names = ', '.join(field_label(field) for field in numeric_issues)
                 st.warning(f'Some mapped numeric values could not be read as numbers: {issue_names}.')
 
         preview = calc.mapped_field_preview(

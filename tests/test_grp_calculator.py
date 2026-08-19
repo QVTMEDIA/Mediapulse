@@ -138,6 +138,14 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(int(spots_profile['Numeric Rows']), 2)
         self.assertFalse(bool(medium_profile['Mapped']))
         self.assertEqual(
+            calc.numeric_issue_fields_from_profile(profile, ['spots']),
+            ['spots'],
+        )
+        self.assertEqual(
+            calc.numeric_issue_fields_from_profile(profile, ['rating']),
+            [],
+        )
+        self.assertEqual(
             calc.mapping_ready_rows(raw, mapping, ['channel', 'programme', 'spots'], numeric_fields=['spots']),
             1,
         )

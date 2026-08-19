@@ -341,6 +341,20 @@ def profile_mapping(df, mapping, fields, numeric_fields=()):
     return pd.DataFrame(rows)
 
 
+def numeric_issue_fields_from_profile(profile, numeric_fields):
+    if profile.empty:
+        return []
+    numeric_profile = profile.loc[
+        profile['Field'].isin(numeric_fields) & profile['Mapped'].fillna(False)
+    ].copy()
+    if numeric_profile.empty:
+        return []
+    filled_rows = pd.to_numeric(numeric_profile['Filled Rows'], errors='coerce').fillna(0)
+    numeric_rows = pd.to_numeric(numeric_profile['Numeric Rows'], errors='coerce')
+    issue_mask = numeric_rows.notna() & filled_rows.gt(numeric_rows)
+    return numeric_profile.loc[issue_mask, 'Field'].tolist()
+
+
 def mapping_ready_rows(df, mapping, required_fields, numeric_fields=()):
     if df.empty:
         return 0

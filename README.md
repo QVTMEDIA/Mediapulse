@@ -98,7 +98,7 @@ The app supports a simple password gate for shared deployments. Set either:
 
 For local Streamlit secrets, copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` and replace the placeholder password. The real `.streamlit/secrets.toml` file is ignored by git.
 
-If no password is configured, the app runs with the password gate disabled and shows a warning.
+If no password is configured, the app runs with the password gate disabled and shows setup instructions in the app.
 
 For shared deployments, the password gate also expires authenticated sessions after 8 hours and temporarily locks the form after 5 failed attempts.
 

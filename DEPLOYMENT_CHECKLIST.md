@@ -2,7 +2,9 @@
 
 ## Required
 
-- Set a strong `GRP_APP_PASSWORD`
+- Set a strong password:
+  - Streamlit Cloud: `APP_PASSWORD`
+  - Local/Docker: `GRP_APP_PASSWORD`
 - Confirm password login works
 - Confirm repeated incorrect passwords trigger a temporary lockout
 - Use `.xlsx`, `.xls`, or `.csv` inputs only
@@ -32,6 +34,7 @@
 - Set Python version to `3.14` if available
 - Add secret:
   - `APP_PASSWORD = "replace-with-a-strong-password"`
+- If the app says "Password gate is disabled", set `APP_PASSWORD` in **Manage app > Settings > Secrets** and reboot.
 - Follow `STREAMLIT_CLOUD_DEPLOYMENT.md`
 
 ## Operational Notes

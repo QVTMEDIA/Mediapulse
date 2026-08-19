@@ -25,6 +25,7 @@ FIELD_LABELS = {
     'grp': 'GRP',
     'source': 'Source / Period',
 }
+PASSWORD_SECRET_EXAMPLE = 'APP_PASSWORD = "replace-with-a-strong-password"'
 
 
 def configured_password():
@@ -41,7 +42,7 @@ def configured_password():
 def require_password_gate():
     password = configured_password()
     if not password:
-        st.warning('Password gate is disabled. Set GRP_APP_PASSWORD or Streamlit secret APP_PASSWORD before shared deployment.')
+        render_password_disabled_notice()
         return
 
     now = time.time()
@@ -89,6 +90,19 @@ def require_password_gate():
             attempts_left = calc.AUTH_MAX_FAILED_ATTEMPTS - failures
             st.error(f'Incorrect password. {attempts_left} attempts remaining.')
     st.stop()
+
+
+def render_password_disabled_notice():
+    st.warning('Password gate is disabled. Add a password before sharing this deployment.')
+    with st.expander('Set up the password gate', expanded=True):
+        st.markdown(
+            'For Streamlit Cloud, open **Manage app**, then **Settings**, then **Secrets**. '
+            'Paste this secret and save it:'
+        )
+        st.code(PASSWORD_SECRET_EXAMPLE, language='toml')
+        st.markdown(
+            'For local development, set `GRP_APP_PASSWORD` before running `streamlit run app.py`.'
+        )
 
 
 def clear_auth_state():

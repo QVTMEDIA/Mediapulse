@@ -17,13 +17,15 @@ If Streamlit Community Cloud does not offer Python `3.14` in Advanced settings, 
 
 ## Secrets
 
-Set this in Streamlit Community Cloud Advanced settings:
+Set this in Streamlit Community Cloud app settings under **Secrets**:
 
 ```toml
 APP_PASSWORD = "replace-with-a-strong-password"
 ```
 
 Do not commit a real `.streamlit/secrets.toml` file. The repo includes `.streamlit/secrets.toml.example` only as a local template.
+
+If the live app shows "Password gate is disabled", open **Manage app**, then **Settings**, then **Secrets**. Paste the `APP_PASSWORD` block above, save it, and reboot the app.
 
 ## Deployment steps
 

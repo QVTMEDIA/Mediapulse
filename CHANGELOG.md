@@ -5,6 +5,7 @@
 ### Added
 
 - Session-based project workspace setup before upload workflows.
+- Projects home with create, open, duplicate, archive, delete, export, and import actions.
 - Project metadata export sheet.
 - Product roadmap for the project-based media intelligence platform.
 

@@ -13,6 +13,7 @@ Every final GRP must remain auditable back to the individual media placement and
 The current app supports:
 
 - Project setup metadata
+- Session-based Projects home with create, open, duplicate, archive, delete, export, and import
 - Composite report workflow
 - Separate Ratings + Brand Reports workflow
 - Upload interpretation and column mapping review
@@ -38,6 +39,7 @@ Inside each project, the long-term navigation should become:
 ## Phase 1: Core Product
 
 - Project setup and metadata
+- Project list with manifest import/export
 - Ratings upload
 - Multiple brand uploads
 - Composite report upload

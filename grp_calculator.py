@@ -59,6 +59,7 @@ SUGGESTION_COLUMNS = [
 PROJECT_METADATA_LABELS = {
     'project_id': 'Project ID',
     'project_name': 'Project Name',
+    'project_owner': 'Project Owner',
     'client': 'Client',
     'category': 'Category',
     'market': 'Market',
@@ -69,6 +70,9 @@ PROJECT_METADATA_LABELS = {
     'ratings_provider': 'Ratings Provider',
     'ratings_period': 'Ratings Period',
     'status': 'Project Status',
+    'archived': 'Archived',
+    'created_at': 'Created At',
+    'updated_at': 'Updated At',
     'notes': 'Notes',
 }
 TEMPLATE_DEFINITIONS = {
@@ -133,6 +137,52 @@ def project_info_frame(project_info):
             value = ', '.join(str(item) for item in value if str(item).strip())
         rows.append({'Field': label, 'Value': value})
     return pd.DataFrame(rows)
+
+
+def project_manifest_value(value):
+    if isinstance(value, (list, tuple, set)):
+        return [project_manifest_value(item) for item in value]
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return value
+
+
+def project_manifest(projects, exported_at=''):
+    if isinstance(projects, dict):
+        items = list(projects.values())
+    elif isinstance(projects, list):
+        items = projects
+    else:
+        items = []
+
+    cleaned_projects = []
+    for project in items:
+        if not isinstance(project, dict):
+            continue
+        cleaned_projects.append({
+            str(key): project_manifest_value(value)
+            for key, value in project.items()
+        })
+
+    return {
+        'manifest_type': 'mediapulse_projects',
+        'version': 1,
+        'exported_at': exported_at,
+        'projects': cleaned_projects,
+    }
+
+
+def projects_from_manifest(payload):
+    if isinstance(payload, list):
+        projects = payload
+    elif isinstance(payload, dict) and isinstance(payload.get('projects'), list):
+        projects = payload['projects']
+    elif isinstance(payload, dict) and isinstance(payload.get('project'), dict):
+        projects = [payload['project']]
+    else:
+        raise ValueError('Project manifest must contain a projects list.')
+
+    return [project.copy() for project in projects if isinstance(project, dict)]
 
 
 def detect_column(columns, logical):

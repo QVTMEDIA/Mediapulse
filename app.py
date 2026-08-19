@@ -1,5 +1,6 @@
 import io
 import hmac
+import json
 import os
 import re
 import time
@@ -29,6 +30,9 @@ FIELD_LABELS = {
 PASSWORD_SECRET_EXAMPLE = 'APP_PASSWORD = "replace-with-a-strong-password"'
 PROJECT_STATUS_OPTIONS = ['Setup', 'Data Review', 'Complete']
 MEDIA_TYPE_OPTIONS = ['TV', 'Radio']
+PROJECTS_STATE_KEY = 'projects'
+ACTIVE_PROJECT_STATE_KEY = 'active_project_id'
+PROJECT_MANIFEST_FILE_NAME = 'mediapulse_projects_manifest.json'
 
 
 def configured_password():
@@ -125,11 +129,21 @@ def parse_project_date(value, fallback=None):
     return fallback
 
 
+def project_timestamp():
+    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+
+def project_id():
+    return f'MP-{uuid.uuid4().hex[:8].upper()}'
+
+
 def default_project_info():
     today = date.today()
+    timestamp = project_timestamp()
     return {
-        'project_id': f'MP-{uuid.uuid4().hex[:8].upper()}',
+        'project_id': project_id(),
         'project_name': '',
+        'project_owner': '',
         'client': '',
         'category': '',
         'market': 'Nigeria',
@@ -140,13 +154,23 @@ def default_project_info():
         'ratings_provider': '',
         'ratings_period': '',
         'status': 'Setup',
+        'archived': False,
+        'created_at': timestamp,
+        'updated_at': timestamp,
         'notes': '',
     }
 
 
-def normalize_project_info(values):
+def project_bool(value):
+    if isinstance(value, str):
+        return value.strip().lower() in {'1', 'true', 'yes', 'y', 'archived'}
+    return bool(value)
+
+
+def normalize_project_info(values, touch=True):
     project = values.copy()
     project['project_name'] = str(project.get('project_name', '')).strip()
+    project['project_owner'] = str(project.get('project_owner', '')).strip()
     project['client'] = str(project.get('client', '')).strip()
     project['category'] = str(project.get('category', '')).strip()
     project['market'] = str(project.get('market', '')).strip()
@@ -154,13 +178,26 @@ def normalize_project_info(values):
     project['ratings_provider'] = str(project.get('ratings_provider', '')).strip()
     project['ratings_period'] = str(project.get('ratings_period', '')).strip()
     project['notes'] = str(project.get('notes', '')).strip()
-    project['media_types'] = list(project.get('media_types') or [])
+    media_types = project.get('media_types') or []
+    if isinstance(media_types, str):
+        media_types = [item.strip() for item in media_types.split(',')]
+    project['media_types'] = [media for media in list(media_types) if str(media).strip()]
     project['start_date'] = str(parse_project_date(project.get('start_date')))
     project['end_date'] = str(parse_project_date(project.get('end_date')))
     if not project.get('project_id'):
-        project['project_id'] = f'MP-{uuid.uuid4().hex[:8].upper()}'
-    if project.get('status') not in PROJECT_STATUS_OPTIONS:
+        project['project_id'] = project_id()
+    status = str(project.get('status', 'Setup')).strip()
+    if status == 'Archived':
+        project['archived'] = True
+        status = 'Setup'
+    project['archived'] = project_bool(project.get('archived'))
+    if status not in PROJECT_STATUS_OPTIONS:
         project['status'] = 'Setup'
+    else:
+        project['status'] = status
+    timestamp = project_timestamp()
+    project['created_at'] = str(project.get('created_at') or timestamp)
+    project['updated_at'] = timestamp if touch or not project.get('updated_at') else str(project.get('updated_at'))
     return project
 
 
@@ -172,6 +209,103 @@ def project_setup_error(project):
     return ''
 
 
+def ensure_projects_state():
+    projects = st.session_state.get(PROJECTS_STATE_KEY)
+    if not isinstance(projects, dict):
+        projects = {}
+
+    legacy_project = st.session_state.pop('project_info', None)
+    if legacy_project:
+        migrated_project = normalize_project_info(legacy_project, touch=False)
+        projects[migrated_project['project_id']] = migrated_project
+        st.session_state[ACTIVE_PROJECT_STATE_KEY] = migrated_project['project_id']
+
+    active_project_id = st.session_state.get(ACTIVE_PROJECT_STATE_KEY)
+    if active_project_id and active_project_id not in projects:
+        st.session_state.pop(ACTIVE_PROJECT_STATE_KEY, None)
+
+    st.session_state[PROJECTS_STATE_KEY] = projects
+    return projects
+
+
+def active_project_info():
+    projects = ensure_projects_state()
+    return projects.get(st.session_state.get(ACTIVE_PROJECT_STATE_KEY))
+
+
+def save_project(project, make_active=True):
+    projects = ensure_projects_state()
+    normalized_project = normalize_project_info(project)
+    projects[normalized_project['project_id']] = normalized_project
+    st.session_state[PROJECTS_STATE_KEY] = projects
+    if make_active:
+        st.session_state[ACTIVE_PROJECT_STATE_KEY] = normalized_project['project_id']
+    return normalized_project
+
+
+def project_period(project):
+    start_date = project.get('start_date', '')
+    end_date = project.get('end_date', '')
+    if start_date and end_date:
+        return f'{start_date} to {end_date}'
+    return start_date or end_date or 'No dates set'
+
+
+def project_status_label(project):
+    if project.get('archived'):
+        return f"Archived / {project.get('status', 'Setup')}"
+    return project.get('status', 'Setup')
+
+
+def duplicate_project(project):
+    duplicated = project.copy()
+    timestamp = project_timestamp()
+    duplicated['project_id'] = project_id()
+    duplicated['project_name'] = f"{project.get('project_name', 'Untitled project')} Copy"
+    duplicated['archived'] = False
+    duplicated['created_at'] = timestamp
+    duplicated['updated_at'] = timestamp
+    return duplicated
+
+
+def filtered_projects(projects, search, status_filter):
+    search = search.strip().lower()
+    visible_projects = []
+    for project in projects.values():
+        haystack = ' '.join(
+            str(project.get(field, ''))
+            for field in ['project_name', 'client', 'category', 'market', 'project_owner', 'target_audience']
+        ).lower()
+        if search and search not in haystack:
+            continue
+        if status_filter == 'Active projects' and project.get('archived'):
+            continue
+        if status_filter == 'Archived' and not project.get('archived'):
+            continue
+        if status_filter in PROJECT_STATUS_OPTIONS and (
+            project.get('archived') or project.get('status') != status_filter
+        ):
+            continue
+        visible_projects.append(project)
+    return sorted(visible_projects, key=lambda item: item.get('updated_at', ''), reverse=True)
+
+
+def import_projects_from_payload(payload):
+    imported_projects = calc.projects_from_manifest(payload)
+    projects = ensure_projects_state()
+    imported_count = 0
+    for raw_project in imported_projects:
+        project = normalize_project_info(raw_project, touch=False)
+        if not project.get('project_name'):
+            project['project_name'] = 'Imported project'
+        if project['project_id'] in projects:
+            project['project_id'] = project_id()
+        projects[project['project_id']] = project
+        imported_count += 1
+    st.session_state[PROJECTS_STATE_KEY] = projects
+    return imported_count
+
+
 def render_project_form(defaults, form_key, submit_label):
     defaults = defaults or default_project_info()
     with st.form(form_key):
@@ -179,6 +313,7 @@ def render_project_form(defaults, form_key, submit_label):
         project_name = st.text_input('Project Name *', value=defaults.get('project_name', ''))
         form_cols = st.columns(2)
         with form_cols[0]:
+            project_owner = st.text_input('Project Owner', value=defaults.get('project_owner', ''))
             client = st.text_input('Client', value=defaults.get('client', ''))
             category = st.text_input('Category', value=defaults.get('category', ''))
             market = st.text_input('Market', value=defaults.get('market', 'Nigeria'))
@@ -206,6 +341,7 @@ def render_project_form(defaults, form_key, submit_label):
     return normalize_project_info({
         'project_id': defaults.get('project_id'),
         'project_name': project_name,
+        'project_owner': project_owner,
         'client': client,
         'category': category,
         'market': market,
@@ -216,34 +352,159 @@ def render_project_form(defaults, form_key, submit_label):
         'ratings_provider': ratings_provider,
         'ratings_period': ratings_period,
         'status': status,
+        'archived': defaults.get('archived', False),
+        'created_at': defaults.get('created_at'),
+        'updated_at': defaults.get('updated_at'),
         'notes': notes,
     })
 
 
-def render_project_workspace():
-    project_info = st.session_state.get('project_info')
-    if not project_info:
-        st.header('Home / Projects')
+def render_project_row(project):
+    project_key = project['project_id']
+    with st.container():
+        columns = st.columns([3, 1.4, 1.4, 1.4, 1.2])
+        with columns[0]:
+            st.markdown(f"**{project.get('project_name', 'Untitled project')}**")
+            metadata = [
+                project.get('client', ''),
+                project.get('category', ''),
+                project.get('market', ''),
+            ]
+            metadata = [item for item in metadata if item]
+            if metadata:
+                st.caption(' | '.join(metadata))
+            st.caption(f"Period: {project_period(project)}")
+        with columns[1]:
+            st.caption('Status')
+            st.write(project_status_label(project))
+        with columns[2]:
+            st.caption('Media')
+            st.write(', '.join(project.get('media_types') or []) or 'Not set')
+        with columns[3]:
+            st.caption('Updated')
+            st.write(project.get('updated_at', ''))
+        with columns[4]:
+            if st.button('Open', key=f'open_{project_key}'):
+                st.session_state[ACTIVE_PROJECT_STATE_KEY] = project_key
+                st.rerun()
+            if st.button('Duplicate', key=f'duplicate_{project_key}'):
+                save_project(duplicate_project(project), make_active=False)
+                st.rerun()
+
+        action_columns = st.columns([1, 1, 4])
+        archive_label = 'Restore' if project.get('archived') else 'Archive'
+        with action_columns[0]:
+            if st.button(archive_label, key=f'archive_{project_key}'):
+                projects = ensure_projects_state()
+                projects[project_key]['archived'] = not projects[project_key].get('archived')
+                projects[project_key]['updated_at'] = project_timestamp()
+                st.session_state[PROJECTS_STATE_KEY] = projects
+                st.rerun()
+        with action_columns[1]:
+            delete_key = f'confirm_delete_{project_key}'
+            if st.session_state.get('delete_project_id') == project_key:
+                if st.button('Confirm delete', key=delete_key):
+                    projects = ensure_projects_state()
+                    projects.pop(project_key, None)
+                    if st.session_state.get(ACTIVE_PROJECT_STATE_KEY) == project_key:
+                        st.session_state.pop(ACTIVE_PROJECT_STATE_KEY, None)
+                    st.session_state.pop('delete_project_id', None)
+                    st.session_state[PROJECTS_STATE_KEY] = projects
+                    st.rerun()
+            elif st.button('Delete', key=f'delete_{project_key}'):
+                st.session_state['delete_project_id'] = project_key
+                st.rerun()
+        st.divider()
+
+
+def render_projects_home(projects):
+    st.header('Home / Projects')
+    st.warning(
+        'Projects are stored in this app session for now. Export a project manifest before restarting '
+        'or redeploying the app.'
+    )
+
+    metric_columns = st.columns(3)
+    archived_count = sum(1 for project in projects.values() if project.get('archived'))
+    metric_columns[0].metric('Projects', len(projects))
+    metric_columns[1].metric('Active', len(projects) - archived_count)
+    metric_columns[2].metric('Archived', archived_count)
+
+    utility_columns = st.columns([1, 1])
+    with utility_columns[0]:
+        manifest = calc.project_manifest(projects, exported_at=project_timestamp())
+        st.download_button(
+            'Export project manifest',
+            data=json.dumps(manifest, indent=2),
+            file_name=PROJECT_MANIFEST_FILE_NAME,
+            mime='application/json',
+            disabled=not bool(projects),
+        )
+    with utility_columns[1]:
+        with st.form('import_project_manifest'):
+            manifest_upload = st.file_uploader('Import project manifest (.json)', type=['json'])
+            import_submitted = st.form_submit_button('Import manifest')
+        if import_submitted:
+            if not manifest_upload:
+                st.error('Choose a JSON project manifest to import.')
+            else:
+                try:
+                    payload = json.load(manifest_upload)
+                    imported_count = import_projects_from_payload(payload)
+                except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+                    st.error(f'Could not import project manifest: {exc}')
+                else:
+                    st.success(f'Imported {imported_count} project(s).')
+                    st.rerun()
+
+    with st.expander('Create project', expanded=not bool(projects)):
         created_project = render_project_form(default_project_info(), 'create_project', 'Create project workspace')
         if created_project:
             error = project_setup_error(created_project)
             if error:
                 st.error(error)
-                st.stop()
-            st.session_state['project_info'] = created_project
-            st.rerun()
+            else:
+                save_project(created_project)
+                st.rerun()
+
+    if not projects:
+        st.info('Create a project workspace to start uploading ratings and media reports.')
         st.stop()
+
+    filter_columns = st.columns([2, 1])
+    search = filter_columns[0].text_input('Search projects', value='')
+    status_filter = filter_columns[1].selectbox(
+        'Filter',
+        ['All', 'Active projects', 'Archived'] + PROJECT_STATUS_OPTIONS,
+    )
+    visible_projects = filtered_projects(projects, search, status_filter)
+
+    if not visible_projects:
+        st.info('No projects match the current filters.')
+        st.stop()
+
+    for project in visible_projects:
+        render_project_row(project)
+
+    st.stop()
+
+
+def render_project_workspace():
+    projects = ensure_projects_state()
+    project_info = active_project_info()
+    if not project_info:
+        render_projects_home(projects)
 
     with st.sidebar:
         st.header('Project')
         st.markdown(f"**{project_info.get('project_name', 'Untitled project')}**")
-        st.caption(project_info.get('status', 'Setup'))
+        st.caption(project_status_label(project_info))
         if project_info.get('category'):
             st.caption(f"Category: {project_info['category']}")
         if project_info.get('market'):
             st.caption(f"Market: {project_info['market']}")
         if st.button('Close project'):
-            st.session_state.pop('project_info', None)
+            st.session_state.pop(ACTIVE_PROJECT_STATE_KEY, None)
             st.rerun()
 
     with st.expander('Project setup', expanded=False):
@@ -253,7 +514,7 @@ def render_project_workspace():
             if error:
                 st.error(error)
             else:
-                st.session_state['project_info'] = updated_project
+                project_info = save_project(updated_project)
                 st.success('Project updated.')
                 st.rerun()
 

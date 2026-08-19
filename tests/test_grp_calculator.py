@@ -105,6 +105,7 @@ class GrpCalculatorTests(unittest.TestCase):
         project = {
             'project_id': 'MP-1234',
             'project_name': 'Seasoning Category Q1 2026',
+            'project_owner': 'Media Lead',
             'client': 'Sample Client',
             'category': 'Seasoning',
             'market': 'Nigeria',
@@ -115,6 +116,9 @@ class GrpCalculatorTests(unittest.TestCase):
             'ratings_provider': 'Sample Provider',
             'ratings_period': 'Q1 2026',
             'status': 'Data Review',
+            'archived': False,
+            'created_at': '2026-08-19 10:00:00',
+            'updated_at': '2026-08-19 10:30:00',
             'notes': 'Sample notes',
         }
 
@@ -123,8 +127,42 @@ class GrpCalculatorTests(unittest.TestCase):
 
         self.assertEqual(values['Project ID'], 'MP-1234')
         self.assertEqual(values['Project Name'], 'Seasoning Category Q1 2026')
+        self.assertEqual(values['Project Owner'], 'Media Lead')
         self.assertEqual(values['Media Types'], 'TV, Radio')
         self.assertEqual(values['Project Status'], 'Data Review')
+        self.assertEqual(values['Archived'], False)
+        self.assertEqual(values['Created At'], '2026-08-19 10:00:00')
+        self.assertEqual(values['Updated At'], '2026-08-19 10:30:00')
+
+    def test_project_manifest_round_trips_project_collection(self):
+        projects = {
+            'MP-1234': {
+                'project_id': 'MP-1234',
+                'project_name': 'Seasoning Category Q1 2026',
+                'media_types': ['TV', 'Radio'],
+                'start_date': pd.Timestamp('2026-01-01'),
+            },
+            'MP-5678': {
+                'project_id': 'MP-5678',
+                'project_name': 'Beverage Category Q2 2026',
+                'media_types': ['TV'],
+            },
+        }
+
+        manifest = calc.project_manifest(projects, exported_at='2026-08-19 12:00:00')
+        restored = calc.projects_from_manifest(manifest)
+
+        self.assertEqual(manifest['manifest_type'], 'mediapulse_projects')
+        self.assertEqual(manifest['version'], 1)
+        self.assertEqual(manifest['exported_at'], '2026-08-19 12:00:00')
+        self.assertEqual(len(restored), 2)
+        self.assertEqual(restored[0]['project_id'], 'MP-1234')
+        self.assertEqual(restored[0]['start_date'], '2026-01-01T00:00:00')
+        self.assertEqual(restored[1]['project_name'], 'Beverage Category Q2 2026')
+
+    def test_projects_from_manifest_rejects_unknown_payload_shape(self):
+        with self.assertRaisesRegex(ValueError, 'projects list'):
+            calc.projects_from_manifest({'not_projects': []})
 
     @unittest.skipUnless(COMPOSITE_PATH.exists(), 'Composite 2026.xlsx is not available locally')
     def test_composite_report_excludes_total_row_and_uses_uploaded_grps(self):

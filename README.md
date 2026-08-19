@@ -9,7 +9,8 @@ Live app: https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/
 - Upload programme ratings in Excel or CSV.
 - Upload multiple brand TV/Radio reports.
 - Upload one or more composite reports that already contain spots and ratings/GRPs.
-- Create a project workspace with client, category, market, audience, dates, and media assumptions.
+- Create, open, duplicate, archive, delete, export, and import session-based project workspaces.
+- Capture project metadata with client, category, owner, market, audience, dates, and media assumptions.
 - Auto-detect common column names and let the user correct the mapping.
 - Match on Medium + Channel/Station + Day + Programme/Time Band.
 - Calculate row GRP = Spots x Matched Rating.
@@ -84,6 +85,8 @@ Current deployment: https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/
 
 The long-term project-based platform direction is tracked in `PRODUCT_ROADMAP.md`.
 
+The current Projects home is session-based. Export the project manifest if you need to move metadata between app sessions; persistent database storage is still a roadmap item.
+
 ## CI and release checks
 
 GitHub Actions are configured in `.github/workflows/ci.yml` to run:
@@ -146,7 +149,7 @@ All text is trimmed and made uppercase. Day names are normalized to 3-letter cod
 
 ## Production improvements
 
-For a shared company deployment, add authentication, database storage, saved rating waves, brand/project workspaces, fuzzy-match review, user roles, and an audit log.
+For a shared company deployment, add full authentication, database storage, saved rating waves, fuzzy-match review, user roles, and an audit log.
 
 ## Upload limits
 

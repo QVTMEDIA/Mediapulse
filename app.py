@@ -3,7 +3,8 @@ import hmac
 import os
 import re
 import time
-from datetime import datetime
+import uuid
+from datetime import date, datetime
 
 import altair as alt
 import pandas as pd
@@ -26,6 +27,8 @@ FIELD_LABELS = {
     'source': 'Source / Period',
 }
 PASSWORD_SECRET_EXAMPLE = 'APP_PASSWORD = "replace-with-a-strong-password"'
+PROJECT_STATUS_OPTIONS = ['Setup', 'Data Review', 'Complete']
+MEDIA_TYPE_OPTIONS = ['TV', 'Radio']
 
 
 def configured_password():
@@ -108,6 +111,153 @@ def render_password_disabled_notice():
 def clear_auth_state():
     for key in ['authenticated', 'authenticated_at', 'failed_login_attempts', 'locked_until']:
         st.session_state.pop(key, None)
+
+
+def parse_project_date(value, fallback=None):
+    fallback = fallback or date.today()
+    if isinstance(value, date):
+        return value
+    if value:
+        try:
+            return datetime.strptime(str(value), '%Y-%m-%d').date()
+        except ValueError:
+            return fallback
+    return fallback
+
+
+def default_project_info():
+    today = date.today()
+    return {
+        'project_id': f'MP-{uuid.uuid4().hex[:8].upper()}',
+        'project_name': '',
+        'client': '',
+        'category': '',
+        'market': 'Nigeria',
+        'start_date': today,
+        'end_date': today,
+        'target_audience': '',
+        'media_types': MEDIA_TYPE_OPTIONS.copy(),
+        'ratings_provider': '',
+        'ratings_period': '',
+        'status': 'Setup',
+        'notes': '',
+    }
+
+
+def normalize_project_info(values):
+    project = values.copy()
+    project['project_name'] = str(project.get('project_name', '')).strip()
+    project['client'] = str(project.get('client', '')).strip()
+    project['category'] = str(project.get('category', '')).strip()
+    project['market'] = str(project.get('market', '')).strip()
+    project['target_audience'] = str(project.get('target_audience', '')).strip()
+    project['ratings_provider'] = str(project.get('ratings_provider', '')).strip()
+    project['ratings_period'] = str(project.get('ratings_period', '')).strip()
+    project['notes'] = str(project.get('notes', '')).strip()
+    project['media_types'] = list(project.get('media_types') or [])
+    project['start_date'] = str(parse_project_date(project.get('start_date')))
+    project['end_date'] = str(parse_project_date(project.get('end_date')))
+    if not project.get('project_id'):
+        project['project_id'] = f'MP-{uuid.uuid4().hex[:8].upper()}'
+    if project.get('status') not in PROJECT_STATUS_OPTIONS:
+        project['status'] = 'Setup'
+    return project
+
+
+def project_setup_error(project):
+    if not project.get('project_name'):
+        return 'Project Name is required.'
+    if parse_project_date(project.get('end_date')) < parse_project_date(project.get('start_date')):
+        return 'End Date must be on or after Start Date.'
+    return ''
+
+
+def render_project_form(defaults, form_key, submit_label):
+    defaults = defaults or default_project_info()
+    with st.form(form_key):
+        st.subheader('Project Setup')
+        project_name = st.text_input('Project Name *', value=defaults.get('project_name', ''))
+        form_cols = st.columns(2)
+        with form_cols[0]:
+            client = st.text_input('Client', value=defaults.get('client', ''))
+            category = st.text_input('Category', value=defaults.get('category', ''))
+            market = st.text_input('Market', value=defaults.get('market', 'Nigeria'))
+            start_date = st.date_input('Start Date', value=parse_project_date(defaults.get('start_date')))
+        with form_cols[1]:
+            target_audience = st.text_input('Target Audience', value=defaults.get('target_audience', ''))
+            ratings_provider = st.text_input('Ratings Provider', value=defaults.get('ratings_provider', ''))
+            ratings_period = st.text_input('Ratings Period', value=defaults.get('ratings_period', ''))
+            end_date = st.date_input('End Date', value=parse_project_date(defaults.get('end_date')))
+        media_types = st.multiselect(
+            'Media Types',
+            MEDIA_TYPE_OPTIONS,
+            default=[media for media in defaults.get('media_types', MEDIA_TYPE_OPTIONS) if media in MEDIA_TYPE_OPTIONS],
+        )
+        status = st.selectbox(
+            'Project Status',
+            PROJECT_STATUS_OPTIONS,
+            index=PROJECT_STATUS_OPTIONS.index(defaults.get('status', 'Setup')) if defaults.get('status', 'Setup') in PROJECT_STATUS_OPTIONS else 0,
+        )
+        notes = st.text_area('Notes', value=defaults.get('notes', ''))
+        submitted = st.form_submit_button(submit_label)
+
+    if not submitted:
+        return None
+    return normalize_project_info({
+        'project_id': defaults.get('project_id'),
+        'project_name': project_name,
+        'client': client,
+        'category': category,
+        'market': market,
+        'start_date': start_date,
+        'end_date': end_date,
+        'target_audience': target_audience,
+        'media_types': media_types,
+        'ratings_provider': ratings_provider,
+        'ratings_period': ratings_period,
+        'status': status,
+        'notes': notes,
+    })
+
+
+def render_project_workspace():
+    project_info = st.session_state.get('project_info')
+    if not project_info:
+        st.header('Home / Projects')
+        created_project = render_project_form(default_project_info(), 'create_project', 'Create project workspace')
+        if created_project:
+            error = project_setup_error(created_project)
+            if error:
+                st.error(error)
+                st.stop()
+            st.session_state['project_info'] = created_project
+            st.rerun()
+        st.stop()
+
+    with st.sidebar:
+        st.header('Project')
+        st.markdown(f"**{project_info.get('project_name', 'Untitled project')}**")
+        st.caption(project_info.get('status', 'Setup'))
+        if project_info.get('category'):
+            st.caption(f"Category: {project_info['category']}")
+        if project_info.get('market'):
+            st.caption(f"Market: {project_info['market']}")
+        if st.button('Close project'):
+            st.session_state.pop('project_info', None)
+            st.rerun()
+
+    with st.expander('Project setup', expanded=False):
+        updated_project = render_project_form(project_info, 'update_project', 'Update project')
+        if updated_project:
+            error = project_setup_error(updated_project)
+            if error:
+                st.error(error)
+            else:
+                st.session_state['project_info'] = updated_project
+                st.success('Project updated.')
+                st.rerun()
+
+    return project_info
 
 
 def sheet_selector(uploaded, key):
@@ -296,6 +446,7 @@ def render_results(
     invalid_ratings=None,
     report_issues=None,
     dup_keys=None,
+    project_info=None,
     result_header='3. Results',
     row_label='Report rows',
     matched_label='Matched rows',
@@ -427,6 +578,8 @@ def render_results(
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        if project_info:
+            calc.excel_safe_df(calc.project_info_frame(project_info)).to_excel(writer, sheet_name='Project Info', index=False)
         run_summary = calc.build_run_summary(
             media,
             summary_df,
@@ -467,6 +620,7 @@ require_password_gate()
 
 st.title('Mediapulse')
 st.caption('Upload programme ratings and brand TV/Radio media reports. The app matches each airing to its rating, calculates GRPs, and summarizes brand SOV.')
+project_info = render_project_workspace()
 
 with st.sidebar:
     st.header('How it works')
@@ -564,6 +718,7 @@ if workflow_mode == 'Composite Report':
         invalid_ratings=pd.DataFrame(),
         report_issues=report_issues,
         dup_keys=pd.DataFrame(),
+        project_info=project_info,
         result_header='2. Results',
         row_label='Calculation rows',
         matched_label='Calculated rows',
@@ -702,6 +857,7 @@ render_results(
     invalid_ratings=invalid_ratings,
     report_issues=report_issues,
     dup_keys=dup_keys,
+    project_info=project_info,
     row_label='Report rows',
     matched_label='Matched rows',
     unmatched_label='Unmatched rows',

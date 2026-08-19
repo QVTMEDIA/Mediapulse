@@ -9,6 +9,7 @@ Live app: https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/
 - Upload programme ratings in Excel or CSV.
 - Upload multiple brand TV/Radio reports.
 - Upload one or more composite reports that already contain spots and ratings/GRPs.
+- Create a project workspace with client, category, market, audience, dates, and media assumptions.
 - Auto-detect common column names and let the user correct the mapping.
 - Match on Medium + Channel/Station + Day + Programme/Time Band.
 - Calculate row GRP = Spots x Matched Rating.
@@ -78,6 +79,10 @@ Then open `http://localhost:8501`.
 Use `STREAMLIT_CLOUD_DEPLOYMENT.md` for the exact GitHub repo, branch, entrypoint, Python version, and secret settings.
 
 Current deployment: https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/
+
+## Product roadmap
+
+The long-term project-based platform direction is tracked in `PRODUCT_ROADMAP.md`.
 
 ## CI and release checks
 

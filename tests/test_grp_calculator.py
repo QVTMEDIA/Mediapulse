@@ -101,6 +101,31 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(suggestions.columns.tolist(), calc.SUGGESTION_COLUMNS)
         self.assertEqual(len(suggestions), 0)
 
+    def test_project_info_frame_formats_metadata_for_export(self):
+        project = {
+            'project_id': 'MP-1234',
+            'project_name': 'Seasoning Category Q1 2026',
+            'client': 'Sample Client',
+            'category': 'Seasoning',
+            'market': 'Nigeria',
+            'start_date': '2026-01-01',
+            'end_date': '2026-03-31',
+            'target_audience': 'Adults 18-45 ABC',
+            'media_types': ['TV', 'Radio'],
+            'ratings_provider': 'Sample Provider',
+            'ratings_period': 'Q1 2026',
+            'status': 'Data Review',
+            'notes': 'Sample notes',
+        }
+
+        frame = calc.project_info_frame(project)
+        values = dict(zip(frame['Field'], frame['Value']))
+
+        self.assertEqual(values['Project ID'], 'MP-1234')
+        self.assertEqual(values['Project Name'], 'Seasoning Category Q1 2026')
+        self.assertEqual(values['Media Types'], 'TV, Radio')
+        self.assertEqual(values['Project Status'], 'Data Review')
+
     @unittest.skipUnless(COMPOSITE_PATH.exists(), 'Composite 2026.xlsx is not available locally')
     def test_composite_report_excludes_total_row_and_uses_uploaded_grps(self):
         with COMPOSITE_PATH.open('rb') as uploaded:

@@ -56,6 +56,21 @@ SUGGESTION_COLUMNS = [
     'Input Match Key',
     'Suggested Match Key',
 ]
+PROJECT_METADATA_LABELS = {
+    'project_id': 'Project ID',
+    'project_name': 'Project Name',
+    'client': 'Client',
+    'category': 'Category',
+    'market': 'Market',
+    'start_date': 'Start Date',
+    'end_date': 'End Date',
+    'target_audience': 'Target Audience',
+    'media_types': 'Media Types',
+    'ratings_provider': 'Ratings Provider',
+    'ratings_period': 'Ratings Period',
+    'status': 'Project Status',
+    'notes': 'Notes',
+}
 TEMPLATE_DEFINITIONS = {
     'ratings': (
         'Ratings Template',
@@ -107,6 +122,17 @@ def template_dataframe(kind):
         raise ValueError(f'Unknown template "{kind}". Supported templates: {supported}.')
     sheet_name, row = TEMPLATE_DEFINITIONS[kind]
     return pd.DataFrame([row]), sheet_name
+
+
+def project_info_frame(project_info):
+    project_info = project_info or {}
+    rows = []
+    for key, label in PROJECT_METADATA_LABELS.items():
+        value = project_info.get(key, '')
+        if isinstance(value, (list, tuple, set)):
+            value = ', '.join(str(item) for item in value if str(item).strip())
+        rows.append({'Field': label, 'Value': value})
+    return pd.DataFrame(rows)
 
 
 def detect_column(columns, logical):

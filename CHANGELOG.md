@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Session-based project workspace setup before upload workflows.
+- Project metadata export sheet.
+- Product roadmap for the project-based media intelligence platform.
+
 ## v0.2 - 2026-08-19
 
 ### Added

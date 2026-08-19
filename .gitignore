@@ -6,12 +6,16 @@
 __pycache__/
 */__pycache__/
 *.py[cod]
+*.tsbuildinfo
 
 .venv/
 venv/
 env/
 .env
 docker-compose.override.yml
+node_modules/
+packages/web/node_modules/
+packages/web/dist/
 
 .pytest_cache/
 .coverage

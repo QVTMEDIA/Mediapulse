@@ -4,6 +4,8 @@ Mediapulse is a Streamlit app for automatically calculating TV/Radio GRPs and GR
 
 Live app: https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/
 
+The current deployed MVP is Streamlit. A Vite/React frontend is available under `packages/web` as the migration path for the product UI.
+
 ## What it does
 
 - Upload programme ratings in Excel or CSV.
@@ -23,6 +25,8 @@ Live app: https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/
 
 ## Run locally
 
+Run the Streamlit MVP:
+
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
@@ -32,6 +36,20 @@ On Windows, you can also run:
 
 ```powershell
 .\run_app.ps1
+```
+
+Run the Vite/React frontend:
+
+```powershell
+cd packages/web
+npm install
+npm run dev
+```
+
+Or:
+
+```powershell
+.\run_web.ps1
 ```
 
 ## Run tests
@@ -87,6 +105,8 @@ Current deployment: https://mediapulse-ypza7n5q3holruocrdgdmy.streamlit.app/
 The long-term project-based platform direction is tracked in `PRODUCT_ROADMAP.md`.
 
 The current Projects home saves metadata to a local SQLite store. Export the project manifest if you need to move metadata between deployments or app environments. Supabase/Postgres storage is still the recommended next step for durable multi-user use.
+
+The Vite/React migration plan is tracked in `FRONTEND_MIGRATION.md`. The initial API surface is tracked in `API_CONTRACT.md`.
 
 ## Project storage
 

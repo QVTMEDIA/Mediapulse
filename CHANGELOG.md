@@ -7,6 +7,8 @@
 - Session-based project workspace setup before upload workflows.
 - Projects home with create, open, duplicate, archive, delete, export, and import actions.
 - Local SQLite project metadata storage with a session fallback if the store is unavailable.
+- Vite/React frontend scaffold for the product UI migration.
+- API contract documentation for projects, ratings datasets, uploads, GRP runs, and validation issues.
 - Project metadata export sheet.
 - Product roadmap for the project-based media intelligence platform.
 

@@ -22,6 +22,7 @@ The current app supports:
 - Validation tables and unmatched row suggestions
 - Excel export with project, run, validation, summary, audit, and issue sheets
 - Basic password protection for shared deployments
+- Vite/React frontend scaffold for the future product UI
 
 ## Target Navigation
 
@@ -54,6 +55,7 @@ Inside each project, the long-term navigation should become:
 
 ## Phase 2: Intelligence
 
+- Python API service for the Vite/React frontend
 - Saved ratings library
 - Saved mapping templates by report source
 - Manual mismatch correction
@@ -66,6 +68,7 @@ Inside each project, the long-term navigation should become:
 ## Phase 3: Enterprise
 
 - Production database storage
+- Full React replacement for the Streamlit UI
 - Multiple users
 - Teams and workspaces
 - Client accounts

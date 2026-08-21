@@ -58,6 +58,13 @@ class BrandShareOut(CamelModel):
     # status (unlike total_grps/sov, which only count matched rows).
     total_spend: float
     soe: float
+    # Spend broken out by medium, same shape as tv_grps/cable_tv_grps/
+    # radio_grps — backs the Spend Intelligence screen's medium breakdown.
+    # May not sum exactly to total_spend; see the comment on
+    # brand_shares.tv_spend in db/schema.sql.
+    tv_spend: float
+    cable_tv_spend: float
+    radio_spend: float
 
 
 class StationShareOut(CamelModel):

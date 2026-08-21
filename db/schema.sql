@@ -392,6 +392,16 @@ create table brand_shares (
   -- a rating match the way GRP does.
   total_spend numeric(14,2) not null default 0,
   soe numeric(6,3) not null default 0,
+  -- Spend broken out the same way GRP is (tv/cable_tv/radio), backing the
+  -- Spend Intelligence screen's medium breakdown. Like total_spend, these
+  -- sum every row regardless of match status — spend doesn't wait on a
+  -- rating match. May not sum exactly to total_spend: a row whose medium
+  -- doesn't canonicalize to TV/CABLE TV/RADIO (grp_calculator.
+  -- normalize_medium_type) isn't counted in any of the three, same
+  -- silent-drop behavior tv_grps/cable_tv_grps/radio_grps already have.
+  tv_spend numeric(14,2) not null default 0,
+  cable_tv_spend numeric(14,2) not null default 0,
+  radio_spend numeric(14,2) not null default 0,
   primary key (run_id, brand_id)
 );
 

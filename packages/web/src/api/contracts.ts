@@ -112,6 +112,13 @@ export interface BrandShare {
   // status (unlike totalGrps/sov, which only count matched rows).
   totalSpend: number;
   soe: number;
+  // Spend broken out by medium, same shape as tvGrps/cableTvGrps/radioGrps
+  // — backs the Spend Intelligence screen's medium breakdown. May not sum
+  // exactly to totalSpend (a row whose medium doesn't canonicalize to TV/
+  // Cable TV/Radio isn't counted in any of the three).
+  tvSpend: number;
+  cableTvSpend: number;
+  radioSpend: number;
 }
 
 export interface StationShare {
@@ -382,10 +389,10 @@ export const sampleWorkspace: MediapulseWorkspace = {
     generatedAt: '2026-08-19 15:28:00',
   },
   brandShares: [
-    { runId: 'RUN-001', brandId: 'BRAND-A', brand: 'Brand A', totalGrps: 42.3, tvGrps: 34.1, cableTvGrps: 8.2, radioGrps: 0, sov: 37.2, spots: 64, avgRating: 0.66, totalSpend: 3_120_000, soe: 37.1 },
-    { runId: 'RUN-001', brandId: 'BRAND-B', brand: 'Brand B', totalGrps: 31.8, tvGrps: 20.1, cableTvGrps: 0, radioGrps: 11.7, sov: 28.0, spots: 52, avgRating: 0.61, totalSpend: 2_360_000, soe: 28.0 },
-    { runId: 'RUN-001', brandId: 'BRAND-C', brand: 'Brand C', totalGrps: 23.5, tvGrps: 23.5, cableTvGrps: 0, radioGrps: 0, sov: 20.7, spots: 45, avgRating: 0.52, totalSpend: 1_740_000, soe: 20.7 },
-    { runId: 'RUN-001', brandId: 'BRAND-D', brand: 'Brand D', totalGrps: 16.1, tvGrps: 9.4, cableTvGrps: 0, radioGrps: 6.7, sov: 14.1, spots: 41, avgRating: 0.39, totalSpend: 1_200_000, soe: 14.2 },
+    { runId: 'RUN-001', brandId: 'BRAND-A', brand: 'Brand A', totalGrps: 42.3, tvGrps: 34.1, cableTvGrps: 8.2, radioGrps: 0, sov: 37.2, spots: 64, avgRating: 0.66, totalSpend: 3_120_000, soe: 37.1, tvSpend: 2_500_000, cableTvSpend: 620_000, radioSpend: 0 },
+    { runId: 'RUN-001', brandId: 'BRAND-B', brand: 'Brand B', totalGrps: 31.8, tvGrps: 20.1, cableTvGrps: 0, radioGrps: 11.7, sov: 28.0, spots: 52, avgRating: 0.61, totalSpend: 2_360_000, soe: 28.0, tvSpend: 1_800_000, cableTvSpend: 0, radioSpend: 560_000 },
+    { runId: 'RUN-001', brandId: 'BRAND-C', brand: 'Brand C', totalGrps: 23.5, tvGrps: 23.5, cableTvGrps: 0, radioGrps: 0, sov: 20.7, spots: 45, avgRating: 0.52, totalSpend: 1_740_000, soe: 20.7, tvSpend: 1_740_000, cableTvSpend: 0, radioSpend: 0 },
+    { runId: 'RUN-001', brandId: 'BRAND-D', brand: 'Brand D', totalGrps: 16.1, tvGrps: 9.4, cableTvGrps: 0, radioGrps: 6.7, sov: 14.1, spots: 41, avgRating: 0.39, totalSpend: 1_200_000, soe: 14.2, tvSpend: 780_000, cableTvSpend: 0, radioSpend: 420_000 },
   ],
   validationIssues: [
     {

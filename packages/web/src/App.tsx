@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
   Activity as ActivityIcon,
   AlertTriangle,
   Archive,
   BarChart3,
   Database,
+  DollarSign,
   FileSpreadsheet,
   FolderOpen,
   Gauge,
   GitCompare,
   History,
+  LayoutDashboard,
   LogOut,
   Search,
   Settings,
@@ -25,8 +27,6 @@ import {
   createProject,
   getAuthToken,
   getCurrentUser,
-  getLatestRun,
-  listBrandShares,
   listBrands,
   listMappingTemplates,
   listProjects,
@@ -36,45 +36,63 @@ import {
   setAuthToken,
   uploadMediaReport,
 } from './api/client';
-import type { AuthSession, Brand, BrandShare, GrpRunSummary, Project, ProjectVersion, UploadKind, User } from './api/contracts';
+import type { AuthSession, Brand, Project, ProjectVersion, UploadKind, User } from './api/contracts';
 import ActivitySection from './sections/ActivitySection';
 import ExportsSection from './sections/ExportsSection';
 import MatchesSection from './sections/MatchesSection';
+import OverviewSection from './sections/OverviewSection';
 import ProjectManagePanel from './sections/ProjectManagePanel';
 import QualitySection from './sections/QualitySection';
 import RatingsSection from './sections/RatingsSection';
 import ReportsSection from './sections/ReportsSection';
 import SettingsSection from './sections/SettingsSection';
+import SpendIntelligenceSection from './sections/SpendIntelligenceSection';
 
-type SectionKey = 'projects' | 'ratings' | 'matches' | 'activity' | 'reports' | 'quality' | 'exports' | 'settings';
+type SectionKey =
+  | 'overview'
+  | 'projects'
+  | 'ratings'
+  | 'matches'
+  | 'activity'
+  | 'reports'
+  | 'spendIntelligence'
+  | 'quality'
+  | 'exports'
+  | 'settings';
 
 const SECTION_LABELS: Record<SectionKey, string> = {
+  overview: 'Overview',
   projects: 'Projects',
   ratings: 'Ratings',
   matches: 'Matches',
   activity: 'Activity',
   reports: 'Reports',
+  spendIntelligence: 'Spend Intelligence',
   quality: 'Quality',
   exports: 'Exports',
   settings: 'Settings',
 };
 
 const SECTION_DESCRIPTIONS: Partial<Record<SectionKey, string>> = {
+  overview: 'Executive GRP/SOV dashboard for this project — KPI cards, brand ranking, and weak-inventory flags.',
   ratings: 'Upload ratings, or attach an existing dataset from the shared library.',
   matches: 'Review fuzzy-matched and unmatched spots before calculating.',
   activity: 'Every calculated row, traceable back to its spot — the audit trail behind the brand totals.',
   reports: 'Station and programme contribution, weekly trend, and brand-vs-brand comparison.',
+  spendIntelligence: 'Media spend, Share of Expenditure, and cost-per-GRP efficiency by brand.',
   quality: 'Missing ratings, duplicate keys, and skipped upload rows for this project.',
   settings: 'Your account, and — for owners and admins — everyone else on this deployment.',
   exports: 'Generate and download the full Excel workbook for this project.',
 };
 
 const navItems: { key: SectionKey; icon: typeof FolderOpen }[] = [
+  { key: 'overview', icon: LayoutDashboard },
   { key: 'projects', icon: FolderOpen },
   { key: 'ratings', icon: Database },
   { key: 'matches', icon: GitCompare },
   { key: 'activity', icon: ActivityIcon },
   { key: 'reports', icon: FileSpreadsheet },
+  { key: 'spendIntelligence', icon: DollarSign },
   { key: 'quality', icon: AlertTriangle },
   { key: 'exports', icon: Upload },
   { key: 'settings', icon: Settings },
@@ -85,10 +103,6 @@ const statusClass = {
   'Data Review': 'status status-review',
   Complete: 'status status-complete',
 };
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value);
-}
 
 function formatPeriod(project: Project) {
   if (project.startDate && project.endDate) return `${project.startDate} to ${project.endDate}`;
@@ -151,57 +165,6 @@ function ProjectRow({
   );
 }
 
-function BrandShareRow({ share, maxGrp }: { share: BrandShare; maxGrp: number }) {
-  const width = maxGrp ? `${Math.max((share.totalGrps / maxGrp) * 100, 3)}%` : '3%';
-  // Split the bar itself by TV/Cable TV/Radio GRP share, not just report the
-  // numbers in the caption — tvGrps/cableTvGrps/radioGrps summed to
-  // totalGrps, this is the first place any of them gets rendered anywhere.
-  const mediumsPresent = [share.tvGrps, share.cableTvGrps, share.radioGrps].filter((g) => g > 0).length;
-  const isMixedMedia = mediumsPresent >= 2;
-  const tvShare = share.totalGrps > 0 ? (share.tvGrps / share.totalGrps) * 100 : 100;
-  const cableTvShare = share.totalGrps > 0 ? (share.cableTvGrps / share.totalGrps) * 100 : 0;
-  const radioShare = share.totalGrps > 0 ? (share.radioGrps / share.totalGrps) * 100 : 0;
-  // Solid-bar case: pick whichever single medium actually has GRPs, rather
-  // than assuming TV — a Radio-only or Cable-TV-only brand shouldn't render
-  // in the default TV green.
-  const soloColor = share.cableTvGrps > 0 ? 'var(--violet)' : share.radioGrps > 0 ? 'var(--blue)' : undefined;
-  return (
-    <div className="brand-row">
-      <div className="brand-line">
-        <span>{share.brand}</span>
-        <span className="brand-share-metrics">
-          <strong>{share.sov.toFixed(1)}% SOV</strong>
-          {/* SOE tracks spend, not GRPs — a brand can lead SOV while trailing
-              SOE (or vice versa) since spend counts every uploaded row,
-              matched or not. Only shown once spend data exists for this
-              category, so an all-null-cost project doesn't render a
-              meaningless "0.0% SOE" on every brand. */}
-          {share.totalSpend > 0 ? <strong className="soe-value">{share.soe.toFixed(1)}% SOE</strong> : null}
-        </span>
-      </div>
-      <div className="bar-track" aria-label={`${share.brand} GRP contribution`}>
-        {isMixedMedia ? (
-          <div className="bar-fill split" style={{ width }}>
-            <div className="bar-fill-tv" style={{ width: `${tvShare}%` }} />
-            <div className="bar-fill-cable-tv" style={{ width: `${cableTvShare}%` }} />
-            <div className="bar-fill-radio" style={{ width: `${radioShare}%` }} />
-          </div>
-        ) : (
-          <div className="bar-fill" style={{ width, background: soloColor }} />
-        )}
-      </div>
-      <small>
-        {share.spots} spots | {share.totalGrps.toFixed(1)} GRPs
-        {isMixedMedia
-          ? ` (TV ${share.tvGrps.toFixed(1)}${share.cableTvGrps > 0 ? ` · Cable TV ${share.cableTvGrps.toFixed(1)}` : ''} · Radio ${share.radioGrps.toFixed(1)})`
-          : ''}
-        {share.avgRating !== null ? ` | avg rating ${share.avgRating.toFixed(2)}` : ''}
-        {share.totalSpend > 0 ? ` | spend ${formatNumber(share.totalSpend)}` : ''}
-      </small>
-    </div>
-  );
-}
-
 function ComingSoonPanel({ section }: { section: SectionKey }) {
   return (
     <div className="panel placeholder-panel">
@@ -212,7 +175,7 @@ function ComingSoonPanel({ section }: { section: SectionKey }) {
 }
 
 function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: () => void }) {
-  const [activeSection, setActiveSection] = useState<SectionKey>('projects');
+  const [activeSection, setActiveSection] = useState<SectionKey>('overview');
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
@@ -223,10 +186,6 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [latestRun, setLatestRun] = useState<GrpRunSummary | null>(null);
-  const [brandShares, setBrandShares] = useState<BrandShare[]>([]);
-  const [runLoading, setRunLoading] = useState(false);
-  const [runError, setRunError] = useState<string | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [calculateError, setCalculateError] = useState<string | null>(null);
   const [versions, setVersions] = useState<ProjectVersion[]>([]);
@@ -251,9 +210,6 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
-  // Guards against a slow response for a project the user has since
-  // navigated away from landing after a newer request already resolved.
-  const runRequestId = useRef(0);
 
   const refreshProjects = useCallback(async (search: string) => {
     setProjectsLoading(true);
@@ -284,37 +240,6 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
     [projects, activeProjectId],
   );
 
-  const refreshRun = useCallback(async (projectId: string) => {
-    const requestId = ++runRequestId.current;
-    setRunLoading(true);
-    setRunError(null);
-    try {
-      const run = await getLatestRun(projectId);
-      if (runRequestId.current !== requestId) return; // superseded by a newer request
-      setLatestRun(run);
-      setBrandShares(run ? await listBrandShares(projectId, run.runId) : []);
-      if (runRequestId.current !== requestId) return;
-    } catch (error) {
-      if (runRequestId.current !== requestId) return;
-      setLatestRun(null);
-      setBrandShares([]);
-      setRunError(error instanceof ApiError ? error.message : 'Could not load GRP results.');
-    } finally {
-      if (runRequestId.current === requestId) setRunLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeProjectId) {
-      void refreshRun(activeProjectId);
-    } else {
-      runRequestId.current += 1; // invalidate any in-flight request from a project we've left
-      setLatestRun(null);
-      setBrandShares([]);
-      setRunError(null);
-    }
-  }, [activeProjectId, refreshRun]);
-
   const refreshVersions = useCallback(async (projectId: string) => {
     setVersionsLoading(true);
     setVersionsError(null);
@@ -343,7 +268,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
     setVersionsError(null);
     try {
       await restoreVersion(activeProject.projectId, versionId);
-      await Promise.all([refreshVersions(activeProject.projectId), refreshRun(activeProject.projectId)]);
+      await refreshVersions(activeProject.projectId);
     } catch (error) {
       setVersionsError(error instanceof ApiError ? error.message : 'Could not restore that version.');
     } finally {
@@ -376,8 +301,6 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
       setSelectedBrandId('');
     }
   }, [activeProjectId, refreshBrands]);
-
-  const maxGrp = Math.max(1, ...brandShares.map((share) => share.totalGrps));
 
   async function handleCreateProject(event: FormEvent) {
     event.preventDefault();
@@ -422,7 +345,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
     setCalculateError(null);
     try {
       await calculateProject(activeProject.projectId);
-      await Promise.all([refreshRun(activeProject.projectId), refreshVersions(activeProject.projectId)]);
+      await refreshVersions(activeProject.projectId);
     } catch (error) {
       setCalculateError(error instanceof ApiError ? error.message : 'Could not calculate GRPs.');
     } finally {
@@ -546,7 +469,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
             <p>
               {activeSection === 'projects'
                 ? activeProject
-                  ? `${activeProject.category || 'Uncategorized'} performance, ratings coverage, and GRP quality.`
+                  ? `${activeProject.projectName} — upload media reports and calculate, or switch to Overview for its dashboard.`
                   : 'Create a project to start tracking GRPs and Share of Voice.'
                 : SECTION_DESCRIPTIONS[activeSection] ?? "This area isn't built yet."}
             </p>
@@ -617,7 +540,9 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
           )}
         </header>
 
-        {activeSection === 'ratings' ? (
+        {activeSection === 'overview' ? (
+          <OverviewSection project={activeProject} />
+        ) : activeSection === 'ratings' ? (
           <RatingsSection project={activeProject} />
         ) : activeSection === 'matches' ? (
           <MatchesSection project={activeProject} />
@@ -625,6 +550,8 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
           <ActivitySection project={activeProject} />
         ) : activeSection === 'reports' ? (
           <ReportsSection project={activeProject} />
+        ) : activeSection === 'spendIntelligence' ? (
+          <SpendIntelligenceSection project={activeProject} />
         ) : activeSection === 'quality' ? (
           <QualitySection project={activeProject} />
         ) : activeSection === 'settings' ? (
@@ -635,7 +562,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
           <ComingSoonPanel section={activeSection} />
         ) : (
           <>
-            {[actionError, calculateError, runError].filter(Boolean).map((message, index) => (
+            {[actionError, calculateError].filter(Boolean).map((message, index) => (
               <p className="inline-error" key={index}>{message}</p>
             ))}
 
@@ -780,139 +707,69 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
               </form>
             )}
 
-            <section className="metric-grid" aria-label="Workspace metrics">
-              <div className="metric-panel">
-                <span>Total GRPs</span>
-                <strong>{latestRun ? formatNumber(latestRun.totalGrps) : '—'}</strong>
-                <small>
-                  {runLoading
-                    ? 'Loading…'
-                    : latestRun
-                      ? `Run generated ${latestRun.generatedAt}`
-                      : activeProject
-                        ? 'No calculation yet — click Calculate'
-                        : 'Select a project'}
-                </small>
-              </div>
-              <div className="metric-panel">
-                <span>Matched Rows</span>
-                <strong>{latestRun ? latestRun.matchedRows : '—'}</strong>
-                <small>{latestRun ? `${latestRun.unmatchedRows} unmatched` : ' '}</small>
-              </div>
-              <div className="metric-panel">
-                <span>Brands</span>
-                <strong>{latestRun ? latestRun.totalBrands : '—'}</strong>
-                <small>{latestRun ? `${latestRun.totalSpots} total spots` : ' '}</small>
-              </div>
-              <div className="metric-panel">
-                <span>Total Spend</span>
-                <strong>{latestRun ? formatNumber(latestRun.totalSpend) : '—'}</strong>
-                <small>{latestRun && latestRun.totalSpend === 0 ? 'No cost/rate column mapped yet' : ' '}</small>
-              </div>
-            </section>
-
-            <section className="content-grid">
-              <div className="panel project-panel">
-                <div className="panel-header">
-                  <div>
-                    <h2>Projects</h2>
-                    <p>{projectsLoading ? 'Loading…' : `${projects.length} workspace${projects.length === 1 ? '' : 's'}`}</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => {
-                      setIsCreating((open) => !open);
-                      setFormError(null);
-                    }}
-                  >
-                    <FolderOpen size={17} aria-hidden />
-                    New
-                  </button>
+            <div className="panel project-panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Projects</h2>
+                  <p>{projectsLoading ? 'Loading…' : `${projects.length} workspace${projects.length === 1 ? '' : 's'}`}</p>
                 </div>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    setIsCreating((open) => !open);
+                    setFormError(null);
+                  }}
+                >
+                  <FolderOpen size={17} aria-hidden />
+                  New
+                </button>
+              </div>
 
-                {isCreating && (
-                  <form className="create-project-form" onSubmit={handleCreateProject}>
-                    <input
-                      type="text"
-                      placeholder="Project name"
-                      value={newProjectName}
-                      onChange={(event) => setNewProjectName(event.target.value)}
-                      autoFocus
-                    />
-                    <div className="form-actions">
-                      <button type="submit" className="primary-button" disabled={isSubmitting}>
-                        {isSubmitting ? 'Creating…' : 'Create'}
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        onClick={() => {
-                          setIsCreating(false);
-                          setFormError(null);
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                    {formError && <p className="inline-error">{formError}</p>}
-                  </form>
+              {isCreating && (
+                <form className="create-project-form" onSubmit={handleCreateProject}>
+                  <input
+                    type="text"
+                    placeholder="Project name"
+                    value={newProjectName}
+                    onChange={(event) => setNewProjectName(event.target.value)}
+                    autoFocus
+                  />
+                  <div className="form-actions">
+                    <button type="submit" className="primary-button" disabled={isSubmitting}>
+                      {isSubmitting ? 'Creating…' : 'Create'}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => {
+                        setIsCreating(false);
+                        setFormError(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {formError && <p className="inline-error">{formError}</p>}
+                </form>
+              )}
+
+              {projectsError && <p className="inline-error">{projectsError}</p>}
+
+              <div className="project-list">
+                {!projectsLoading && projects.length === 0 && !projectsError && (
+                  <p className="empty-state">No projects yet. Click "New" to create one.</p>
                 )}
-
-                {projectsError && <p className="inline-error">{projectsError}</p>}
-
-                <div className="project-list">
-                  {!projectsLoading && projects.length === 0 && !projectsError && (
-                    <p className="empty-state">No projects yet. Click "New" to create one.</p>
-                  )}
-                  {projects.map((project) => (
-                    <ProjectRow
-                      project={project}
-                      key={project.projectId}
-                      isActive={project.projectId === activeProjectId}
-                      onSelect={() => setActiveProjectId(project.projectId)}
-                    />
-                  ))}
-                </div>
+                {projects.map((project) => (
+                  <ProjectRow
+                    project={project}
+                    key={project.projectId}
+                    isActive={project.projectId === activeProjectId}
+                    onSelect={() => setActiveProjectId(project.projectId)}
+                  />
+                ))}
               </div>
-
-              <div className="panel">
-                <div className="panel-header">
-                  <div>
-                    <h2>Brand SOV</h2>
-                    <p>
-                      {runLoading
-                        ? 'Loading…'
-                        : latestRun
-                          ? `Run generated ${latestRun.generatedAt}`
-                          : 'No calculation yet for this project'}
-                    </p>
-                  </div>
-                  <BarChart3 size={20} aria-hidden />
-                </div>
-                {brandShares.some(
-                  (share) => [share.tvGrps, share.cableTvGrps, share.radioGrps].filter((g) => g > 0).length >= 2,
-                ) && (
-                  <div className="medium-split-legend">
-                    <span><i className="tv" /> TV</span>
-                    {brandShares.some((share) => share.cableTvGrps > 0) && (
-                      <span><i className="cable-tv" /> Cable TV</span>
-                    )}
-                    <span><i className="radio" /> Radio</span>
-                  </div>
-                )}
-                <div className="brand-list">
-                  {!runLoading && brandShares.length === 0 && (
-                    <p className="empty-state">
-                      {activeProject ? 'No GRP run yet — click Calculate in the toolbar.' : 'Select a project.'}
-                    </p>
-                  )}
-                  {brandShares.map((share) => (
-                    <BrandShareRow share={share} maxGrp={maxGrp} key={share.brandId} />
-                  ))}
-                </div>
-              </div>
-            </section>
+            </div>
 
             {activeProject && versions.length > 0 && (
               <div className="panel">

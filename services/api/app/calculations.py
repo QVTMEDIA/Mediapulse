@@ -56,6 +56,11 @@ class BrandShareResult:
     # media_activity rows, not just the matched/calculable ones GRP uses.
     total_spend: float
     soe: float
+    # Spend broken out by medium, same shape as tv_grps/cable_tv_grps/
+    # radio_grps — see the comment on brand_shares.tv_spend in db/schema.sql.
+    tv_spend: float
+    cable_tv_spend: float
+    radio_spend: float
 
 
 @dataclass
@@ -80,6 +85,7 @@ def compute_run(media_activity_records, match_by_activity_id: Dict[str, object],
     calculated_rows: List[CalculatedRow] = []
     ratings_by_brand: Dict[str, List[float]] = {}
     spend_by_brand: Dict[str, float] = {}
+    spend_by_brand_medium: Dict[tuple, float] = {}
     calc_frame_records = []
     matched_rows = 0
     unmatched_rows = 0
@@ -111,6 +117,8 @@ def compute_run(media_activity_records, match_by_activity_id: Dict[str, object],
         # cost/rate ever mapped has activity.cost = None, contributing 0.
         if activity.cost is not None:
             spend_by_brand[activity.brand_id] = spend_by_brand.get(activity.brand_id, 0.0) + activity.cost
+            medium_key = (activity.brand_id, calc.normalize_medium_type(activity.medium))
+            spend_by_brand_medium[medium_key] = spend_by_brand_medium.get(medium_key, 0.0) + activity.cost
 
         calc_frame_records.append({
             'Brand': activity.brand_id,
@@ -140,6 +148,9 @@ def compute_run(media_activity_records, match_by_activity_id: Dict[str, object],
             avg_rating=(sum(ratings) / len(ratings)) if ratings else None,
             total_spend=brand_spend,
             soe=(brand_spend / category_spend * 100) if category_spend else 0.0,
+            tv_spend=spend_by_brand_medium.get((brand_id, 'TV'), 0.0),
+            cable_tv_spend=spend_by_brand_medium.get((brand_id, 'CABLE TV'), 0.0),
+            radio_spend=spend_by_brand_medium.get((brand_id, 'RADIO'), 0.0),
         ))
 
     return RunResult(

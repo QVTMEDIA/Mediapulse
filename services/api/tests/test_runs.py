@@ -194,6 +194,30 @@ def test_spend_accumulates_for_unmatched_rows_too(client, project):
     assert shares[0]['sov'] == pytest.approx(0.0)  # no GRPs at all, so SOV is 0 — spend and GRP tell different stories
 
 
+def test_spend_is_broken_out_by_medium(client, project):
+    # tv_spend/cable_tv_spend/radio_spend back the Spend Intelligence
+    # screen's medium breakdown — same shape as tv_grps/cable_tv_grps/
+    # radio_grps, and (like total_spend) counts every row regardless of
+    # match status.
+    brand = _brand(client, project['projectId'], 'Brand A')
+    _upload(
+        client, project['projectId'], brand['brandId'],
+        b'Medium,Channel,Programme,Day,Spots,Rate\n'
+        b'TV,TVC,Prime Time,Monday,3,5000\n'
+        b'Cable TV,DSTV Movies,Movie Night,Tuesday,2,4000\n'
+        b'Radio,Naija FM,Drive Time,Wednesday,1,2000\n',
+    )
+    # no ratings attached — everything unmatched, spend should still split
+    run = client.post(f"/api/projects/{project['projectId']}/calculate").json()
+    shares = client.get(f"/api/projects/{project['projectId']}/runs/{run['runId']}/brand-shares").json()
+    share = shares[0]
+    assert share['tvSpend'] == pytest.approx(15000)  # 3 * 5000
+    assert share['cableTvSpend'] == pytest.approx(8000)  # 2 * 4000
+    assert share['radioSpend'] == pytest.approx(2000)  # 1 * 2000
+    assert share['totalSpend'] == pytest.approx(25000)
+    assert share['tvSpend'] + share['cableTvSpend'] + share['radioSpend'] == pytest.approx(share['totalSpend'])
+
+
 def test_spend_and_soe_are_zero_when_no_cost_column_mapped(client, project):
     brand = _brand(client, project['projectId'], 'Brand A')
     _upload(client, project['projectId'], brand['brandId'], BRAND_A_CSV)  # no Cost/Rate column

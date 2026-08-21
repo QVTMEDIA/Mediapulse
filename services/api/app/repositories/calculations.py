@@ -39,6 +39,9 @@ class BrandShareRecord:
     avg_rating: Optional[float]
     total_spend: float
     soe: float
+    tv_spend: float
+    cable_tv_spend: float
+    radio_spend: float
 
 
 @dataclass
@@ -152,6 +155,9 @@ def _share_row_to_record(row: dict) -> BrandShareRecord:
         avg_rating=float(row['avg_rating']) if row['avg_rating'] is not None else None,
         total_spend=float(row['total_spend']),
         soe=float(row['soe']),
+        tv_spend=float(row['tv_spend']),
+        cable_tv_spend=float(row['cable_tv_spend']),
+        radio_spend=float(row['radio_spend']),
     )
 
 
@@ -210,12 +216,16 @@ class PostgresCalculationsRepository:
                 with conn.cursor() as cur:
                     cur.executemany(
                         '''
-                        INSERT INTO brand_shares (run_id, brand_id, total_grps, tv_grps, cable_tv_grps, radio_grps, sov, spots, avg_rating, total_spend, soe)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO brand_shares (
+                            run_id, brand_id, total_grps, tv_grps, cable_tv_grps, radio_grps, sov, spots,
+                            avg_rating, total_spend, soe, tv_spend, cable_tv_spend, radio_spend
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ''',
                         [
                             (run_id, share.brand_id, share.total_grps, share.tv_grps, share.cable_tv_grps,
-                             share.radio_grps, share.sov, share.spots, share.avg_rating, share.total_spend, share.soe)
+                             share.radio_grps, share.sov, share.spots, share.avg_rating, share.total_spend, share.soe,
+                             share.tv_spend, share.cable_tv_spend, share.radio_spend)
                             for share in result.brand_shares
                         ],
                     )
@@ -409,6 +419,7 @@ class InMemoryCalculationsRepository:
                 run_id=run.id, brand_id=share.brand_id, total_grps=share.total_grps, tv_grps=share.tv_grps,
                 cable_tv_grps=share.cable_tv_grps, radio_grps=share.radio_grps, sov=share.sov, spots=share.spots,
                 avg_rating=share.avg_rating, total_spend=share.total_spend, soe=share.soe,
+                tv_spend=share.tv_spend, cable_tv_spend=share.cable_tv_spend, radio_spend=share.radio_spend,
             )
             for share in result.brand_shares
         ]

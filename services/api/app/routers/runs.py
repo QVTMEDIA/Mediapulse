@@ -132,6 +132,9 @@ def get_brand_shares(
             avg_rating=share.avg_rating,
             total_spend=share.total_spend,
             soe=share.soe,
+            tv_spend=share.tv_spend,
+            cable_tv_spend=share.cable_tv_spend,
+            radio_spend=share.radio_spend,
         ))
     return results
 

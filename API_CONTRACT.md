@@ -209,6 +209,7 @@ Per-brand rollup for a run, backing the SOV chart and brand comparison screen.
 - `avgRating`
 - `totalSpend` — Share of Expenditure's numerator: this brand's resolved spend, summed across **every** `media_activity` row belonging to it regardless of match status. Not in this contract's original field list, added for the Media Spend/SOE feature.
 - `soe` — `totalSpend / (sum of every brand's totalSpend in this run) * 100`. Deliberately computed from all rows, not just matched ones, unlike `sov`: money was spent on a spot whether or not a rating was ever found for it, so a project with zero matched rows can still show a fully populated SOE breakdown (it just also shows `sov: 0` for everyone, since GRP genuinely doesn't exist yet). `0` when no brand in the run has any resolved spend at all.
+- `tvSpend`, `cableTvSpend`, `radioSpend` — spend broken out by medium, same shape and computation as `tvGrps`/`cableTvGrps`/`radioGrps` but for `totalSpend` instead of `totalGrps` — backs the Spend Intelligence screen's medium breakdown. Not in this contract's original field list. May not sum exactly to `totalSpend`: a row whose medium doesn't canonicalize to TV/Cable TV/Radio isn't counted in any of the three, same silent-drop behavior the GRP medium split already has.
 
 ### StationShare
 

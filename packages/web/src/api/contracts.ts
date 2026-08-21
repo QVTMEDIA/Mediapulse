@@ -2,6 +2,21 @@ export type ProjectStatus = 'Setup' | 'Data Review' | 'Complete';
 export type MediaType = 'TV' | 'Radio';
 export type UploadKind = 'ratings' | 'brand_report' | 'composite_report';
 export type ValidationSeverity = 'info' | 'warning' | 'error';
+export type UserRole = 'owner' | 'admin' | 'member';
+
+export interface User {
+  userId: string;
+  email: string;
+  displayName: string;
+  role: UserRole;
+  createdAt: string;
+}
+
+export interface AuthSession {
+  accessToken: string;
+  tokenType: string;
+  user: User;
+}
 
 export interface Project {
   projectId: string;
@@ -10,14 +25,17 @@ export interface Project {
   client: string;
   category: string;
   market: string;
-  startDate: string;
-  endDate: string;
+  // Nullable because services/api's ProjectOut leaves these unset until the
+  // user fills in Project Setup — the sample data below always has them.
+  startDate: string | null;
+  endDate: string | null;
   targetAudience: string;
   mediaTypes: MediaType[];
   ratingsProvider: string;
   ratingsPeriod: string;
   status: ProjectStatus;
   archived: boolean;
+  notes: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -36,9 +54,19 @@ export interface RatingsDataset {
   status: 'Ready' | 'Needs Review';
 }
 
+export interface Brand {
+  brandId: string;
+  projectId: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface UploadBatch {
   uploadId: string;
   projectId: string;
+  // Null for composite_report uploads (they span more than one brand —
+  // attribution lives on each media_activity row instead).
+  brandId: string | null;
   fileName: string;
   kind: UploadKind;
   mappedRows: number;
@@ -54,23 +82,142 @@ export interface GrpRunSummary {
   totalGrps: number;
   matchedRows: number;
   unmatchedRows: number;
+  // True for the run currently shown everywhere as "latest" — the newest
+  // run unless a version-history restore pinned it back to an older one.
+  isCurrent: boolean;
   generatedAt: string;
 }
 
 export interface BrandShare {
+  runId: string;
+  brandId: string;
   brand: string;
   totalGrps: number;
+  tvGrps: number;
+  radioGrps: number;
   sov: number;
   spots: number;
+  avgRating: number | null;
+}
+
+export interface StationShare {
+  runId: string;
+  brandId: string;
+  brand: string;
+  station: string;
+  totalGrps: number;
+  spots: number;
+}
+
+export interface ProgrammeShare {
+  runId: string;
+  brandId: string;
+  brand: string;
+  programme: string;
+  totalGrps: number;
+  spots: number;
+}
+
+export interface TrendPoint {
+  runId: string;
+  brandId: string;
+  brand: string;
+  weekStart: string;
+  totalGrps: number;
+  spots: number;
+}
+
+export interface ExportJob {
+  exportId: string;
+  projectId: string;
+  runId: string | null;
+  format: string;
+  generatedAt: string;
+  downloadUrl: string;
+}
+
+export interface ProjectVersion {
+  versionId: string;
+  projectId: string;
+  runId: string;
+  description: string;
+  isCurrent: boolean;
+  createdAt: string;
+}
+
+export interface MappingTemplate {
+  mappingTemplateId: string;
+  sourceLabel: string;
+  fieldMapping: Record<string, string>;
+  createdAt: string;
+  lastUsedAt: string | null;
 }
 
 export interface ValidationIssue {
   issueId: string;
   projectId: string;
+  runId: string | null;
   severity: ValidationSeverity;
   area: string;
   message: string;
   rows: number;
+}
+
+export interface MediaActivityRow {
+  mediaActivityId: string;
+  projectId: string;
+  brandId: string;
+  uploadId: string;
+  medium: string;
+  station: string;
+  activityDate: string | null;
+  day: string;
+  programme: string;
+  spots: number;
+  sourceFile: string;
+}
+
+export type MatchStatus = 'exact' | 'suggested' | 'unmatched' | 'manual';
+
+export interface RatingMatch {
+  ratingMatchId: string;
+  mediaActivityId: string;
+  matchedRatingId: string | null;
+  matchStatus: MatchStatus;
+  matchConfidence: number | null;
+  matchKey: string;
+  correctedAt: string | null;
+}
+
+export interface RatingRow {
+  ratingRowId: string;
+  ratingsDatasetId: string;
+  medium: string;
+  station: string;
+  day: string;
+  programme: string;
+  timeBand: string;
+  rating: number | null;
+  startTime: string | null;
+  endTime: string | null;
+  week: number | null;
+  month: number | null;
+}
+
+export interface GrpCalculationRow {
+  grpCalculationId: string;
+  runId: string;
+  mediaActivityId: string;
+  brandId: string;
+  brand: string;
+  station: string;
+  programme: string;
+  day: string;
+  medium: string;
+  spots: number;
+  rating: number;
+  grp: number;
+  calculatedAt: string;
 }
 
 export interface MediapulseWorkspace {
@@ -99,6 +246,7 @@ export const sampleWorkspace: MediapulseWorkspace = {
       ratingsPeriod: 'Q1 2026',
       status: 'Data Review',
       archived: false,
+      notes: '',
       createdAt: '2026-08-19 10:00:00',
       updatedAt: '2026-08-19 17:00:00',
     },
@@ -117,6 +265,7 @@ export const sampleWorkspace: MediapulseWorkspace = {
       ratingsPeriod: 'April 2026',
       status: 'Setup',
       archived: false,
+      notes: '',
       createdAt: '2026-08-18 11:15:00',
       updatedAt: '2026-08-18 11:15:00',
     },
@@ -153,6 +302,7 @@ export const sampleWorkspace: MediapulseWorkspace = {
     {
       uploadId: 'UP-001',
       projectId: 'MP-2608-A',
+      brandId: null,
       fileName: 'Composite 2026.xlsx',
       kind: 'composite_report',
       mappedRows: 202,
@@ -162,6 +312,7 @@ export const sampleWorkspace: MediapulseWorkspace = {
     {
       uploadId: 'UP-002',
       projectId: 'MP-2608-A',
+      brandId: 'BRAND-A',
       fileName: 'sample_brand_report.xlsx',
       kind: 'brand_report',
       mappedRows: 202,
@@ -177,18 +328,20 @@ export const sampleWorkspace: MediapulseWorkspace = {
     totalGrps: 113.7,
     matchedRows: 202,
     unmatchedRows: 0,
+    isCurrent: true,
     generatedAt: '2026-08-19 15:28:00',
   },
   brandShares: [
-    { brand: 'Brand A', totalGrps: 42.3, sov: 37.2, spots: 64 },
-    { brand: 'Brand B', totalGrps: 31.8, sov: 28.0, spots: 52 },
-    { brand: 'Brand C', totalGrps: 23.5, sov: 20.7, spots: 45 },
-    { brand: 'Brand D', totalGrps: 16.1, sov: 14.1, spots: 41 },
+    { runId: 'RUN-001', brandId: 'BRAND-A', brand: 'Brand A', totalGrps: 42.3, tvGrps: 42.3, radioGrps: 0, sov: 37.2, spots: 64, avgRating: 0.66 },
+    { runId: 'RUN-001', brandId: 'BRAND-B', brand: 'Brand B', totalGrps: 31.8, tvGrps: 20.1, radioGrps: 11.7, sov: 28.0, spots: 52, avgRating: 0.61 },
+    { runId: 'RUN-001', brandId: 'BRAND-C', brand: 'Brand C', totalGrps: 23.5, tvGrps: 23.5, radioGrps: 0, sov: 20.7, spots: 45, avgRating: 0.52 },
+    { runId: 'RUN-001', brandId: 'BRAND-D', brand: 'Brand D', totalGrps: 16.1, tvGrps: 9.4, radioGrps: 6.7, sov: 14.1, spots: 41, avgRating: 0.39 },
   ],
   validationIssues: [
     {
       issueId: 'VAL-001',
       projectId: 'MP-2608-A',
+      runId: null,
       severity: 'warning',
       area: 'Composite upload',
       message: 'One total row was excluded from calculation.',
@@ -197,6 +350,7 @@ export const sampleWorkspace: MediapulseWorkspace = {
     {
       issueId: 'VAL-002',
       projectId: 'MP-2608-B',
+      runId: null,
       severity: 'warning',
       area: 'Ratings library',
       message: 'Two duplicate rating keys need review before reuse.',

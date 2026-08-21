@@ -237,6 +237,15 @@ class GrpCalculatorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Macro-enabled'):
             calc.validate_uploaded_file(uploaded)
 
+    def test_derive_day_parses_iso_dates_without_dayfirst_ambiguity(self):
+        # pandas' dayfirst=True (needed for DD/MM/YYYY-style input) silently
+        # misreads an unambiguous ISO (YYYY-MM-DD) date whenever day and
+        # month are both <=12 — e.g. "2026-01-05" read as May 1st instead of
+        # January 5th — which would derive the wrong weekday, and therefore
+        # the wrong match key, for any upload with only a Date column.
+        dates = pd.Series(['2026-01-05', '2026-01-12', '05/01/2026'])
+        self.assertEqual(calc.derive_day(dates).tolist(), ['MON', 'MON', 'MON'])
+
     def test_auth_session_timeout_and_lockout_helpers(self):
         self.assertTrue(calc.auth_session_is_valid(True, 100, 200, timeout_seconds=200))
         self.assertFalse(calc.auth_session_is_valid(True, 100, 400, timeout_seconds=200))

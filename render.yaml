@@ -1,0 +1,43 @@
+# Render Blueprint for the Mediapulse API service.
+#
+# Deploys services/api's existing Dockerfile unmodified — same image CI
+# already builds on every push (.github/workflows/ci.yml's docker-build
+# job), just running somewhere reachable instead of only being built and
+# discarded. The frontend (packages/web) is NOT deployed from this file —
+# it's a static Vite build, which belongs on Vercel/Netlify/Cloudflare
+# Pages instead of a Render web service; see FRONTEND_MIGRATION.md.
+#
+# Using this file: Render dashboard -> New -> Blueprint -> pick this repo.
+# Render finds this file automatically and proposes the service below;
+# secrets (marked `sync: false`) are never stored here — you set their
+# actual values directly in the Render dashboard after the service exists.
+
+services:
+  - type: web
+    name: mediapulse-api
+    runtime: docker
+    plan: free
+    # Build context is the repo root, not services/api/ — app/parsing.py
+    # imports grp_calculator.py directly from the root; see the comment at
+    # the top of services/api/Dockerfile for why the context can't just be
+    # the services/api directory.
+    dockerfilePath: ./services/api/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      # Your Supabase connection string (session pooler recommended over
+      # direct connection — see db/README.md and services/api/README.md).
+      # Set the real value in the Render dashboard, not here.
+      - key: DATABASE_URL
+        sync: false
+      # A long random secret signing every access token — generate your own
+      # rather than reusing anything that's ever been shared in chat or a
+      # local .env file. One way: `python -c "import secrets; print(secrets.token_hex(32))"`
+      # run in your own terminal, pasted directly into the Render dashboard.
+      - key: JWT_SECRET
+        sync: false
+      # Comma-separated list of frontend origins allowed to call this API,
+      # e.g. https://mediapulse.vercel.app — update once the Vercel
+      # deployment's real URL is known; see the CORS note in app/main.py.
+      - key: ALLOWED_ORIGINS
+        sync: false

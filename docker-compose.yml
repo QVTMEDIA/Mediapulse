@@ -7,3 +7,37 @@ services:
     environment:
       GRP_APP_PASSWORD: ${GRP_APP_PASSWORD:-}
     restart: unless-stopped
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mediapulse}
+      POSTGRES_USER: ${POSTGRES_USER:-mediapulse}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mediapulse}
+    ports:
+      - "5432:5432"
+    volumes:
+      - mediapulse_pgdata:/var/lib/postgresql/data
+      # Applied automatically on first container start only (Postgres image
+      # behavior) - re-run manually against an existing volume for schema changes.
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    restart: unless-stopped
+
+  api:
+    # Context is the repo root, not services/api — the image needs
+    # grp_calculator.py from the root alongside services/api/app; see the
+    # note at the top of services/api/Dockerfile.
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    image: mediapulse-api:local
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mediapulse}:${POSTGRES_PASSWORD:-mediapulse}@postgres:5432/${POSTGRES_DB:-mediapulse}
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  mediapulse_pgdata:

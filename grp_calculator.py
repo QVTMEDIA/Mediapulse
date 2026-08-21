@@ -252,7 +252,17 @@ def normalize_day(v):
 
 
 def derive_day(date_series):
-    dt = pd.to_datetime(date_series, errors='coerce', dayfirst=True)
+    # ISO (YYYY-MM-DD) is unambiguous, so it's parsed first and separately:
+    # dayfirst=True (needed below for DD/MM/YYYY-style inputs) otherwise
+    # silently misreads an ISO date whenever day and month are both <=12
+    # (e.g. "2026-01-05" becomes May 1st) — pandas documents this as
+    # expected dayfirst behavior, but it's a real source of a wrong derived
+    # weekday, and therefore a wrong match key, for any upload whose Date
+    # column happens to be ISO-formatted with no separate Day column.
+    iso = pd.to_datetime(date_series, format='%Y-%m-%d', errors='coerce')
+    remaining = date_series.where(iso.isna())
+    other = pd.to_datetime(remaining, errors='coerce', dayfirst=True)
+    dt = iso.fillna(other)
     return dt.dt.day_name().str[:3].str.upper().fillna('')
 
 

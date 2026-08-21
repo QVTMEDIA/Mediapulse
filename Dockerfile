@@ -15,7 +15,7 @@ RUN addgroup --system app && adduser --system --ingroup app app
 COPY requirements.txt .
 RUN python -m pip install --upgrade pip && python -m pip install -r requirements.txt
 
-COPY app.py grp_calculator.py README.md ./
+COPY app.py grp_calculator.py project_store.py README.md ./
 COPY sample_brand_report.xlsx sample_ratings.xlsx ./
 COPY .streamlit/secrets.toml.example .streamlit/secrets.toml.example
 

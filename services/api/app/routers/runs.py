@@ -1,0 +1,240 @@
+from fastapi import APIRouter, Depends, HTTPException
+
+from ..auth import get_current_user
+from ..calculations import compute_run
+from ..repositories.brands import BrandsRepository, get_brands_repository
+from ..repositories.calculations import CalculationsRepository, get_calculations_repository
+from ..repositories.matches import MatchesRepository, get_matches_repository
+from ..repositories.projects import ProjectsRepository, get_projects_repository
+from ..repositories.ratings import RatingsRepository, get_ratings_repository
+from ..repositories.uploads import UploadsRepository, get_uploads_repository
+from ..schemas.calculations import (
+    BrandShareOut,
+    GrpCalculationRowOut,
+    GrpRunSummaryOut,
+    ProgrammeShareOut,
+    StationShareOut,
+    TrendPointOut,
+)
+
+router = APIRouter(prefix='/api/projects/{project_id}', tags=['calculation'], dependencies=[Depends(get_current_user)])
+
+
+def _run_to_out(record) -> GrpRunSummaryOut:
+    return GrpRunSummaryOut(
+        run_id=record.id,
+        project_id=record.project_id,
+        total_brands=record.total_brands,
+        total_spots=record.total_spots,
+        total_grps=record.total_grps,
+        matched_rows=record.matched_rows,
+        unmatched_rows=record.unmatched_rows,
+        is_current=record.is_current,
+        generated_at=record.generated_at,
+    )
+
+
+@router.post('/calculate', response_model=GrpRunSummaryOut, status_code=201)
+def calculate(
+    project_id: str,
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+    uploads_repo: UploadsRepository = Depends(get_uploads_repository),
+    ratings_repo: RatingsRepository = Depends(get_ratings_repository),
+    matches_repo: MatchesRepository = Depends(get_matches_repository),
+    calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
+):
+    """Ensures matches are computed (same lazy-compute as GET .../matches,
+    so calling this directly without having called GET .../matches first
+    still works), then calculates a new run. Every call creates a new run —
+    there's no dedup/"nothing changed" short-circuit yet, so recalculating
+    an unchanged project produces a second identical-looking run."""
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+
+    media_activity = uploads_repo.list_media_activity(project_id)
+    rating_rows = ratings_repo.list_project_rating_rows(project_id)
+    match_records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows)
+
+    match_by_activity_id = {match.media_activity_id: match for match in match_records}
+    rating_by_id = {rating.id: rating for rating in rating_rows}
+
+    result = compute_run(media_activity, match_by_activity_id, rating_by_id)
+    run_record = calculations_repo.create_run(project_id, result)
+    return _run_to_out(run_record)
+
+
+@router.get('/runs', response_model=list[GrpRunSummaryOut])
+def list_runs(
+    project_id: str,
+    calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+):
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    return [_run_to_out(record) for record in calculations_repo.list_runs(project_id)]
+
+
+@router.get('/runs/latest', response_model=GrpRunSummaryOut)
+def get_latest_run(
+    project_id: str,
+    calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+):
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    record = calculations_repo.get_latest_run(project_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail='No runs yet for this project')
+    return _run_to_out(record)
+
+
+@router.get('/runs/{run_id}/brand-shares', response_model=list[BrandShareOut])
+def get_brand_shares(
+    project_id: str,
+    run_id: str,
+    calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
+    brands_repo: BrandsRepository = Depends(get_brands_repository),
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+):
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    shares = calculations_repo.list_brand_shares(project_id, run_id)
+    if shares is None:
+        raise HTTPException(status_code=404, detail='Run not found for this project')
+
+    results = []
+    for share in shares:
+        brand = brands_repo.get_brand(project_id, share.brand_id)
+        results.append(BrandShareOut(
+            run_id=share.run_id,
+            brand_id=share.brand_id,
+            brand=brand.name if brand else 'Unknown brand',
+            total_grps=share.total_grps,
+            tv_grps=share.tv_grps,
+            radio_grps=share.radio_grps,
+            sov=share.sov,
+            spots=share.spots,
+            avg_rating=share.avg_rating,
+        ))
+    return results
+
+
+@router.get('/runs/{run_id}/calculations', response_model=list[GrpCalculationRowOut])
+def get_calculations(
+    project_id: str,
+    run_id: str,
+    calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
+    brands_repo: BrandsRepository = Depends(get_brands_repository),
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+):
+    """Not in API_CONTRACT.md's original route list — added because the spot-
+    level GRP screen in PRODUCT_ROADMAP.md ("every calculated number traces
+    back to its inputs") needs somewhere to read grp_calculations back out
+    row by row; only the brand-shares aggregate was exposed before this."""
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    calculations = calculations_repo.list_calculations(project_id, run_id)
+    if calculations is None:
+        raise HTTPException(status_code=404, detail='Run not found for this project')
+
+    results = []
+    for row in calculations:
+        brand = brands_repo.get_brand(project_id, row.brand_id)
+        results.append(GrpCalculationRowOut(
+            grp_calculation_id=row.id,
+            run_id=row.run_id,
+            media_activity_id=row.media_activity_id,
+            brand_id=row.brand_id,
+            brand=brand.name if brand else 'Unknown brand',
+            station=row.station,
+            programme=row.programme,
+            day=row.day,
+            medium=row.medium,
+            spots=row.spots,
+            rating=row.rating,
+            grp=row.grp,
+            calculated_at=row.calculated_at,
+        ))
+    return results
+
+
+@router.get('/runs/{run_id}/stations', response_model=list[StationShareOut])
+def get_station_shares(
+    project_id: str,
+    run_id: str,
+    calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
+    brands_repo: BrandsRepository = Depends(get_brands_repository),
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+):
+    """GRP/spots per (brand, station) for a run — which stations a
+    competitor's media weight is actually coming from, per
+    PRODUCT_ROADMAP.md's Stations screen. Reuses the grp_by_station view
+    (db/schema.sql) rather than re-deriving the join in Python."""
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    shares = calculations_repo.list_station_shares(project_id, run_id)
+    if shares is None:
+        raise HTTPException(status_code=404, detail='Run not found for this project')
+
+    results = []
+    for share in shares:
+        brand = brands_repo.get_brand(project_id, share.brand_id)
+        results.append(StationShareOut(
+            run_id=share.run_id, brand_id=share.brand_id, brand=brand.name if brand else 'Unknown brand',
+            station=share.station, total_grps=share.total_grps, spots=share.spots,
+        ))
+    return results
+
+
+@router.get('/runs/{run_id}/programmes', response_model=list[ProgrammeShareOut])
+def get_programme_shares(
+    project_id: str,
+    run_id: str,
+    calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
+    brands_repo: BrandsRepository = Depends(get_brands_repository),
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+):
+    """GRP/spots per (brand, programme) for a run — the Programmes screen's
+    contribution breakdown, per PRODUCT_ROADMAP.md."""
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    shares = calculations_repo.list_programme_shares(project_id, run_id)
+    if shares is None:
+        raise HTTPException(status_code=404, detail='Run not found for this project')
+
+    results = []
+    for share in shares:
+        brand = brands_repo.get_brand(project_id, share.brand_id)
+        results.append(ProgrammeShareOut(
+            run_id=share.run_id, brand_id=share.brand_id, brand=brand.name if brand else 'Unknown brand',
+            programme=share.programme, total_grps=share.total_grps, spots=share.spots,
+        ))
+    return results
+
+
+@router.get('/runs/{run_id}/trend', response_model=list[TrendPointOut])
+def get_trend(
+    project_id: str,
+    run_id: str,
+    calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
+    brands_repo: BrandsRepository = Depends(get_brands_repository),
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+):
+    """Weekly GRP/spots per brand for a run, grouped by the Monday-start
+    week of each matched row's media_activity.activity_date. Rows with no
+    activity_date (most uploads today don't have a Date column mapped)
+    are excluded rather than bucketed under some placeholder week."""
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    points = calculations_repo.list_trend(project_id, run_id)
+    if points is None:
+        raise HTTPException(status_code=404, detail='Run not found for this project')
+
+    results = []
+    for point in points:
+        brand = brands_repo.get_brand(project_id, point.brand_id)
+        results.append(TrendPointOut(
+            run_id=point.run_id, brand_id=point.brand_id, brand=brand.name if brand else 'Unknown brand',
+            week_start=point.week_start, total_grps=point.total_grps, spots=point.spots,
+        ))
+    return results

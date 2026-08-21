@@ -1,0 +1,21 @@
+from datetime import datetime
+from typing import Optional
+
+from .common import CamelModel
+
+
+class RatingMatchOut(CamelModel):
+    rating_match_id: str
+    media_activity_id: str
+    matched_rating_id: Optional[str] = None
+    match_status: str  # 'exact' | 'suggested' | 'unmatched' | 'manual'
+    match_confidence: Optional[float] = None
+    match_key: str
+    corrected_at: Optional[datetime] = None
+
+
+class MatchCorrection(CamelModel):
+    # None means "manually confirmed as unmatched" — distinct from the
+    # algorithm having found nothing (match_status stays 'manual' either way,
+    # so a human decision is never indistinguishable from an unreviewed row).
+    matched_rating_id: Optional[str] = None

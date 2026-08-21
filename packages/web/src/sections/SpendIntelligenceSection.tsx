@@ -3,7 +3,7 @@ import { AlertTriangle, DollarSign, PieChart } from 'lucide-react';
 import { ApiError, getLatestRun, listBrandShares } from '../api/client';
 import type { BrandShare, GrpRunSummary, Project } from '../api/contracts';
 
-function formatNumber(value: number) {
+export function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value);
 }
 
@@ -13,15 +13,19 @@ function formatNumber(value: number) {
 // ReportsSection's spot-efficiency "weak inventory" flag (that one catches
 // GRP too low for the spend; this one catches spend too high for the GRP).
 // Deliberately conservative for the same reason: a false "overpriced" flag
-// on a real advertiser's real campaign has real reputational cost.
-const HIGH_COST_RATIO = 1.5;
-const HIGH_COST_MIN_SPOTS = 5;
+// on a real advertiser's real campaign has real reputational cost. Exported
+// so OverviewSection's "Reading of the Period" narrative flags the exact
+// same brand this screen's table would, rather than drifting out of sync
+// with a second, subtly different threshold.
+export const HIGH_COST_RATIO = 1.5;
+export const HIGH_COST_MIN_SPOTS = 5;
 
 // Same shape as OverviewSection's BrandShareRow, but the bar (and the
 // number it's sized by) tracks spend instead of GRPs — a brand can lead
 // SOV while trailing spend share, or vice versa, since spend counts every
-// uploaded row regardless of match status.
-function BrandSpendRow({ share, maxSpend }: { share: BrandShare; maxSpend: number }) {
+// uploaded row regardless of match status. Exported for OverviewSection's
+// "Share of Expenditure" panel, which renders the identical row shape.
+export function BrandSpendRow({ share, maxSpend }: { share: BrandShare; maxSpend: number }) {
   const width = maxSpend ? `${Math.max((share.totalSpend / maxSpend) * 100, 3)}%` : '3%';
   const mediumsPresent = [share.tvSpend, share.cableTvSpend, share.radioSpend].filter((s) => s > 0).length;
   const isMixedMedia = mediumsPresent >= 2;

@@ -1,22 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, BarChart3, Gauge } from 'lucide-react';
+import { AlertTriangle, BarChart3, Gauge, PieChart } from 'lucide-react';
 import { ApiError, getLatestRun, listBrandShares, listSpotEfficiency } from '../api/client';
 import type { BrandShare, GrpRunSummary, Project, SpotEfficiency } from '../api/contracts';
-
-function formatNumber(value: number) {
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value);
-}
+import { BrandSpendRow, formatNumber, HIGH_COST_MIN_SPOTS, HIGH_COST_RATIO } from './SpendIntelligenceSection';
 
 // Moved from App.tsx's "Projects" tab, which used to double as the
 // dashboard — PRODUCT_ROADMAP.md's Overview row always described this as
 // its own screen ("Executive GRP/SOV dashboard"), separate from project
 // list/management. Not duplicated: App.tsx's Projects tab no longer fetches
-// or renders any of this.
+// or renders any of this. Only shows SOV now — SOE moved to its own
+// "Share of Expenditure" panel (BrandSpendRow, imported) once this screen
+// split GRP-weight and spend-weight into two side-by-side panels rather
+// than one combined list.
 function BrandShareRow({ share, maxGrp }: { share: BrandShare; maxGrp: number }) {
   const width = maxGrp ? `${Math.max((share.totalGrps / maxGrp) * 100, 3)}%` : '3%';
-  // Split the bar itself by TV/Cable TV/Radio GRP share, not just report the
-  // numbers in the caption — tvGrps/cableTvGrps/radioGrps summed to
-  // totalGrps, this is the first place any of them gets rendered anywhere.
   const mediumsPresent = [share.tvGrps, share.cableTvGrps, share.radioGrps].filter((g) => g > 0).length;
   const isMixedMedia = mediumsPresent >= 2;
   const tvShare = share.totalGrps > 0 ? (share.tvGrps / share.totalGrps) * 100 : 100;
@@ -30,15 +27,7 @@ function BrandShareRow({ share, maxGrp }: { share: BrandShare; maxGrp: number })
     <div className="brand-row">
       <div className="brand-line">
         <span>{share.brand}</span>
-        <span className="brand-share-metrics">
-          <strong>{share.sov.toFixed(1)}% SOV</strong>
-          {/* SOE tracks spend, not GRPs — a brand can lead SOV while trailing
-              SOE (or vice versa) since spend counts every uploaded row,
-              matched or not. Only shown once spend data exists for this
-              category, so an all-null-cost project doesn't render a
-              meaningless "0.0% SOE" on every brand. */}
-          {share.totalSpend > 0 ? <strong className="soe-value">{share.soe.toFixed(1)}% SOE</strong> : null}
-        </span>
+        <strong>{share.sov.toFixed(1)}% SOV</strong>
       </div>
       <div className="bar-track" aria-label={`${share.brand} GRP contribution`}>
         {isMixedMedia ? (
@@ -57,10 +46,91 @@ function BrandShareRow({ share, maxGrp }: { share: BrandShare; maxGrp: number })
           ? ` (TV ${share.tvGrps.toFixed(1)}${share.cableTvGrps > 0 ? ` · Cable TV ${share.cableTvGrps.toFixed(1)}` : ''} · Radio ${share.radioGrps.toFixed(1)})`
           : ''}
         {share.avgRating !== null ? ` | avg rating ${share.avgRating.toFixed(2)}` : ''}
-        {share.totalSpend > 0 ? ` | spend ${formatNumber(share.totalSpend)}` : ''}
       </small>
     </div>
   );
+}
+
+// A short, plain-English synthesis of the numbers already on this screen —
+// not new data, just the comparisons a human would draw by eyeballing the
+// SOV/SOE panels and quietly doing the division themselves. Every sentence
+// is derived straight from BrandShare fields already fetched; nothing here
+// calls a new endpoint. Returns [] (and the panel doesn't render at all)
+// when there isn't enough signal for a sentence to mean anything — e.g. a
+// project with no spend data yet has nothing to say about efficiency.
+function buildReadingOfThePeriod(brandShares: BrandShare[]): string[] {
+  const insights: string[] = [];
+  const withSpendAndGrp = brandShares.filter((share) => share.totalSpend > 0 && share.totalGrps > 0);
+
+  // Efficiency leader: converts a smaller share of spend into a larger
+  // share of voice than its spend alone would predict (sov > soe).
+  const efficient = withSpendAndGrp
+    .map((share) => ({ share, gap: share.sov - share.soe }))
+    .filter((row) => row.gap > 0)
+    .sort((a, b) => b.gap - a.gap);
+  if (efficient.length > 0) {
+    const leader = efficient[0];
+    const qualifier = efficient.length === 1
+      ? 'the only brand in the set buying above the category efficiency line'
+      : `the strongest of ${efficient.length} brands buying above the category efficiency line`;
+    insights.push(
+      `${leader.share.brand} converts ${leader.share.soe.toFixed(0)}% of category spend into ${leader.share.sov.toFixed(0)}% of category voice, ${qualifier}.`,
+    );
+  }
+
+  // Cost outlier: same threshold Spend Intelligence's "Overpriced" flag
+  // uses, so this sentence always names a brand that screen would also
+  // flag — never a second, quietly different bar.
+  const categorySpend = brandShares.reduce((sum, share) => sum + share.totalSpend, 0);
+  const categoryGrps = brandShares.reduce((sum, share) => sum + share.totalGrps, 0);
+  const categoryCostPerGrp = categoryGrps > 0 ? categorySpend / categoryGrps : null;
+  if (categoryCostPerGrp !== null) {
+    const overpriced = withSpendAndGrp
+      .filter((share) => share.spots >= HIGH_COST_MIN_SPOTS)
+      .map((share) => ({ share, costPerGrp: share.totalSpend / share.totalGrps }))
+      .filter((row) => row.costPerGrp > categoryCostPerGrp * HIGH_COST_RATIO)
+      .sort((a, b) => b.costPerGrp - a.costPerGrp);
+    if (overpriced.length > 0) {
+      const worst = overpriced[0];
+      const premiumPct = (worst.costPerGrp / categoryCostPerGrp - 1) * 100;
+      // Which medium is driving the premium: whichever one takes a
+      // meaningfully bigger slice of this brand's spend than of its GRPs.
+      const mediums = [
+        { name: 'TV', spend: worst.share.tvSpend, grp: worst.share.tvGrps },
+        { name: 'Cable TV', spend: worst.share.cableTvSpend, grp: worst.share.cableTvGrps },
+        { name: 'Radio', spend: worst.share.radioSpend, grp: worst.share.radioGrps },
+      ];
+      const driver = mediums
+        .map((medium) => ({
+          name: medium.name,
+          gap: medium.spend / worst.share.totalSpend - medium.grp / worst.share.totalGrps,
+        }))
+        .sort((a, b) => b.gap - a.gap)[0];
+      const driverClause = driver.gap > 0.15 ? `, driven by a ${driver.name.toLowerCase()}-heavy spend mix` : '';
+      insights.push(
+        `${worst.share.brand} pays ${premiumPct.toFixed(0)}% more per rating point than the category average${driverClause}.`,
+      );
+    }
+  }
+
+  // Medium mix: is Cable TV over- or under-delivering relative to its own
+  // share of category spend?
+  const cableSpend = brandShares.reduce((sum, share) => sum + share.cableTvSpend, 0);
+  if (categorySpend > 0 && cableSpend > 0) {
+    const cableSpendSharePct = (cableSpend / categorySpend) * 100;
+    const cableGrps = brandShares.reduce((sum, share) => sum + share.cableTvGrps, 0);
+    const cableGrpSharePct = categoryGrps > 0 ? (cableGrps / categoryGrps) * 100 : 0;
+    const comparison = cableGrpSharePct > cableSpendSharePct + 1
+      ? 'outperforming its spend weight'
+      : cableGrpSharePct < cableSpendSharePct - 1
+        ? 'underperforming its spend weight'
+        : 'roughly matching its spend weight';
+    insights.push(
+      `Cable TV carries ${cableSpendSharePct.toFixed(0)}% of category spend and ${cableGrpSharePct.toFixed(0)}% of delivered GRPs, ${comparison}.`,
+    );
+  }
+
+  return insights;
 }
 
 export default function OverviewSection({ project }: { project: Project | null }) {
@@ -117,13 +187,17 @@ export default function OverviewSection({ project }: { project: Project | null }
   }
 
   const maxGrp = Math.max(1, ...brandShares.map((share) => share.totalGrps));
+  const maxSpend = Math.max(1, ...brandShares.map((share) => share.totalSpend));
   const matchedActivityPct = run && run.matchedRows + run.unmatchedRows > 0
     ? (run.matchedRows / (run.matchedRows + run.unmatchedRows)) * 100
     : null;
+  const categoryCostPerGrp = run && run.totalGrps > 0 ? run.totalSpend / run.totalGrps : null;
   // brandShares arrives sorted by totalGrps descending (both repository
   // backends sort it that way), so the first entry is already the leader.
   const leadingBrand = brandShares[0] ?? null;
+  const spendRanked = [...brandShares].sort((a, b) => b.totalSpend - a.totalSpend);
   const weakBuys = spotEfficiency.filter((row) => row.isWeak);
+  const readingInsights = buildReadingOfThePeriod(brandShares);
 
   return (
     <>
@@ -155,9 +229,18 @@ export default function OverviewSection({ project }: { project: Project | null }
               <small>{run.matchedRows} matched, {run.unmatchedRows} unmatched</small>
             </div>
             <div className="metric-panel">
+              <span>Cost per GRP</span>
+              <strong>{categoryCostPerGrp !== null ? formatNumber(categoryCostPerGrp) : '—'}</strong>
+              <small>category average</small>
+            </div>
+            <div className="metric-panel">
               <span>Leading Brand</span>
               <strong>{leadingBrand ? leadingBrand.brand : '—'}</strong>
-              <small>{leadingBrand ? `${leadingBrand.sov.toFixed(1)}% SOV` : ' '}</small>
+              <small>
+                {leadingBrand
+                  ? `${leadingBrand.sov.toFixed(1)}% SOV${leadingBrand.totalSpend > 0 ? ` · ${leadingBrand.soe.toFixed(1)}% SOE` : ''}`
+                  : ' '}
+              </small>
             </div>
             <div className="metric-panel">
               <span>Total Spend</span>
@@ -170,8 +253,8 @@ export default function OverviewSection({ project }: { project: Project | null }
             <div className="panel">
               <div className="panel-header">
                 <div>
-                  <h2>Brand SOV</h2>
-                  <p>GRP-by-brand ranking, Share of Voice, and TV/Cable TV/Radio split</p>
+                  <h2>Share of Voice</h2>
+                  <p>GRP-by-brand ranking and TV/Cable TV/Radio split</p>
                 </div>
                 <BarChart3 size={20} aria-hidden />
               </div>
@@ -197,34 +280,63 @@ export default function OverviewSection({ project }: { project: Project | null }
             <div className="panel">
               <div className="panel-header">
                 <div>
-                  <h2>Weak Inventory</h2>
-                  <p>
-                    {weakBuys.length > 0
-                      ? `${weakBuys.length} brand/station buy${weakBuys.length === 1 ? '' : 's'} flagged`
-                      : 'No weak-inventory buys flagged for this run'}
-                  </p>
+                  <h2>Share of Expenditure</h2>
+                  <p>Spend-by-brand ranking and TV/Cable TV/Radio split</p>
                 </div>
-                <AlertTriangle size={20} aria-hidden />
+                <PieChart size={20} aria-hidden />
               </div>
               <div className="brand-list">
-                {weakBuys.length === 0 && <p className="empty-state">Nothing flagged.</p>}
-                {weakBuys.slice(0, 5).map((row) => (
-                  <div className="brand-row" key={`${row.brandId}-${row.station}`}>
-                    <div className="brand-line">
-                      <span>{row.brand} · {row.station}</span>
-                      <strong>{row.grpPerSpot.toFixed(2)} GRP/spot</strong>
-                    </div>
-                    <small>{row.spots} spots | {row.totalGrps.toFixed(1)} GRPs total</small>
-                  </div>
-                ))}
-                {weakBuys.length > 5 && (
-                  <p className="field-hint">
-                    <Gauge size={14} aria-hidden /> {weakBuys.length - 5} more on the Reports screen's Spot Efficiency panel.
-                  </p>
+                {brandShares.every((share) => share.totalSpend === 0) && (
+                  <p className="empty-state">No spend data yet — upload a report with a Cost or Rate column.</p>
                 )}
+                {spendRanked
+                  .filter((share) => share.totalSpend > 0)
+                  .map((share) => (
+                    <BrandSpendRow share={share} maxSpend={maxSpend} key={share.brandId} />
+                  ))}
               </div>
             </div>
           </section>
+
+          {readingInsights.length > 0 && (
+            <div className="panel reading-panel">
+              <span className="reading-eyebrow">Reading of the period</span>
+              {readingInsights.map((sentence, index) => (
+                <p key={index}>{sentence}</p>
+              ))}
+            </div>
+          )}
+
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>Weak Inventory</h2>
+                <p>
+                  {weakBuys.length > 0
+                    ? `${weakBuys.length} brand/station buy${weakBuys.length === 1 ? '' : 's'} flagged`
+                    : 'No weak-inventory buys flagged for this run'}
+                </p>
+              </div>
+              <AlertTriangle size={20} aria-hidden />
+            </div>
+            <div className="brand-list">
+              {weakBuys.length === 0 && <p className="empty-state">Nothing flagged.</p>}
+              {weakBuys.slice(0, 5).map((row) => (
+                <div className="brand-row" key={`${row.brandId}-${row.station}`}>
+                  <div className="brand-line">
+                    <span>{row.brand} · {row.station}</span>
+                    <strong>{row.grpPerSpot.toFixed(2)} GRP/spot</strong>
+                  </div>
+                  <small>{row.spots} spots | {row.totalGrps.toFixed(1)} GRPs total</small>
+                </div>
+              ))}
+              {weakBuys.length > 5 && (
+                <p className="field-hint">
+                  <Gauge size={14} aria-hidden /> {weakBuys.length - 5} more on the Reports screen's Spot Efficiency panel.
+                </p>
+              )}
+            </div>
+          </div>
         </>
       )}
     </>

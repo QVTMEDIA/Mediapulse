@@ -332,6 +332,32 @@ button:disabled {
   padding: 16px;
 }
 
+.reading-panel {
+  border-left: 3px solid var(--green);
+  background: #f2f7f5;
+  padding: 16px 20px;
+  display: grid;
+  gap: 10px;
+}
+
+.reading-eyebrow {
+  color: var(--green-dark);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.reading-panel p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.reading-panel strong {
+  color: var(--ink);
+}
+
 .panel-header {
   display: flex;
   justify-content: space-between;

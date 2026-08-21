@@ -262,7 +262,12 @@ button:disabled {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* auto-fit rather than a fixed column count — this class is shared by
+     panels with anywhere from 2 (Data Quality) to 5 (workspace metrics,
+     since Total Spend joined GRPs/matched/brands) metric-panel children,
+     and a fixed count leaves empty trailing columns when fewer are
+     rendered. */
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -452,6 +457,16 @@ button:disabled {
 .brand-line span,
 .brand-line strong {
   font-size: 14px;
+}
+
+.brand-share-metrics {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.soe-value {
+  color: var(--blue);
 }
 
 .bar-track {

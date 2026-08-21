@@ -80,6 +80,10 @@ export interface GrpRunSummary {
   totalBrands: number;
   totalSpots: number;
   totalGrps: number;
+  // Sum of resolved media spend across every activity row in this run,
+  // matched or not — see BrandShare.totalSpend for why this differs from
+  // totalGrps, which only counts matched rows.
+  totalSpend: number;
   matchedRows: number;
   unmatchedRows: number;
   // True for the run currently shown everywhere as "latest" — the newest
@@ -98,6 +102,11 @@ export interface BrandShare {
   sov: number;
   spots: number;
   avgRating: number | null;
+  // Share of Expenditure — brand spend / category spend, summed across
+  // every one of the brand's media_activity rows regardless of match
+  // status (unlike totalGrps/sov, which only count matched rows).
+  totalSpend: number;
+  soe: number;
 }
 
 export interface StationShare {
@@ -174,6 +183,10 @@ export interface MediaActivityRow {
   day: string;
   programme: string;
   spots: number;
+  // Resolved media spend for this row (Share of Expenditure) — null means
+  // no cost/rate column was ever mapped for this upload, not a confirmed
+  // zero spend.
+  cost: number | null;
   sourceFile: string;
 }
 
@@ -326,16 +339,17 @@ export const sampleWorkspace: MediapulseWorkspace = {
     totalBrands: 4,
     totalSpots: 202,
     totalGrps: 113.7,
+    totalSpend: 8_420_000,
     matchedRows: 202,
     unmatchedRows: 0,
     isCurrent: true,
     generatedAt: '2026-08-19 15:28:00',
   },
   brandShares: [
-    { runId: 'RUN-001', brandId: 'BRAND-A', brand: 'Brand A', totalGrps: 42.3, tvGrps: 42.3, radioGrps: 0, sov: 37.2, spots: 64, avgRating: 0.66 },
-    { runId: 'RUN-001', brandId: 'BRAND-B', brand: 'Brand B', totalGrps: 31.8, tvGrps: 20.1, radioGrps: 11.7, sov: 28.0, spots: 52, avgRating: 0.61 },
-    { runId: 'RUN-001', brandId: 'BRAND-C', brand: 'Brand C', totalGrps: 23.5, tvGrps: 23.5, radioGrps: 0, sov: 20.7, spots: 45, avgRating: 0.52 },
-    { runId: 'RUN-001', brandId: 'BRAND-D', brand: 'Brand D', totalGrps: 16.1, tvGrps: 9.4, radioGrps: 6.7, sov: 14.1, spots: 41, avgRating: 0.39 },
+    { runId: 'RUN-001', brandId: 'BRAND-A', brand: 'Brand A', totalGrps: 42.3, tvGrps: 42.3, radioGrps: 0, sov: 37.2, spots: 64, avgRating: 0.66, totalSpend: 3_120_000, soe: 37.1 },
+    { runId: 'RUN-001', brandId: 'BRAND-B', brand: 'Brand B', totalGrps: 31.8, tvGrps: 20.1, radioGrps: 11.7, sov: 28.0, spots: 52, avgRating: 0.61, totalSpend: 2_360_000, soe: 28.0 },
+    { runId: 'RUN-001', brandId: 'BRAND-C', brand: 'Brand C', totalGrps: 23.5, tvGrps: 23.5, radioGrps: 0, sov: 20.7, spots: 45, avgRating: 0.52, totalSpend: 1_740_000, soe: 20.7 },
+    { runId: 'RUN-001', brandId: 'BRAND-D', brand: 'Brand D', totalGrps: 16.1, tvGrps: 9.4, radioGrps: 6.7, sov: 14.1, spots: 41, avgRating: 0.39, totalSpend: 1_200_000, soe: 14.2 },
   ],
   validationIssues: [
     {

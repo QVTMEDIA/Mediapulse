@@ -265,6 +265,14 @@ create table media_activity (
   product text,
   source_file text,
   source_row_number int,
+  -- Resolved media spend for this row (Share of Expenditure) — from an
+  -- uploaded Cost column directly, or Spots x an uploaded Rate column;
+  -- see grp_calculator.resolve_row_cost(). NULL means no spend data was
+  -- ever mapped for this row, distinct from a confirmed zero spend.
+  -- Independent of match_key/rating_matches on purpose: spend is a fact
+  -- about the upload itself, known whether or not a rating is ever found
+  -- for it — unlike GRP, it doesn't wait on a match.
+  cost numeric(14,2),
   -- Trigger-maintained, not a generated column — see the comment above the
   -- ratings table for why.
   match_key text
@@ -332,6 +340,11 @@ create table grp_runs (
   total_brands int not null default 0,
   total_spots int not null default 0,
   total_grps numeric(14,3) not null default 0,
+  -- Category-wide media spend for this run, summed from media_activity.cost
+  -- across every one of the project's brands (matched or not — see the
+  -- comment on media_activity.cost). Backs Share of Expenditure the same
+  -- way total_grps backs Share of Voice.
+  total_spend numeric(14,2) not null default 0,
   matched_rows int not null default 0,
   unmatched_rows int not null default 0,
   is_current boolean not null default true,
@@ -365,6 +378,14 @@ create table brand_shares (
   sov numeric(6,3) not null default 0,
   spots int not null default 0,
   avg_rating numeric(7,3),
+  -- This brand's total media_activity.cost for the run's project, and its
+  -- share of the run's total_spend (grp_runs) — Share of Expenditure,
+  -- computed the same shape as sov but from spend instead of GRP. Includes
+  -- every one of the brand's rows regardless of match status, unlike
+  -- total_grps/sov, which only count matched rows — spend doesn't wait on
+  -- a rating match the way GRP does.
+  total_spend numeric(14,2) not null default 0,
+  soe numeric(6,3) not null default 0,
   primary key (run_id, brand_id)
 );
 

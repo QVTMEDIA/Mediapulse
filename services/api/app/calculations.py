@@ -49,6 +49,11 @@ class BrandShareResult:
     sov: float
     spots: int
     avg_rating: Optional[float]
+    # Share of Expenditure — see the comment on brand_shares.total_spend in
+    # db/schema.sql for why this is summed from every one of the brand's
+    # media_activity rows, not just the matched/calculable ones GRP uses.
+    total_spend: float
+    soe: float
 
 
 @dataclass
@@ -56,13 +61,14 @@ class RunResult:
     total_brands: int
     total_spots: int
     total_grps: float
+    total_spend: float
     matched_rows: int
     unmatched_rows: int
     calculated_rows: List[CalculatedRow]
     brand_shares: List[BrandShareResult]
 
 
-EMPTY_RUN = RunResult(0, 0, 0.0, 0, 0, [], [])
+EMPTY_RUN = RunResult(0, 0, 0.0, 0.0, 0, 0, [], [])
 
 
 def compute_run(media_activity_records, match_by_activity_id: Dict[str, object], rating_by_id: Dict[str, object]) -> RunResult:
@@ -71,6 +77,7 @@ def compute_run(media_activity_records, match_by_activity_id: Dict[str, object],
 
     calculated_rows: List[CalculatedRow] = []
     ratings_by_brand: Dict[str, List[float]] = {}
+    spend_by_brand: Dict[str, float] = {}
     calc_frame_records = []
     matched_rows = 0
     unmatched_rows = 0
@@ -96,6 +103,13 @@ def compute_run(media_activity_records, match_by_activity_id: Dict[str, object],
             unmatched_rows += 1
             grp = None
 
+        # Spend is summed for every row regardless of is_calculable — money
+        # was spent on a spot whether or not a rating was ever found for
+        # it, unlike GRP, which only exists for matched rows. A row with no
+        # cost/rate ever mapped has activity.cost = None, contributing 0.
+        if activity.cost is not None:
+            spend_by_brand[activity.brand_id] = spend_by_brand.get(activity.brand_id, 0.0) + activity.cost
+
         calc_frame_records.append({
             'Brand': activity.brand_id,
             'Medium': activity.medium,
@@ -106,11 +120,13 @@ def compute_run(media_activity_records, match_by_activity_id: Dict[str, object],
 
     media_df = pd.DataFrame(calc_frame_records)
     summary_df, category_grps, _suspicious_mediums = calc.summarize_media(media_df)
+    category_spend = sum(spend_by_brand.values())
 
     brand_shares = []
     for _, row in summary_df.iterrows():
         brand_id = row['Brand']
         ratings = ratings_by_brand.get(brand_id, [])
+        brand_spend = spend_by_brand.get(brand_id, 0.0)
         brand_shares.append(BrandShareResult(
             brand_id=brand_id,
             total_grps=float(row['Total GRPs']),
@@ -119,11 +135,14 @@ def compute_run(media_activity_records, match_by_activity_id: Dict[str, object],
             sov=float(row['GRP SOV']) * 100,
             spots=int(row['Total Spots']),
             avg_rating=(sum(ratings) / len(ratings)) if ratings else None,
+            total_spend=brand_spend,
+            soe=(brand_spend / category_spend * 100) if category_spend else 0.0,
         ))
 
     return RunResult(
         total_brands=len(brand_shares),
         total_spots=int(media_df['Spots'].sum()),
+        total_spend=category_spend,
         total_grps=float(category_grps) if category_grps else 0.0,
         matched_rows=matched_rows,
         unmatched_rows=unmatched_rows,

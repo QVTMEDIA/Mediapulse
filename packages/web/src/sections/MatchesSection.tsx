@@ -31,7 +31,10 @@ const STATUS_CLASS: Record<RatingMatch['matchStatus'], string> = {
 
 function describeActivity(row?: MediaActivityRow) {
   if (!row) return 'Activity row no longer available';
-  return `${row.station} · ${row.day} · ${row.programme || 'No programme'} · ${row.spots} spot${row.spots === 1 ? '' : 's'}`;
+  const base = `${row.station} · ${row.day} · ${row.programme || 'No programme'} · ${row.spots} spot${row.spots === 1 ? '' : 's'}`;
+  // cost is null when the upload never had a Cost/Rate column mapped —
+  // omit the clause entirely rather than showing a misleading "spend 0".
+  return row.cost !== null ? `${base} · spend ${row.cost.toLocaleString()}` : base;
 }
 
 function describeRating(row?: RatingRow) {

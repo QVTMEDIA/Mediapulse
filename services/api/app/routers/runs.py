@@ -27,6 +27,7 @@ def _run_to_out(record) -> GrpRunSummaryOut:
         total_brands=record.total_brands,
         total_spots=record.total_spots,
         total_grps=record.total_grps,
+        total_spend=record.total_spend,
         matched_rows=record.matched_rows,
         unmatched_rows=record.unmatched_rows,
         is_current=record.is_current,
@@ -115,6 +116,8 @@ def get_brand_shares(
             sov=share.sov,
             spots=share.spots,
             avg_rating=share.avg_rating,
+            total_spend=share.total_spend,
+            soe=share.soe,
         ))
     return results
 

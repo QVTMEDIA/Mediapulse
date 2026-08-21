@@ -26,6 +26,17 @@ SYNONYMS = {
     'rating': ['rating (%)', 'rating', 'ratings', 'program rating', 'programme rating', 'rating %', 'rch %', 'rch%', 'reach %', 'reach%', 'tvr', 'tvrs', 'grp', 'grps'],
     'grp': ['grp', 'grps', 'gross rating points', 'gross rating point', 'row grp', 'total grp', 'total grps'],
     'source': ['source / period', 'source', 'period', 'wave', 'survey period'],
+    # Media spend (Share of Expenditure) — two shapes real monitoring files
+    # use interchangeably: a per-spot rate (multiply by Spots for the row's
+    # cost) or an already-totaled cost/value per row. Both resolve to one
+    # 'Cost' column in build_brand_report/build_composite_report; see
+    # resolve_row_cost(). Deliberately doesn't include the bare word "rate"
+    # anywhere near 'rating' territory — "rate" and "rating" don't collide
+    # under detect_column's substring fallback (confirmed: "rate" isn't a
+    # substring of "rating" or vice versa), but keep that in mind if this
+    # list ever grows.
+    'rate': ['rate', 'unit rate', 'spot rate', 'cost per spot', 'unit cost'],
+    'cost': ['cost', 'value', 'total cost', 'total value', 'adex value', 'ad value', 'spend', 'amount'],
 }
 
 TEMPLATE_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -805,6 +816,26 @@ def build_ratings_lookup(ratings_raw, mapping, default_medium='TV'):
     return ratings, invalid_ratings, dup_keys, ratings_lookup
 
 
+def resolve_row_cost(raw, mapping, spots_values):
+    """Media spend per row, for Share of Expenditure — a 'Cost' column
+    already totaled for that row if the file has one, else Spots x a
+    per-spot 'rate' column, else NaN (no spend data at all, distinct from
+    a real zero — same reasoning as GRP being 'no rating' vs 'zero GRP').
+
+    Uses mapping.get(...) rather than mapping['cost'] on purpose: app.py
+    (the Streamlit reference product) builds its own mapping dict from
+    whatever expected_fields list a given screen passes in, which doesn't
+    include 'cost'/'rate' — a bracket lookup would KeyError there. Every
+    other field this function's siblings read (mapping['rating'], etc.) is
+    guaranteed present for the flows that call them; cost/rate are opt-in
+    everywhere, so they're the one case that needs the defensive form.
+    """
+    cost_values = pd.to_numeric(safe_col(raw, mapping.get('cost', '-- none --'), pd.NA), errors='coerce')
+    rate_values = pd.to_numeric(safe_col(raw, mapping.get('rate', '-- none --'), pd.NA), errors='coerce')
+    calculated_from_rate = spots_values * rate_values
+    return cost_values.where(cost_values.notna(), calculated_from_rate)
+
+
 def build_brand_report(raw, mapping, file_name, default_medium='TV'):
     inferred_brand = inferred_brand_name(file_name)
     brand_series = safe_col(raw, mapping['brand'], inferred_brand).fillna('').astype(str).str.strip()
@@ -825,6 +856,10 @@ def build_brand_report(raw, mapping, file_name, default_medium='TV'):
         'Channel / Station': safe_col(raw, mapping['channel']),
         'Programme / Time Band': safe_col(raw, mapping['programme']),
         'Spots': spots_values.fillna(0),
+        # NaN (not 0) when no cost/rate column was mapped at all — "no spend
+        # data" and "confirmed zero spend" are different things, same
+        # reasoning as GRP not defaulting to 0 for an unmatched row.
+        'Cost': resolve_row_cost(raw, mapping, spots_values.fillna(0)),
         'Source File': file_name,
     })
     report['Input Row'] = input_row_numbers(raw)
@@ -869,6 +904,7 @@ def build_composite_report(raw, mapping, file_name, default_medium='TV'):
         'GRP': grp_values,
         'GRP Source': direct_grp_mask.map({True: 'Uploaded GRP', False: 'Spots x Rating'}),
         'Match Status': direct_grp_mask.map({True: 'CALCULATED FROM UPLOADED GRP', False: 'CALCULATED FROM RATING'}),
+        'Cost': resolve_row_cost(raw, mapping, spots_values.fillna(0)),
         'Source File': file_name,
     })
     report['Input Row'] = input_row_numbers(raw)

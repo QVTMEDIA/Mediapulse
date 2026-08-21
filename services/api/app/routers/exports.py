@@ -144,6 +144,7 @@ def download_export(
         {
             'brand': _brand_name(s.brand_id), 'total_grps': s.total_grps, 'tv_grps': s.tv_grps,
             'radio_grps': s.radio_grps, 'sov': s.sov, 'spots': s.spots, 'avg_rating': s.avg_rating,
+            'total_spend': s.total_spend, 'soe': s.soe,
         }
         for s in brand_shares
     ]

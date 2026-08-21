@@ -15,10 +15,10 @@ import pandas as pd
 from .schemas.ratings import RatingRowIn
 
 REQUIRED_MAPPING_FIELDS = ('channel', 'programme', 'spots')
-OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day')
+OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day', 'rate', 'cost')
 
 COMPOSITE_REQUIRED_MAPPING_FIELDS = ('channel', 'programme', 'spots')
-COMPOSITE_OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day', 'rating', 'grp')
+COMPOSITE_OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day', 'rating', 'grp', 'rate', 'cost')
 
 RATINGS_REQUIRED_MAPPING_FIELDS = ('channel', 'day', 'programme', 'rating')
 RATINGS_OPTIONAL_MAPPING_FIELDS = ('medium', 'source')
@@ -61,6 +61,7 @@ class ParsedMediaRow:
     spots: int
     source_file: str
     source_row_number: Optional[int]
+    cost: Optional[float] = None
 
 
 @dataclass
@@ -99,6 +100,7 @@ def parse_brand_report(
             spots=int(row['Spots']),
             source_file=file_name,
             source_row_number=None,  # dropped by build_brand_report's issue-filtering; not worth re-deriving yet
+            cost=_clean_cost(row['Cost']),
         )
         for _, row in report.iterrows()
     ]
@@ -115,6 +117,7 @@ class ParsedCompositeRow:
     programme: str
     spots: int
     source_file: str
+    cost: Optional[float] = None
 
 
 @dataclass
@@ -162,6 +165,7 @@ def parse_composite_report(
             programme=row['Programme / Time Band'],
             spots=int(row['Spots']),
             source_file=file_name,
+            cost=_clean_cost(row['Cost']),
         )
         for _, row in report.iterrows()
         if str(row['Brand'] or '').strip()
@@ -209,6 +213,16 @@ def parse_ratings_file(
         for _, row in ratings.iterrows()
     ]
     return RatingsParseResult(rows=rows, mapping=mapping, dropped_invalid_rows=len(invalid_ratings))
+
+
+def _clean_cost(value) -> Optional[float]:
+    # NaN means no cost/rate column was ever mapped for this row (or the
+    # mapped cell itself was blank) — None, not 0.0, for the same reason
+    # grp_calculator.resolve_row_cost() returns NaN rather than 0 there:
+    # "no spend data" and "confirmed zero spend" aren't the same fact.
+    if pd.isna(value):
+        return None
+    return float(value)
 
 
 def _clean_date(value) -> Optional[date]:

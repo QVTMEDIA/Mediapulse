@@ -10,6 +10,10 @@ class GrpRunSummaryOut(CamelModel):
     total_brands: int
     total_spots: int
     total_grps: float
+    # Sum of resolved media spend across every activity row in this run,
+    # matched or not — see BrandShareOut.total_spend / db/schema.sql's
+    # comment on brand_shares.total_spend for why this differs from GRP.
+    total_spend: float
     matched_rows: int
     unmatched_rows: int
     # True for the run currently shown as "latest" — the newest run unless a
@@ -46,6 +50,11 @@ class BrandShareOut(CamelModel):
     sov: float
     spots: int
     avg_rating: Optional[float] = None
+    # Share of Expenditure — brand spend / category spend, summed across
+    # every one of the brand's media_activity rows regardless of match
+    # status (unlike total_grps/sov, which only count matched rows).
+    total_spend: float
+    soe: float
 
 
 class StationShareOut(CamelModel):

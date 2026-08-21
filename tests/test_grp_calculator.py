@@ -377,6 +377,71 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(validations['Unmatched rows'], 'Review')
         self.assertEqual(validations['Suspicious medium values'], 'OK')
 
+    def test_resolve_row_cost_prefers_direct_cost_over_rate(self):
+        raw = pd.DataFrame({
+            'Spots': [2, 3],
+            'Cost': [1000.0, pd.NA],
+            'Rate': [400.0, 250.0],
+        })
+        mapping = {'cost': 'Cost', 'rate': 'Rate'}
+        cost = calc.resolve_row_cost(raw, mapping, raw['Spots'])
+        # Row 0 has a direct Cost -> used as-is, Rate ignored even though present.
+        self.assertEqual(cost.iloc[0], 1000.0)
+        # Row 1 has no Cost -> falls back to Spots x Rate (3 x 250 = 750).
+        self.assertEqual(cost.iloc[1], 750.0)
+
+    def test_resolve_row_cost_is_nan_with_no_cost_or_rate_mapped(self):
+        raw = pd.DataFrame({'Spots': [1, 2]})
+        cost = calc.resolve_row_cost(raw, {}, raw['Spots'])
+        self.assertTrue(cost.isna().all())
+
+    def test_build_brand_report_carries_resolved_cost(self):
+        raw = pd.DataFrame({
+            'Channel': ['AIT', 'AIT'],
+            'Programme': ['Morning Show', 'Morning Show'],
+            'Day': ['Monday', 'Monday'],
+            'Spots': [1, 2],
+            'Rate': [6200, 6200],
+        })
+        mapping = {
+            'brand': '-- none --', 'medium': '-- none --', 'date': '-- none --', 'day': 'Day',
+            'channel': 'Channel', 'programme': 'Programme', 'spots': 'Spots', 'rate': 'Rate',
+        }
+        report, issues = calc.build_brand_report(raw, mapping, 'komix.csv', default_medium='Radio')
+        self.assertEqual(len(issues), 0)
+        self.assertEqual(report['Cost'].tolist(), [6200.0, 12400.0])
+
+    def test_build_composite_report_carries_resolved_cost(self):
+        raw = pd.DataFrame({
+            'Channel': ['AIT'],
+            'Programme': ['Morning Show'],
+            'Day': ['Monday'],
+            'Spots': [3],
+            'Rating': [5.0],
+            'Cost': [15000.0],
+        })
+        mapping = {
+            'brand': '-- none --', 'medium': '-- none --', 'date': '-- none --', 'day': 'Day',
+            'channel': 'Channel', 'programme': 'Programme', 'spots': 'Spots', 'rating': 'Rating',
+            'grp': '-- none --', 'cost': 'Cost',
+        }
+        report, issues = calc.build_composite_report(raw, mapping, 'composite.csv', default_medium='TV')
+        self.assertEqual(len(issues), 0)
+        self.assertEqual(report['Cost'].tolist(), [15000.0])
+
+    def test_build_report_cost_is_nan_when_no_spend_column_mapped(self):
+        # No cost/rate mapping at all -> NaN, not 0 — "no spend data" and
+        # "confirmed zero spend" are different things, same as GRP.
+        raw = pd.DataFrame({
+            'Channel': ['AIT'], 'Programme': ['Morning Show'], 'Day': ['Monday'], 'Spots': [1],
+        })
+        mapping = {
+            'brand': '-- none --', 'medium': '-- none --', 'date': '-- none --', 'day': 'Day',
+            'channel': 'Channel', 'programme': 'Programme', 'spots': 'Spots',
+        }
+        report, _issues = calc.build_brand_report(raw, mapping, 'no_spend.csv', default_medium='TV')
+        self.assertTrue(pd.isna(report['Cost'].iloc[0]))
+
 
 if __name__ == '__main__':
     unittest.main()

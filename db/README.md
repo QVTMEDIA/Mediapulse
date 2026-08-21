@@ -25,11 +25,11 @@ It implements the data model described in `PRODUCT_ROADMAP.md` and backs the ent
 | `brands` | Brands within a project (from brand/composite report uploads). |
 | `mapping_templates` | Saved column-mapping per report source, reused on future uploads from the same source. |
 | `uploads` | One row per uploaded file, with mapping outcome counts. |
-| `media_activity` | The normalized spot-level rows produced after mapping — the audit trail's `source_file`/`source_row_number` live here. |
+| `media_activity` | The normalized spot-level rows produced after mapping — the audit trail's `source_file`/`source_row_number` live here. `cost` (media spend feature) is resolved at upload time from a direct `Cost` column or `Spots x Rate`; `null` when neither was ever mapped, independent of `rating_matches`/GRP — a row can have spend with no rating match at all. |
 | `rating_matches` | Current match state (exact/suggested/unmatched/manual) per `media_activity` row. |
-| `grp_runs` | One row per calculation run. `is_current` (Phase 3) marks the run `GET /runs/latest` returns — normally the newest, but `POST /versions/{id}/restore` can pin it back to an older one without deleting anything. |
-| `grp_calculations` | Row-level GRP audit trail for a run — snapshots which `rating_match` was used, so later corrections don't rewrite history. |
-| `brand_shares` | Per-run brand rollup (GRP, SOV, TV/Radio split) backing the SOV chart and brand comparison screen. |
+| `grp_runs` | One row per calculation run. `is_current` (Phase 3) marks the run `GET /runs/latest` returns — normally the newest, but `POST /versions/{id}/restore` can pin it back to an older one without deleting anything. `total_spend` sums `media_activity.cost` across every row in the run, matched or not. |
+| `grp_calculations` | Row-level GRP audit trail for a run — snapshots which `rating_match` was used, so later corrections don't rewrite history. Deliberately carries no cost column — spend isn't gated on a match the way GRP is, so it lives on `media_activity`/`brand_shares` instead of here. |
+| `brand_shares` | Per-run brand rollup (GRP, SOV, TV/Radio split, and now Spend/SOE) backing the SOV chart and brand comparison screen. `total_spend`/`soe` are summed from **every** `media_activity` row for the brand regardless of match status — the one place this table's numbers don't all come from the same row population. |
 | `grp_by_station` / `grp_by_programme` | Views, not tables — cheap aggregates over `grp_calculations` for the Stations/Programmes screens. No need to materialize until they're a proven bottleneck. |
 | `validation_issues` | Data Quality screen feed. |
 | `project_versions` | Unused — Phase 3's `GET /api/projects/{projectId}/versions` computes version history on read from `grp_runs` instead (every run already is a version; a `grp_runs` row and its `is_current` flag are the only state a "version" needs), the same pattern `validation_issues` below uses. This table stays in the schema for a future write path (e.g. a user-supplied description per version) that doesn't exist yet, not because it's in use today. |

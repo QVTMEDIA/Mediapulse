@@ -28,4 +28,8 @@ class MediaActivityRowOut(CamelModel):
     day: str
     programme: str
     spots: int
+    # Resolved media spend for this row (Share of Expenditure) — null means
+    # no cost/rate column was ever mapped for this upload, not a confirmed
+    # zero spend. See db/schema.sql's comment on media_activity.cost.
+    cost: Optional[float] = None
     source_file: str

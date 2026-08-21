@@ -78,6 +78,7 @@ def _project_info_sheet(writer, project, run, generated_at: str):
             ('Total Brands', run.total_brands),
             ('Total Spots', run.total_spots),
             ('Total GRPs', round(run.total_grps, 2)),
+            ('Total Spend', round(run.total_spend, 2)),
             ('Matched Rows', run.matched_rows),
             ('Unmatched Rows', run.unmatched_rows),
         ]
@@ -97,10 +98,16 @@ def _grp_sov_sheet(writer, brand_shares: List[dict]):
             'SOV %': round(share['sov'], 1),
             'Spots': share['spots'],
             'Avg Rating': round(share['avg_rating'], 2) if share['avg_rating'] is not None else None,
+            'Spend': round(share['total_spend'], 2),
+            'SOE %': round(share['soe'], 1),
         }
         for share in ordered
     ])
-    _write(writer, df, ['Brand', 'Total GRPs', 'TV GRPs', 'Radio GRPs', 'SOV %', 'Spots', 'Avg Rating'], 'GRP & SOV')
+    _write(
+        writer, df,
+        ['Brand', 'Total GRPs', 'TV GRPs', 'Radio GRPs', 'SOV %', 'Spots', 'Avg Rating', 'Spend', 'SOE %'],
+        'GRP & SOV',
+    )
 
 
 def _brand_comparison_sheet(writer, brand_shares: List[dict]):
@@ -109,7 +116,7 @@ def _brand_comparison_sheet(writer, brand_shares: List[dict]):
     # rather than a ranked list (mirrors the Reports screen's brand-vs-brand
     # picker in packages/web, just for every brand at once instead of two).
     ordered = sorted(brand_shares, key=lambda s: s['total_grps'], reverse=True)
-    metrics = ['Total GRPs', 'TV GRPs', 'Radio GRPs', 'SOV %', 'Spots', 'Avg Rating']
+    metrics = ['Total GRPs', 'TV GRPs', 'Radio GRPs', 'SOV %', 'Spots', 'Avg Rating', 'Spend', 'SOE %']
     data = {'Metric': metrics}
     for share in ordered:
         data[share['brand']] = [
@@ -119,6 +126,8 @@ def _brand_comparison_sheet(writer, brand_shares: List[dict]):
             round(share['sov'], 1),
             share['spots'],
             round(share['avg_rating'], 2) if share['avg_rating'] is not None else None,
+            round(share['total_spend'], 2),
+            round(share['soe'], 1),
         ]
     df = pd.DataFrame(data) if ordered else pd.DataFrame({'Metric': metrics})
     df.to_excel(writer, sheet_name='Brand Comparison', index=False)

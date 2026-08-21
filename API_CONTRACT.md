@@ -144,10 +144,11 @@ The normalized, standard-structure row produced after mapping.
 - `endTime`
 - `campaign`
 - `product`
+- `cost` (media spend for this row — resolved at upload time from either a direct `Cost`/`Value` column or `Spots x Rate`, whichever the file has; `null`, not `0`, when neither was ever mapped, since "no spend column" and "confirmed zero spend" are different things. Not in this contract's original field list — added alongside `BrandShare.totalSpend`/`soe`, see that section)
 - `sourceFile`
 - `sourceRowNumber`
 
-Implemented so far (`services/api`'s `brand_report` upload path): `mediaActivityId`, `projectId`, `brandId`, `uploadId`, `medium`, `station`, `activityDate`, `day`, `programme`, `spots`, `sourceFile`. `timeBand`, `duration`, `adType`, `startTime`, `endTime`, `campaign`, `product`, `sourceRowNumber` aren't populated yet — `grp_calculator.build_brand_report()` doesn't extract them from a spot-level report, and `build_brand_report` drops the row-number column it briefly computes internally before returning, so there's currently no cheap way to recover `sourceRowNumber` either. Revisit once a report format that actually carries that detail shows up.
+Implemented so far (`services/api`'s `brand_report` upload path): `mediaActivityId`, `projectId`, `brandId`, `uploadId`, `medium`, `station`, `activityDate`, `day`, `programme`, `spots`, `cost`, `sourceFile`. `timeBand`, `duration`, `adType`, `startTime`, `endTime`, `campaign`, `product`, `sourceRowNumber` aren't populated yet — `grp_calculator.build_brand_report()` doesn't extract them from a spot-level report, and `build_brand_report` drops the row-number column it briefly computes internally before returning, so there's currently no cheap way to recover `sourceRowNumber` either. Revisit once a report format that actually carries that detail shows up.
 
 ### RatingMatch
 
@@ -186,6 +187,7 @@ Persisted by `POST /calculate` (one row per matched `media_activity` row — unm
 - `totalBrands`
 - `totalSpots`
 - `totalGrps`
+- `totalSpend` (sum of resolved `MediaActivityRow.cost` across every activity row in this run, matched or not — see `BrandShare.totalSpend` below for why this differs from `totalGrps`, which only counts matched rows. Not in this contract's original field list.)
 - `matchedRows`
 - `unmatchedRows`
 - `isCurrent` (the run `GET .../runs/latest` returns — the newest run unless a version-history restore pinned it back to an older one)
@@ -204,6 +206,8 @@ Per-brand rollup for a run, backing the SOV chart and brand comparison screen.
 - `sov`
 - `spots`
 - `avgRating`
+- `totalSpend` — Share of Expenditure's numerator: this brand's resolved spend, summed across **every** `media_activity` row belonging to it regardless of match status. Not in this contract's original field list, added for the Media Spend/SOE feature.
+- `soe` — `totalSpend / (sum of every brand's totalSpend in this run) * 100`. Deliberately computed from all rows, not just matched ones, unlike `sov`: money was spent on a spot whether or not a rating was ever found for it, so a project with zero matched rows can still show a fully populated SOE breakdown (it just also shows `sov: 0` for everyone, since GRP genuinely doesn't exist yet). `0` when no brand in the run has any resolved spend at all.
 
 ### StationShare
 

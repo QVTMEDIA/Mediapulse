@@ -164,12 +164,14 @@ def test_download_returns_a_readable_workbook_with_expected_sheets(client):
     assert values['Project'] == 'Export Test'
     assert values['Client'] == 'Client X'
     assert values['Total Brands'] == 1
+    assert values['Total Spend'] == 0
 
     grp_sov = workbook['GRP & SOV']
     header = [cell.value for cell in grp_sov[1]]
-    assert header == ['Brand', 'Total GRPs', 'TV GRPs', 'Radio GRPs', 'SOV %', 'Spots', 'Avg Rating']
+    assert header == ['Brand', 'Total GRPs', 'TV GRPs', 'Radio GRPs', 'SOV %', 'Spots', 'Avg Rating', 'Spend', 'SOE %']
     first_data_row = [cell.value for cell in grp_sov[2]]
     assert first_data_row[0] == 'Brand A'
+    assert first_data_row[7] == 0  # Spend — no cost column mapped in this fixture's upload
 
     unmatched = workbook['Unmatched Records']
     unmatched_rows = list(unmatched.iter_rows(min_row=2, values_only=True))

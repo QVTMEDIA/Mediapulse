@@ -142,6 +142,71 @@ def test_brand_shares_split_correctly_across_two_brands(client, project):
     assert by_name['Brand A']['avgRating'] == pytest.approx((1.2 + 2.5) / 2)
 
 
+BRAND_A_CSV_WITH_COST = (
+    b'Channel,Programme,Day,Spots,Cost\n'
+    b'TVC,Prime Time,Monday,3,15000\n'
+    b'AIT,News,Tuesday,2,10000\n'
+)
+
+
+def test_run_and_brand_shares_include_spend_and_soe(client, project):
+    brand_a = _brand(client, project['projectId'], 'Brand A')
+    brand_b = _brand(client, project['projectId'], 'Brand B')
+    _upload(client, project['projectId'], brand_a['brandId'], BRAND_A_CSV_WITH_COST)
+    _upload(
+        client, project['projectId'], brand_b['brandId'],
+        b'Channel,Programme,Day,Spots,Cost\nChannels,Business Hour,Wednesday,4,15000\n', filename='brand_b.csv',
+    )
+    _attach_ratings(client, project['projectId'], BRAND_A_RATINGS + [
+        {'medium': 'TV', 'station': 'Channels', 'day': 'Wednesday', 'programme': 'Business Hour', 'rating': 3.0},
+    ])
+
+    run = client.post(f"/api/projects/{project['projectId']}/calculate").json()
+    assert run['totalSpend'] == pytest.approx(40000)  # 15000 + 10000 + 15000
+
+    shares = client.get(f"/api/projects/{project['projectId']}/runs/{run['runId']}/brand-shares").json()
+    by_name = {s['brand']: s for s in shares}
+    assert by_name['Brand A']['totalSpend'] == pytest.approx(25000)
+    assert by_name['Brand B']['totalSpend'] == pytest.approx(15000)
+    assert by_name['Brand A']['soe'] == pytest.approx(25000 / 40000 * 100)
+    assert by_name['Brand B']['soe'] == pytest.approx(15000 / 40000 * 100)
+    assert by_name['Brand A']['soe'] + by_name['Brand B']['soe'] == pytest.approx(100.0)
+
+
+def test_spend_accumulates_for_unmatched_rows_too(client, project):
+    # SOE is spend-based, not rating-based — a row with no rating match
+    # still spent real money and must still count toward SOE, unlike GRP/
+    # SOV which only exist for matched rows. No ratings are attached here
+    # at all, so every row is unmatched, yet spend/SOE should still reflect
+    # the uploaded cost in full.
+    brand = _brand(client, project['projectId'], 'Brand A')
+    _upload(client, project['projectId'], brand['brandId'], BRAND_A_CSV_WITH_COST)
+
+    run = client.post(f"/api/projects/{project['projectId']}/calculate").json()
+    assert run['matchedRows'] == 0
+    assert run['unmatchedRows'] == 2
+    assert run['totalGrps'] == 0
+    assert run['totalSpend'] == pytest.approx(25000)
+
+    shares = client.get(f"/api/projects/{project['projectId']}/runs/{run['runId']}/brand-shares").json()
+    assert shares[0]['totalSpend'] == pytest.approx(25000)
+    assert shares[0]['soe'] == pytest.approx(100.0)  # only brand in the project, so it's 100% of category spend
+    assert shares[0]['sov'] == pytest.approx(0.0)  # no GRPs at all, so SOV is 0 — spend and GRP tell different stories
+
+
+def test_spend_and_soe_are_zero_when_no_cost_column_mapped(client, project):
+    brand = _brand(client, project['projectId'], 'Brand A')
+    _upload(client, project['projectId'], brand['brandId'], BRAND_A_CSV)  # no Cost/Rate column
+    _attach_ratings(client, project['projectId'], BRAND_A_RATINGS)
+
+    run = client.post(f"/api/projects/{project['projectId']}/calculate").json()
+    assert run['totalSpend'] == 0
+
+    shares = client.get(f"/api/projects/{project['projectId']}/runs/{run['runId']}/brand-shares").json()
+    assert shares[0]['totalSpend'] == 0
+    assert shares[0]['soe'] == 0
+
+
 def test_runs_list_and_latest(client, project):
     brand = _brand(client, project['projectId'], 'Brand A')
     _upload(client, project['projectId'], brand['brandId'], BRAND_A_CSV)

@@ -162,7 +162,15 @@ function BrandShareRow({ share, maxGrp }: { share: BrandShare; maxGrp: number })
     <div className="brand-row">
       <div className="brand-line">
         <span>{share.brand}</span>
-        <strong>{share.sov.toFixed(1)}%</strong>
+        <span className="brand-share-metrics">
+          <strong>{share.sov.toFixed(1)}% SOV</strong>
+          {/* SOE tracks spend, not GRPs — a brand can lead SOV while trailing
+              SOE (or vice versa) since spend counts every uploaded row,
+              matched or not. Only shown once spend data exists for this
+              category, so an all-null-cost project doesn't render a
+              meaningless "0.0% SOE" on every brand. */}
+          {share.totalSpend > 0 ? <strong className="soe-value">{share.soe.toFixed(1)}% SOE</strong> : null}
+        </span>
       </div>
       <div className="bar-track" aria-label={`${share.brand} GRP contribution`}>
         {isMixedMedia ? (
@@ -178,6 +186,7 @@ function BrandShareRow({ share, maxGrp }: { share: BrandShare; maxGrp: number })
         {share.spots} spots | {share.totalGrps.toFixed(1)} GRPs
         {isMixedMedia ? ` (TV ${share.tvGrps.toFixed(1)} · Radio ${share.radioGrps.toFixed(1)})` : ''}
         {share.avgRating !== null ? ` | avg rating ${share.avgRating.toFixed(2)}` : ''}
+        {share.totalSpend > 0 ? ` | spend ${formatNumber(share.totalSpend)}` : ''}
       </small>
     </div>
   );
@@ -784,6 +793,11 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
                 <span>Brands</span>
                 <strong>{latestRun ? latestRun.totalBrands : '—'}</strong>
                 <small>{latestRun ? `${latestRun.totalSpots} total spots` : ' '}</small>
+              </div>
+              <div className="metric-panel">
+                <span>Total Spend</span>
+                <strong>{latestRun ? formatNumber(latestRun.totalSpend) : '—'}</strong>
+                <small>{latestRun && latestRun.totalSpend === 0 ? 'No cost/rate column mapped yet' : ' '}</small>
               </div>
             </section>
 

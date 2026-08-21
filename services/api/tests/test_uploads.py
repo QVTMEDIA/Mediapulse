@@ -71,6 +71,37 @@ def test_upload_brand_report_creates_media_activity(client, project, brand):
     assert all(row['sourceFile'] == 'report.csv' for row in activity)
 
 
+def test_upload_with_no_cost_column_leaves_cost_null(client, project, brand):
+    # null, not 0 — "no spend column was ever mapped" and "confirmed zero
+    # spend" are different things, same convention as unmatched GRP rows.
+    _post_upload(client, project['projectId'], brand['brandId'])
+    activity = client.get(f"/api/projects/{project['projectId']}/media-activity").json()
+    assert all(row['cost'] is None for row in activity)
+
+
+def test_upload_resolves_cost_from_a_direct_cost_column(client, project, brand):
+    csv = (
+        b'Channel,Programme,Day,Spots,Cost\n'
+        b'TVC,Prime Time,Monday,3,15000\n'
+        b'AIT,News,Tuesday,2,10000\n'
+    )
+    _post_upload(client, project['projectId'], brand['brandId'], content=csv)
+    activity = client.get(f"/api/projects/{project['projectId']}/media-activity").json()
+    by_station = {row['station']: row for row in activity}
+    assert by_station['TVC']['cost'] == pytest.approx(15000)
+    assert by_station['AIT']['cost'] == pytest.approx(10000)
+
+
+def test_upload_resolves_cost_from_spots_times_rate_when_no_direct_cost(client, project, brand):
+    csv = (
+        b'Channel,Programme,Day,Spots,Rate\n'
+        b'TVC,Prime Time,Monday,3,6200\n'
+    )
+    _post_upload(client, project['projectId'], brand['brandId'], content=csv)
+    activity = client.get(f"/api/projects/{project['projectId']}/media-activity").json()
+    assert activity[0]['cost'] == pytest.approx(3 * 6200)
+
+
 def test_upload_appears_in_uploads_list(client, project, brand):
     _post_upload(client, project['projectId'], brand['brandId'])
     uploads = client.get(f"/api/projects/{project['projectId']}/uploads").json()

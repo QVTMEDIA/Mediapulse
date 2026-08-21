@@ -19,6 +19,7 @@ class GrpRunRecord:
     total_brands: int
     total_spots: int
     total_grps: float
+    total_spend: float
     matched_rows: int
     unmatched_rows: int
     is_current: bool
@@ -35,6 +36,8 @@ class BrandShareRecord:
     sov: float
     spots: int
     avg_rating: Optional[float]
+    total_spend: float
+    soe: float
 
 
 @dataclass
@@ -110,6 +113,7 @@ def _run_row_to_record(row: dict) -> GrpRunRecord:
         total_brands=row['total_brands'],
         total_spots=row['total_spots'],
         total_grps=float(row['total_grps']),
+        total_spend=float(row['total_spend']),
         matched_rows=row['matched_rows'],
         unmatched_rows=row['unmatched_rows'],
         is_current=row['is_current'],
@@ -127,6 +131,8 @@ def _share_row_to_record(row: dict) -> BrandShareRecord:
         sov=float(row['sov']),
         spots=row['spots'],
         avg_rating=float(row['avg_rating']) if row['avg_rating'] is not None else None,
+        total_spend=float(row['total_spend']),
+        soe=float(row['soe']),
     )
 
 
@@ -160,11 +166,11 @@ class PostgresCalculationsRepository:
             conn.execute('UPDATE grp_runs SET is_current = false WHERE project_id = %s', [project_id])
             run_row = conn.execute(
                 '''
-                INSERT INTO grp_runs (project_id, total_brands, total_spots, total_grps, matched_rows, unmatched_rows, is_current)
-                VALUES (%s, %s, %s, %s, %s, %s, true)
+                INSERT INTO grp_runs (project_id, total_brands, total_spots, total_grps, total_spend, matched_rows, unmatched_rows, is_current)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, true)
                 RETURNING *
                 ''',
-                [project_id, result.total_brands, result.total_spots, result.total_grps,
+                [project_id, result.total_brands, result.total_spots, result.total_grps, result.total_spend,
                  result.matched_rows, result.unmatched_rows],
             ).fetchone()
             run_id = run_row['id']
@@ -184,12 +190,12 @@ class PostgresCalculationsRepository:
                 with conn.cursor() as cur:
                     cur.executemany(
                         '''
-                        INSERT INTO brand_shares (run_id, brand_id, total_grps, tv_grps, radio_grps, sov, spots, avg_rating)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO brand_shares (run_id, brand_id, total_grps, tv_grps, radio_grps, sov, spots, avg_rating, total_spend, soe)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ''',
                         [
                             (run_id, share.brand_id, share.total_grps, share.tv_grps, share.radio_grps,
-                             share.sov, share.spots, share.avg_rating)
+                             share.sov, share.spots, share.avg_rating, share.total_spend, share.soe)
                             for share in result.brand_shares
                         ],
                     )
@@ -353,14 +359,15 @@ class InMemoryCalculationsRepository:
                 existing.is_current = False
         run = GrpRunRecord(
             id=str(uuid.uuid4()), project_id=project_id, total_brands=result.total_brands,
-            total_spots=result.total_spots, total_grps=result.total_grps, matched_rows=result.matched_rows,
-            unmatched_rows=result.unmatched_rows, is_current=True, generated_at=now,
+            total_spots=result.total_spots, total_grps=result.total_grps, total_spend=result.total_spend,
+            matched_rows=result.matched_rows, unmatched_rows=result.unmatched_rows, is_current=True, generated_at=now,
         )
         self._runs[run.id] = run
         self._shares[run.id] = [
             BrandShareRecord(
                 run_id=run.id, brand_id=share.brand_id, total_grps=share.total_grps, tv_grps=share.tv_grps,
                 radio_grps=share.radio_grps, sov=share.sov, spots=share.spots, avg_rating=share.avg_rating,
+                total_spend=share.total_spend, soe=share.soe,
             )
             for share in result.brand_shares
         ]

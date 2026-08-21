@@ -279,7 +279,7 @@ export default function ReportsSection({ project }: { project: Project | null })
             <div className="panel-header">
               <div>
                 <h2>Brand Comparison</h2>
-                <p>{loading ? 'Loading…' : 'Side-by-side GRP, SOV, spots, and medium split'}</p>
+                <p>{loading ? 'Loading…' : 'Side-by-side GRP, SOV, spend, SOE, spots, and medium split'}</p>
               </div>
               <GitCompare size={20} aria-hidden />
             </div>
@@ -330,6 +330,16 @@ export default function ReportsSection({ project }: { project: Project | null })
                           <td>Share of Voice</td>
                           <td className="num">{brandA.sov.toFixed(1)}%</td>
                           <td className="num">{brandB.sov.toFixed(1)}%</td>
+                        </tr>
+                        <tr>
+                          <td>Spend</td>
+                          <td className="num">{brandA.totalSpend > 0 ? brandA.totalSpend.toLocaleString() : '—'}</td>
+                          <td className="num">{brandB.totalSpend > 0 ? brandB.totalSpend.toLocaleString() : '—'}</td>
+                        </tr>
+                        <tr>
+                          <td>Share of Expenditure</td>
+                          <td className="num">{brandA.totalSpend > 0 ? `${brandA.soe.toFixed(1)}%` : '—'}</td>
+                          <td className="num">{brandB.totalSpend > 0 ? `${brandB.soe.toFixed(1)}%` : '—'}</td>
                         </tr>
                         <tr>
                           <td>Spots</td>

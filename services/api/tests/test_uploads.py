@@ -172,15 +172,19 @@ def test_uploads_list_rejects_missing_project(client):
 
 
 COMPOSITE_CSV = (
-    # build_composite_report requires a Rating or GRP column to consider a
-    # row valid at all — composite reports are meant to carry a vendor's own
-    # pre-computed values, unlike brand_report's raw spot lists. This API
-    # doesn't store that column (see parse_composite_report's docstring),
-    # but it still has to be present for grp_calculator's own validation.
-    b'Brand,Channel,Programme,Day,Spots,Rating\n'
-    b'Brand A,TVC,Prime Time,Monday,3,1.2\n'
-    b'Brand B,AIT,News,Tuesday,2,2.5\n'
-    b'Brand A,Channels,Business Hour,Wednesday,1,0.8\n'
+    # Deliberately no Rating/GRP column — a real multi-brand vendor file
+    # (Station/Spots/Rate, ratings matched afterward by the Matching
+    # Engine) is exactly what composite_report is for, and it must map
+    # successfully with no rating data present at all. See
+    # parse_composite_report's docstring and CHANGELOG.md: an earlier
+    # version required a Rating or GRP column here (reusing
+    # grp_calculator.build_composite_report(), written for a different,
+    # already-rated file concept) and rejected every row of a real file
+    # shaped exactly like this one.
+    b'Brand,Channel,Programme,Day,Spots\n'
+    b'Brand A,TVC,Prime Time,Monday,3\n'
+    b'Brand B,AIT,News,Tuesday,2\n'
+    b'Brand A,Channels,Business Hour,Wednesday,1\n'
 )
 
 
@@ -235,3 +239,28 @@ def test_composite_upload_ignores_brand_id_form_field(client, project, brand):
     assert response.status_code == 201
     activity = client.get(f"/api/projects/{project['projectId']}/media-activity").json()
     assert not all(row['brandId'] == brand['brandId'] for row in activity)
+
+
+def test_composite_upload_with_rate_but_no_rating_column_still_maps(client, project):
+    # Regression test for a real bug: a genuine multi-brand vendor file
+    # (Station/Day/Programme/Spots/Rate, no Rating or GRP column at all —
+    # ratings get matched afterward by the Matching Engine) used to come
+    # back with every row rejected, because parse_composite_report reused
+    # grp_calculator.build_composite_report(), which requires a Rating or
+    # GRP value per row. Fixed by switching to build_brand_report(), which
+    # already reads a per-row Brand column with no such requirement.
+    csv = (
+        b'Brand,Channel,Programme,Day,Spots,Rate\n'
+        b'Brand A,ADABA FM,Morning Show,Monday,1,12500\n'
+        b'Brand B,AREWA FM,Drive Time,Tuesday,1,4500\n'
+    )
+    response = _post_composite_upload(client, project['projectId'], content=csv)
+    assert response.status_code == 201
+    body = response.json()
+    assert body['mappedRows'] == 2
+    assert body['issueRows'] == 0
+
+    activity = client.get(f"/api/projects/{project['projectId']}/media-activity").json()
+    by_station = {row['station']: row for row in activity}
+    assert by_station['ADABA FM']['cost'] == pytest.approx(12500)
+    assert by_station['AREWA FM']['cost'] == pytest.approx(4500)

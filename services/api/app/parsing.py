@@ -18,7 +18,11 @@ REQUIRED_MAPPING_FIELDS = ('channel', 'programme', 'spots')
 OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day', 'rate', 'cost')
 
 COMPOSITE_REQUIRED_MAPPING_FIELDS = ('channel', 'programme', 'spots')
-COMPOSITE_OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day', 'rating', 'grp', 'rate', 'cost')
+# 'rating'/'grp' were dropped from here once parse_composite_report switched
+# to build_brand_report (see that function's docstring) — build_brand_report
+# never reads those mapping keys, so keeping them would just be dead noise
+# in the mapping dict (and in the sourceLabel templates saved from it).
+COMPOSITE_OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day', 'rate', 'cost')
 
 RATINGS_REQUIRED_MAPPING_FIELDS = ('channel', 'day', 'programme', 'rating')
 RATINGS_OPTIONAL_MAPPING_FIELDS = ('medium', 'source')
@@ -131,17 +135,26 @@ class CompositeParseResult:
 def parse_composite_report(
     data: bytes, file_name: str, default_medium: str = 'TV', mapping_override: Optional[Dict[str, str]] = None
 ) -> CompositeParseResult:
-    """Like parse_brand_report, but multi-brand: grp_calculator.
-    build_composite_report() reads the Brand column itself (falling back to
-    the filename when a row has none), rather than trusting a single
-    caller-supplied brand for the whole file. The uploaded Rating/GRP
-    columns are read by grp_calculator for its own row-validation but not
-    carried into the result — this API's calculate pipeline is the one
-    source of truth for GRP, not whatever a monitoring vendor already
-    computed. Note this means a row needs a usable Rating or GRP value to
-    validate at all (grp_calculator's definition of a composite report,
-    unlike a brand_report's raw spot list) — a file with neither column
-    will come back with every row flagged as an issue and nothing stored."""
+    """Like parse_brand_report, but multi-brand: reads a Brand column per row
+    (falling back to the filename-inferred brand when a row's Brand is
+    blank), rather than trusting a single caller-supplied brand for the
+    whole file.
+
+    Deliberately reuses grp_calculator.build_brand_report(), not
+    build_composite_report() — despite the matching name, that function
+    implements app.py's different "Composite Report" concept: one workbook
+    that already carries a vendor's own pre-computed Rating/GRP per row, and
+    it rejects any row missing both. This API's composite_report upload
+    kind is a raw, multi-brand spot list — ratings get matched afterward by
+    the Matching Engine, exactly like a brand_report upload, so requiring
+    Rating/GRP up front was always wrong for this pipeline. It went
+    unnoticed because build_brand_report already reads a per-row Brand
+    column the same way (with the same filename-fallback) whenever mapping
+    includes 'brand' — the two builders only ever differed in this
+    Rating/GRP requirement, not in brand handling — until a real
+    multi-brand vendor file with no Rating/GRP column at all (just
+    Station/Spots/Rate) came back with every single row flagged as an
+    issue. See CHANGELOG.md."""
     uploaded = NamedBytesIO(data, file_name)
     calc.validate_uploaded_file(uploaded)
 
@@ -153,7 +166,7 @@ def parse_composite_report(
     raw = calc.read_tabular(uploaded, header_row=header_row)
 
     mapping = _resolve_mapping(raw.columns, expected_fields, mapping_override)
-    report, issues = calc.build_composite_report(raw, mapping, file_name, default_medium)
+    report, issues = calc.build_brand_report(raw, mapping, file_name, default_medium)
 
     rows = [
         ParsedCompositeRow(

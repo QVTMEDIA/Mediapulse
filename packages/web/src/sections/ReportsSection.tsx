@@ -1,7 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BarChart3, GitCompare, LineChart, Radio } from 'lucide-react';
-import { ApiError, getLatestRun, listBrandShares, listProgrammeShares, listStationShares, listTrend } from '../api/client';
-import type { BrandShare, GrpRunSummary, ProgrammeShare, Project, StationShare, TrendPoint } from '../api/contracts';
+import { AlertTriangle, BarChart3, Clock, GitCompare, LineChart, Radio } from 'lucide-react';
+import {
+  ApiError,
+  getLatestRun,
+  listBrandShares,
+  listDaypartShares,
+  listProgrammeShares,
+  listSpotEfficiency,
+  listStationShares,
+  listTrend,
+} from '../api/client';
+import type {
+  BrandShare,
+  DaypartShare,
+  GrpRunSummary,
+  ProgrammeShare,
+  Project,
+  SpotEfficiency,
+  StationShare,
+  TrendPoint,
+} from '../api/contracts';
 
 interface RankedRow {
   key: string;
@@ -45,6 +63,8 @@ export default function ReportsSection({ project }: { project: Project | null })
   const [brandShares, setBrandShares] = useState<BrandShare[]>([]);
   const [stationShares, setStationShares] = useState<StationShare[]>([]);
   const [programmeShares, setProgrammeShares] = useState<ProgrammeShare[]>([]);
+  const [daypartShares, setDaypartShares] = useState<DaypartShare[]>([]);
+  const [spotEfficiency, setSpotEfficiency] = useState<SpotEfficiency[]>([]);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -64,20 +84,26 @@ export default function ReportsSection({ project }: { project: Project | null })
       const latestRun = await getLatestRun(projectId);
       setRun(latestRun);
       if (latestRun) {
-        const [shares, stations, programmes, trendPoints] = await Promise.all([
+        const [shares, stations, programmes, dayparts, efficiency, trendPoints] = await Promise.all([
           listBrandShares(projectId, latestRun.runId),
           listStationShares(projectId, latestRun.runId),
           listProgrammeShares(projectId, latestRun.runId),
+          listDaypartShares(projectId, latestRun.runId),
+          listSpotEfficiency(projectId, latestRun.runId),
           listTrend(projectId, latestRun.runId),
         ]);
         setBrandShares(shares);
         setStationShares(stations);
         setProgrammeShares(programmes);
+        setDaypartShares(dayparts);
+        setSpotEfficiency(efficiency);
         setTrend(trendPoints);
       } else {
         setBrandShares([]);
         setStationShares([]);
         setProgrammeShares([]);
+        setDaypartShares([]);
+        setSpotEfficiency([]);
         setTrend([]);
       }
     } catch (error) {
@@ -86,6 +112,8 @@ export default function ReportsSection({ project }: { project: Project | null })
       setBrandShares([]);
       setStationShares([]);
       setProgrammeShares([]);
+      setDaypartShares([]);
+      setSpotEfficiency([]);
       setTrend([]);
     } finally {
       setLoading(false);
@@ -100,6 +128,8 @@ export default function ReportsSection({ project }: { project: Project | null })
       setBrandShares([]);
       setStationShares([]);
       setProgrammeShares([]);
+      setDaypartShares([]);
+      setSpotEfficiency([]);
       setTrend([]);
     }
   }, [project, refresh]);
@@ -120,6 +150,14 @@ export default function ReportsSection({ project }: { project: Project | null })
     () => (drillBrandId ? programmeShares.filter((row) => row.brandId === drillBrandId) : programmeShares),
     [programmeShares, drillBrandId],
   );
+  const daypartSharesInScope = useMemo(
+    () => (drillBrandId ? daypartShares.filter((row) => row.brandId === drillBrandId) : daypartShares),
+    [daypartShares, drillBrandId],
+  );
+  const spotEfficiencyInScope = useMemo(
+    () => (drillBrandId ? spotEfficiency.filter((row) => row.brandId === drillBrandId) : spotEfficiency),
+    [spotEfficiency, drillBrandId],
+  );
   const trendInScope = useMemo(
     () => (drillBrandId ? trend.filter((point) => point.brandId === drillBrandId) : trend),
     [trend, drillBrandId],
@@ -133,8 +171,14 @@ export default function ReportsSection({ project }: { project: Project | null })
     () => rankBy(programmeSharesInScope, (row) => row.programme, (row) => row.totalGrps, (row) => row.spots),
     [programmeSharesInScope],
   );
+  const daypartRanking = useMemo(
+    () => rankBy(daypartSharesInScope, (row) => row.timeBand || 'No daypart mapped', (row) => row.totalGrps, (row) => row.spots),
+    [daypartSharesInScope],
+  );
   const maxStationGrp = Math.max(1, ...stationRanking.map((row) => row.totalGrps));
   const maxProgrammeGrp = Math.max(1, ...programmeRanking.map((row) => row.totalGrps));
+  const maxDaypartGrp = Math.max(1, ...daypartRanking.map((row) => row.totalGrps));
+  const weakSpotCount = spotEfficiencyInScope.filter((row) => row.isWeak).length;
 
   const trendWeeks = useMemo(() => [...new Set(trendInScope.map((point) => point.weekStart))].sort(), [trendInScope]);
   const trendBrandOrder = useMemo(() => [...new Set(trendInScope.map((point) => point.brand))].sort(), [trendInScope]);
@@ -181,8 +225,9 @@ export default function ReportsSection({ project }: { project: Project | null })
                   </select>
                 </label>
                 <p className="field-hint">
-                  Scopes Station Contribution, Programme Contribution, and Weekly Trend below to one brand's own
-                  numbers. Brand Comparison always shows two brands side by side regardless of this selection.
+                  Scopes Station Contribution, Programme Contribution, Daypart Contribution, Spot Efficiency, and
+                  Weekly Trend below to one brand's own numbers. Brand Comparison always shows two brands side by
+                  side regardless of this selection.
                 </p>
               </div>
             </div>
@@ -220,6 +265,77 @@ export default function ReportsSection({ project }: { project: Project | null })
                 <RankedBarRow row={row} maxGrp={maxProgrammeGrp} key={row.key} />
               ))}
             </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>Daypart Contribution{drillBrandId ? ` — ${drillBrand?.brand ?? ''}` : ''}</h2>
+                <p>
+                  {loading
+                    ? 'Loading…'
+                    : `GRP ranking across ${daypartRanking.length} daypart label${daypartRanking.length === 1 ? '' : 's'}, as reported by the source file`}
+                </p>
+              </div>
+              <Clock size={20} aria-hidden />
+            </div>
+            <div className="brand-list">
+              {!loading && daypartRanking.length === 0 && <p className="empty-state">No matched spots yet.</p>}
+              {daypartRanking.map((row) => (
+                <RankedBarRow row={row} maxGrp={maxDaypartGrp} key={row.key} />
+              ))}
+            </div>
+          </div>
+
+          <div className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>Spot Efficiency{drillBrandId ? ` — ${drillBrand?.brand ?? ''}` : ''}</h2>
+                <p>
+                  {loading
+                    ? 'Loading…'
+                    : weakSpotCount > 0
+                      ? `${weakSpotCount} brand/station buy${weakSpotCount === 1 ? '' : 's'} flagged as weak inventory at volume`
+                      : 'No weak-inventory buys flagged for this run'}
+                </p>
+              </div>
+              <AlertTriangle size={20} aria-hidden />
+            </div>
+            {!loading && spotEfficiencyInScope.length === 0 && <p className="empty-state">No matched spots yet.</p>}
+            {spotEfficiencyInScope.length > 0 && (
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Brand</th>
+                      <th>Station</th>
+                      <th className="num">Spots</th>
+                      <th className="num">GRP</th>
+                      <th className="num">GRP / Spot</th>
+                      <th>Flag</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {spotEfficiencyInScope.map((row) => (
+                      <tr key={`${row.brandId}-${row.station}`}>
+                        <td>{row.brand}</td>
+                        <td>{row.station}</td>
+                        <td className="num">{row.spots}</td>
+                        <td className="num">{row.totalGrps.toFixed(1)}</td>
+                        <td className="num">{row.grpPerSpot.toFixed(2)}</td>
+                        <td>
+                          {row.isWeak ? (
+                            <span className="status status-review">Weak inventory</span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
           <div className="panel">
@@ -356,6 +472,13 @@ export default function ReportsSection({ project }: { project: Project | null })
                           <td className="num">{brandA.tvGrps.toFixed(1)}</td>
                           <td className="num">{brandB.tvGrps.toFixed(1)}</td>
                         </tr>
+                        {(brandA.cableTvGrps > 0 || brandB.cableTvGrps > 0) && (
+                          <tr>
+                            <td>Cable TV GRPs</td>
+                            <td className="num">{brandA.cableTvGrps.toFixed(1)}</td>
+                            <td className="num">{brandB.cableTvGrps.toFixed(1)}</td>
+                          </tr>
+                        )}
                         <tr>
                           <td>Radio GRPs</td>
                           <td className="num">{brandA.radioGrps.toFixed(1)}</td>

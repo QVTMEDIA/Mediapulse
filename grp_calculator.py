@@ -21,7 +21,26 @@ SYNONYMS = {
     'date': ['date', 'air date', 'airdate', 'broadcast date'],
     'day': ['day', 'weekday', 'day of week', 'wd', 'dow', 'week day'],
     'channel': ['channel / station', 'channel', 'station', 'media channel', 'tv station', 'radio station', 'network', 'vehicle'],
-    'programme': ['programme / time band', 'program / time band', 'programme', 'program', 'programme title', 'program title', 'title', 'time band', 'timeband', 'daypart', 'slot', 'time slot', 'time'],
+    'programme': ['programme / time band', 'program / time band', 'programme', 'program', 'programme title', 'program title', 'title'],
+    # Daypart contribution (PRODUCT_ROADMAP.md's Programmes screen): a
+    # distinct field from 'programme' on purpose, so a file with both a
+    # Programme column and its own separate daypart/time-band label (real
+    # vendor files often have one — e.g. a "TIME BELT" column) captures
+    # both instead of one clobbering the other's detection. Deliberately
+    # captures whatever label the vendor supplies as-is (AM/PM, "Prime
+    # Time", "Drive Time", ...) rather than deriving canonical daypart
+    # buckets from a start time — most files don't have a clean time
+    # column, and inventing fixed time-range boundaries would be a business
+    # rule this app has no basis to assert. Purely informational: unlike
+    # 'programme', this never feeds match_key/the Matching Engine.
+    #
+    # Deliberately excludes 'daypart'/'day part' — detect_column's fuzzy
+    # fallback does substring matching, and "day" is a substring of
+    # "daypart", so with a file that has no real daypart column at all it
+    # would silently steal the plain 'Day' column instead (confirmed by a
+    # failing test). 'time band'/'time belt'/'time slot'/'slot' cover the
+    # same real-world header names without that collision.
+    'time_band': ['time band', 'timeband', 'time belt', 'timebelt', 'time slot', 'slot'],
     'spots': ['spots', 'spot', 'no. of spots', 'no spots', 'number of spots', 'spot count', 'insertions', 'frequency', 'qty', 'quantity', 'runs', 'count'],
     'rating': ['rating (%)', 'rating', 'ratings', 'program rating', 'programme rating', 'rating %', 'rch %', 'rch%', 'reach %', 'reach%', 'tvr', 'tvrs', 'grp', 'grps'],
     'grp': ['grp', 'grps', 'gross rating points', 'gross rating point', 'row grp', 'total grp', 'total grps'],
@@ -231,17 +250,40 @@ def suggestion_confidence(score):
 
 
 def normalize_medium_type(v):
+    """Canonicalizes an uploaded Medium value into 'TV' (terrestrial/generic
+    TV — the historical, still-default bucket, so existing data with a bare
+    'TV' medium keeps meaning exactly what it always meant), 'CABLE TV' (a
+    newer, additive bucket — DStv/GOtv/satellite/pay-TV rows), 'RADIO',
+    'OTHER', or 'MISSING'. Cable is checked before the generic TV match so
+    'Cable TV' (which also contains the substring 'TV') resolves to CABLE
+    TV, not TV."""
     s = normalize_text(v)
     aliases = {
         'TV': 'TV',
         'TELEVISION': 'TV',
         'TELLY': 'TV',
+        'TERRESTRIAL TV': 'TV',
+        'TERRESTRIAL': 'TV',
+        'FREE TO AIR': 'TV',
+        'FTA': 'TV',
+        'DTT': 'TV',
+        'CABLE TV': 'CABLE TV',
+        'CABLE': 'CABLE TV',
+        'PAY TV': 'CABLE TV',
+        'PAYTV': 'CABLE TV',
+        'SATELLITE TV': 'CABLE TV',
+        'SATELLITE': 'CABLE TV',
+        'DSTV': 'CABLE TV',
+        'GOTV': 'CABLE TV',
+        'DTH': 'CABLE TV',
         'RADIO': 'RADIO',
         'FM RADIO': 'RADIO',
         'AM RADIO': 'RADIO',
     }
     if s in aliases:
         return aliases[s]
+    if 'CABLE' in s or 'SATELLITE' in s or 'DSTV' in s or 'GOTV' in s:
+        return 'CABLE TV'
     if 'TELEVISION' in s or re.search(r'\bTV\b', s):
         return 'TV'
     if 'RADIO' in s:
@@ -855,6 +897,15 @@ def build_brand_report(raw, mapping, file_name, default_medium='TV'):
         'Day': day_series,
         'Channel / Station': safe_col(raw, mapping['channel']),
         'Programme / Time Band': safe_col(raw, mapping['programme']),
+        # Daypart contribution — the vendor's own time-band/daypart label,
+        # captured as-is, separate from 'Programme / Time Band' above (which
+        # only feeds the Matching Engine's match key). Blank, not NaN, when
+        # unmapped — same "informational text field" default as Day/Programme
+        # get elsewhere in this function, not the "no numeric data" NaN
+        # convention Cost uses. mapping.get(...), not mapping['time_band'],
+        # for the same reason resolve_row_cost() uses .get() for cost/rate:
+        # app.py builds its own narrower mapping dict that doesn't include it.
+        'Daypart': safe_col(raw, mapping.get('time_band', '-- none --'), ''),
         'Spots': spots_values.fillna(0),
         # NaN (not 0) when no cost/rate column was mapped at all — "no spend
         # data" and "confirmed zero spend" are different things, same
@@ -899,6 +950,7 @@ def build_composite_report(raw, mapping, file_name, default_medium='TV'):
         'Day': day_series,
         'Channel / Station': safe_col(raw, mapping['channel']),
         'Programme / Time Band': safe_col(raw, mapping['programme']),
+        'Daypart': safe_col(raw, mapping.get('time_band', '-- none --'), ''),
         'Spots': spots_values.fillna(0),
         'Matched Rating (%)': rating_values,
         'GRP': grp_values,
@@ -943,13 +995,16 @@ def summarize_media(media):
     brand_rows = []
     for brand, g in media.groupby('Brand', dropna=False):
         tv = g.loc[g['_MediumCanon'].eq('TV'), 'GRP'].sum(min_count=1)
+        cable_tv = g.loc[g['_MediumCanon'].eq('CABLE TV'), 'GRP'].sum(min_count=1)
         radio = g.loc[g['_MediumCanon'].eq('RADIO'), 'GRP'].sum(min_count=1)
         tv = 0 if pd.isna(tv) else float(tv)
+        cable_tv = 0 if pd.isna(cable_tv) else float(cable_tv)
         radio = 0 if pd.isna(radio) else float(radio)
-        total = tv + radio
+        total = tv + cable_tv + radio
         brand_rows.append({
             'Brand': brand,
             'TV GRPs': tv,
+            'Cable TV GRPs': cable_tv,
             'Radio GRPs': radio,
             'Total GRPs': total,
             'Total Spots': g['Spots'].sum(),

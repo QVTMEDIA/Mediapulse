@@ -207,6 +207,33 @@ def test_spend_and_soe_are_zero_when_no_cost_column_mapped(client, project):
     assert shares[0]['soe'] == 0
 
 
+def test_brand_shares_split_cable_tv_grps_separately_from_terrestrial_tv(client, project):
+    # cable_tv_grps is a newer, additive bucket alongside tv_grps (terrestrial)
+    # and radio_grps — grp_calculator.normalize_medium_type routes 'Cable TV'
+    # rows there instead of into the historical 'TV' bucket.
+    brand = _brand(client, project['projectId'], 'Brand A')
+    _upload(
+        client, project['projectId'], brand['brandId'],
+        b'Medium,Channel,Programme,Day,Spots\n'
+        b'TV,TVC,Prime Time,Monday,3\n'
+        b'Cable TV,DSTV Movies,Movie Night,Tuesday,2\n'
+        b'Radio,Naija FM,Drive Time,Wednesday,1\n',
+    )
+    _attach_ratings(client, project['projectId'], [
+        {'medium': 'TV', 'station': 'TVC', 'day': 'Monday', 'programme': 'Prime Time', 'rating': 1.2},
+        {'medium': 'Cable TV', 'station': 'DSTV Movies', 'day': 'Tuesday', 'programme': 'Movie Night', 'rating': 2.0},
+        {'medium': 'Radio', 'station': 'Naija FM', 'day': 'Wednesday', 'programme': 'Drive Time', 'rating': 3.0},
+    ])
+
+    run = client.post(f"/api/projects/{project['projectId']}/calculate").json()
+    shares = client.get(f"/api/projects/{project['projectId']}/runs/{run['runId']}/brand-shares").json()
+    share = shares[0]
+    assert share['tvGrps'] == pytest.approx(3 * 1.2)
+    assert share['cableTvGrps'] == pytest.approx(2 * 2.0)
+    assert share['radioGrps'] == pytest.approx(1 * 3.0)
+    assert share['totalGrps'] == pytest.approx(share['tvGrps'] + share['cableTvGrps'] + share['radioGrps'])
+
+
 def test_runs_list_and_latest(client, project):
     brand = _brand(client, project['projectId'], 'Brand A')
     _upload(client, project['projectId'], brand['brandId'], BRAND_A_CSV)
@@ -323,6 +350,55 @@ def test_station_shares_rejects_missing_run(client, project):
     assert response.status_code == 404
 
 
+def test_spot_efficiency_flags_a_brand_station_buying_weak_inventory_at_volume(client, project):
+    # Two stations for the same brand: TVC gets a strong rating (efficient),
+    # AIT gets a much weaker one at enough spots to be a real pattern —
+    # AIT should come back flagged, TVC should not.
+    brand = _brand(client, project['projectId'], 'Brand A')
+    _upload(
+        client, project['projectId'], brand['brandId'],
+        b'Channel,Programme,Day,Spots\nTVC,Prime Time,Monday,10\nAIT,News,Tuesday,10\n',
+    )
+    _attach_ratings(client, project['projectId'], [
+        {'medium': 'TV', 'station': 'TVC', 'day': 'Monday', 'programme': 'Prime Time', 'rating': 5.0},
+        {'medium': 'TV', 'station': 'AIT', 'day': 'Tuesday', 'programme': 'News', 'rating': 0.5},
+    ])
+    run = client.post(f"/api/projects/{project['projectId']}/calculate").json()
+
+    rows = client.get(f"/api/projects/{project['projectId']}/runs/{run['runId']}/spot-efficiency").json()
+    by_station = {r['station']: r for r in rows}
+    assert by_station['TVC']['grpPerSpot'] == pytest.approx(5.0)
+    assert by_station['TVC']['isWeak'] is False
+    assert by_station['AIT']['grpPerSpot'] == pytest.approx(0.5)
+    assert by_station['AIT']['isWeak'] is True
+    # sorted weakest-first
+    assert rows[0]['station'] == 'AIT'
+
+
+def test_spot_efficiency_does_not_flag_low_volume_even_if_weak(client, project):
+    # Same weak rating as above, but only 1 spot — not enough volume for the
+    # "buying weak inventory AT VOLUME" flag to mean anything.
+    brand = _brand(client, project['projectId'], 'Brand A')
+    _upload(
+        client, project['projectId'], brand['brandId'],
+        b'Channel,Programme,Day,Spots\nTVC,Prime Time,Monday,10\nAIT,News,Tuesday,1\n',
+    )
+    _attach_ratings(client, project['projectId'], [
+        {'medium': 'TV', 'station': 'TVC', 'day': 'Monday', 'programme': 'Prime Time', 'rating': 5.0},
+        {'medium': 'TV', 'station': 'AIT', 'day': 'Tuesday', 'programme': 'News', 'rating': 0.5},
+    ])
+    run = client.post(f"/api/projects/{project['projectId']}/calculate").json()
+
+    rows = client.get(f"/api/projects/{project['projectId']}/runs/{run['runId']}/spot-efficiency").json()
+    by_station = {r['station']: r for r in rows}
+    assert by_station['AIT']['isWeak'] is False
+
+
+def test_spot_efficiency_rejects_missing_run(client, project):
+    response = client.get(f"/api/projects/{project['projectId']}/runs/does-not-exist/spot-efficiency")
+    assert response.status_code == 404
+
+
 def test_programme_shares_split_by_brand_and_programme(client, project):
     brand_a = _brand(client, project['projectId'], 'Brand A')
     _upload(client, project['projectId'], brand_a['brandId'], BRAND_A_CSV)
@@ -337,6 +413,44 @@ def test_programme_shares_split_by_brand_and_programme(client, project):
 
 def test_programme_shares_rejects_missing_run(client, project):
     response = client.get(f"/api/projects/{project['projectId']}/runs/does-not-exist/programmes")
+    assert response.status_code == 404
+
+
+def test_daypart_shares_split_by_brand_and_vendor_daypart_label(client, project):
+    # Grouped by whatever daypart/time-band label the file itself supplies
+    # (AM/PM here), not a canonical bucket the app invents — see
+    # PRODUCT_ROADMAP.md's "Daypart approach" decision.
+    brand = _brand(client, project['projectId'], 'Brand A')
+    _upload(
+        client, project['projectId'], brand['brandId'],
+        b'Channel,Programme,Time Belt,Day,Spots\n'
+        b'TVC,Prime Time,AM,Monday,3\n'
+        b'AIT,News,PM,Tuesday,2\n',
+    )
+    _attach_ratings(client, project['projectId'], BRAND_A_RATINGS)
+    run = client.post(f"/api/projects/{project['projectId']}/calculate").json()
+
+    shares = client.get(f"/api/projects/{project['projectId']}/runs/{run['runId']}/dayparts").json()
+    by_daypart = {s['timeBand']: s for s in shares}
+    assert by_daypart['AM']['totalGrps'] == pytest.approx(3.6)  # 3 spots * 1.2
+    assert by_daypart['PM']['totalGrps'] == pytest.approx(5.0)  # 2 spots * 2.5
+    assert all(s['brand'] == 'Brand A' for s in shares)
+
+
+def test_daypart_shares_groups_unmapped_rows_under_blank_label(client, project):
+    brand = _brand(client, project['projectId'], 'Brand A')
+    _upload(client, project['projectId'], brand['brandId'], BRAND_A_CSV)  # no Time Belt column
+    _attach_ratings(client, project['projectId'], BRAND_A_RATINGS)
+    run = client.post(f"/api/projects/{project['projectId']}/calculate").json()
+
+    shares = client.get(f"/api/projects/{project['projectId']}/runs/{run['runId']}/dayparts").json()
+    assert len(shares) == 1
+    assert shares[0]['timeBand'] == ''
+    assert shares[0]['totalGrps'] == pytest.approx(8.6)
+
+
+def test_daypart_shares_rejects_missing_run(client, project):
+    response = client.get(f"/api/projects/{project['projectId']}/runs/does-not-exist/dayparts")
     assert response.status_code == 404
 
 

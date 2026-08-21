@@ -2,6 +2,7 @@ import type {
   AuthSession,
   Brand,
   BrandShare,
+  DaypartShare,
   ExportJob,
   GrpCalculationRow,
   GrpRunSummary,
@@ -13,6 +14,7 @@ import type {
   RatingMatch,
   RatingRow,
   RatingsDataset,
+  SpotEfficiency,
   StationShare,
   TrendPoint,
   UploadBatch,
@@ -330,6 +332,14 @@ export function listStationShares(projectId: string, runId: string): Promise<Sta
 
 export function listProgrammeShares(projectId: string, runId: string): Promise<ProgrammeShare[]> {
   return request<ProgrammeShare[]>(`/api/projects/${projectId}/runs/${runId}/programmes`);
+}
+
+export function listDaypartShares(projectId: string, runId: string): Promise<DaypartShare[]> {
+  return request<DaypartShare[]>(`/api/projects/${projectId}/runs/${runId}/dayparts`);
+}
+
+export function listSpotEfficiency(projectId: string, runId: string): Promise<SpotEfficiency[]> {
+  return request<SpotEfficiency[]>(`/api/projects/${projectId}/runs/${runId}/spot-efficiency`);
 }
 
 export function listTrend(projectId: string, runId: string): Promise<TrendPoint[]> {

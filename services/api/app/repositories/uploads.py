@@ -50,6 +50,7 @@ class MediaActivityRecord:
     programme: str
     spots: int
     cost: Optional[float]
+    time_band: str
     source_file: str
 
 
@@ -99,6 +100,7 @@ def _activity_row_to_record(row: dict) -> MediaActivityRecord:
         programme=row['programme'] or '',
         spots=row['spots'],
         cost=float(row['cost']) if row['cost'] is not None else None,
+        time_band=row['time_band'] or '',
         source_file=row['source_file'] or '',
     )
 
@@ -137,14 +139,14 @@ class PostgresUploadsRepository:
                         '''
                         INSERT INTO media_activity (
                             project_id, brand_id, upload_id, medium, station, activity_date, day,
-                            programme, spots, cost, source_file, source_row_number
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            programme, spots, cost, time_band, source_file, source_row_number
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ''',
                         [
                             (
                                 project_id, insert.brand_id, upload_row['id'], insert.row.medium, insert.row.station,
                                 insert.row.activity_date, insert.row.day, insert.row.programme, insert.row.spots,
-                                insert.row.cost, insert.row.source_file, insert.row.source_row_number,
+                                insert.row.cost, insert.row.time_band, insert.row.source_file, insert.row.source_row_number,
                             )
                             for insert in inserts
                         ],
@@ -207,7 +209,7 @@ class InMemoryUploadsRepository:
                 id=str(uuid.uuid4()), project_id=project_id, brand_id=insert.brand_id, upload_id=upload.id,
                 medium=insert.row.medium, station=insert.row.station, activity_date=insert.row.activity_date,
                 day=insert.row.day, programme=insert.row.programme, spots=insert.row.spots,
-                cost=insert.row.cost, source_file=insert.row.source_file,
+                cost=insert.row.cost, time_band=insert.row.time_band, source_file=insert.row.source_file,
             )
             self._activity[record.id] = record
             activity_records.append(record)

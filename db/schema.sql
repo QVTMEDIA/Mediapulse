@@ -373,7 +373,13 @@ create table brand_shares (
   run_id uuid not null references grp_runs(id) on delete cascade,
   brand_id uuid not null references brands(id) on delete cascade,
   total_grps numeric(14,3) not null default 0,
+  -- tv_grps means terrestrial/generic TV, same as it always has — a bare
+  -- 'TV' medium value keeps mapping here (grp_calculator.normalize_medium_type).
+  -- cable_tv_grps is a newer, additive bucket (DStv/GOtv/satellite/pay-TV
+  -- rows) that only gets populated when a source explicitly says so;
+  -- total_grps = tv_grps + cable_tv_grps + radio_grps.
   tv_grps numeric(14,3) not null default 0,
+  cable_tv_grps numeric(14,3) not null default 0,
   radio_grps numeric(14,3) not null default 0,
   sov numeric(6,3) not null default 0,
   spots int not null default 0,
@@ -416,6 +422,22 @@ create view grp_by_programme as
   from grp_calculations gc
   join media_activity ma on ma.id = gc.media_activity_id
   group by gc.run_id, ma.project_id, ma.brand_id, ma.programme;
+
+-- Daypart contribution — grouped by the vendor's own time_band label
+-- (media_activity.time_band), not a canonical bucket this app defines. Rows
+-- with no daypart mapped fall into the '' group, same treatment station/
+-- programme would get for an unmapped value.
+create view grp_by_daypart as
+  select
+    gc.run_id,
+    ma.project_id,
+    ma.brand_id,
+    ma.time_band,
+    sum(gc.grp) as total_grps,
+    sum(gc.spots) as total_spots
+  from grp_calculations gc
+  join media_activity ma on ma.id = gc.media_activity_id
+  group by gc.run_id, ma.project_id, ma.brand_id, ma.time_band;
 
 -- ---------------------------------------------------------------------------
 -- validation_issues

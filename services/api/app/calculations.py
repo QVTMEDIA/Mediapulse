@@ -1,6 +1,6 @@
 """GRP run calculation: joins persisted media_activity + rating_matches +
 ratings into per-row GRPs and a per-brand rollup, reusing
-grp_calculator.summarize_media() for the TV/Radio/Total GRP and SOV
+grp_calculator.summarize_media() for the TV/Cable TV/Radio/Total GRP and SOV
 aggregation rather than reimplementing that grouping logic.
 
 Row GRP = Spots x Rating, for rows with a resolved rating only. Unmatched
@@ -37,6 +37,7 @@ class CalculatedRow:
     programme: str
     day: str
     medium: str
+    time_band: str
     activity_date: Optional[date_type]
 
 
@@ -45,6 +46,7 @@ class BrandShareResult:
     brand_id: str
     total_grps: float
     tv_grps: float
+    cable_tv_grps: float
     radio_grps: float
     sov: float
     spots: int
@@ -96,7 +98,7 @@ def compute_run(media_activity_records, match_by_activity_id: Dict[str, object],
                 media_activity_id=activity.id, rating_match_id=match.id, spots=activity.spots,
                 rating=rating_value, grp=grp, brand_id=activity.brand_id, station=activity.station,
                 programme=activity.programme, day=activity.day, medium=activity.medium,
-                activity_date=activity.activity_date,
+                time_band=activity.time_band, activity_date=activity.activity_date,
             ))
             ratings_by_brand.setdefault(activity.brand_id, []).append(rating_value)
         else:
@@ -131,6 +133,7 @@ def compute_run(media_activity_records, match_by_activity_id: Dict[str, object],
             brand_id=brand_id,
             total_grps=float(row['Total GRPs']),
             tv_grps=float(row['TV GRPs']),
+            cable_tv_grps=float(row['Cable TV GRPs']),
             radio_grps=float(row['Radio GRPs']),
             sov=float(row['GRP SOV']) * 100,
             spots=int(row['Total Spots']),

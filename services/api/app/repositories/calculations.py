@@ -32,6 +32,7 @@ class BrandShareRecord:
     brand_id: str
     total_grps: float
     tv_grps: float
+    cable_tv_grps: float
     radio_grps: float
     sov: float
     spots: int
@@ -50,6 +51,7 @@ class GrpCalculationRecord:
     programme: str
     day: str
     medium: str
+    time_band: str
     spots: int
     rating: float
     grp: float
@@ -71,6 +73,20 @@ class ProgrammeShareRecord:
     run_id: str
     brand_id: str
     programme: str
+    total_grps: float
+    spots: int
+
+
+@dataclass
+class DaypartShareRecord:
+    # Grouped by the vendor's own daypart/time-band label (media_activity.
+    # time_band), not a canonical bucket this app defines — see
+    # grp_calculator.py's SYNONYMS['time_band'] comment. Rows with no
+    # daypart mapped share the '' bucket, same as station/programme would
+    # for an unmapped value.
+    run_id: str
+    brand_id: str
+    time_band: str
     total_grps: float
     spots: int
 
@@ -103,6 +119,8 @@ class CalculationsRepository(Protocol):
 
     def list_programme_shares(self, project_id: str, run_id: str) -> Optional[List[ProgrammeShareRecord]]: ...
 
+    def list_daypart_shares(self, project_id: str, run_id: str) -> Optional[List[DaypartShareRecord]]: ...
+
     def list_trend(self, project_id: str, run_id: str) -> Optional[List[TrendPointRecord]]: ...
 
 
@@ -127,6 +145,7 @@ def _share_row_to_record(row: dict) -> BrandShareRecord:
         brand_id=str(row['brand_id']),
         total_grps=float(row['total_grps']),
         tv_grps=float(row['tv_grps']),
+        cable_tv_grps=float(row['cable_tv_grps']),
         radio_grps=float(row['radio_grps']),
         sov=float(row['sov']),
         spots=row['spots'],
@@ -146,6 +165,7 @@ def _calculation_row_to_record(row: dict) -> GrpCalculationRecord:
         programme=row['programme'] or '',
         day=row['day'] or '',
         medium=row['medium'] or '',
+        time_band=row['time_band'] or '',
         spots=row['spots'],
         rating=float(row['rating']),
         grp=float(row['grp']),
@@ -190,12 +210,12 @@ class PostgresCalculationsRepository:
                 with conn.cursor() as cur:
                     cur.executemany(
                         '''
-                        INSERT INTO brand_shares (run_id, brand_id, total_grps, tv_grps, radio_grps, sov, spots, avg_rating, total_spend, soe)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO brand_shares (run_id, brand_id, total_grps, tv_grps, cable_tv_grps, radio_grps, sov, spots, avg_rating, total_spend, soe)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ''',
                         [
-                            (run_id, share.brand_id, share.total_grps, share.tv_grps, share.radio_grps,
-                             share.sov, share.spots, share.avg_rating, share.total_spend, share.soe)
+                            (run_id, share.brand_id, share.total_grps, share.tv_grps, share.cable_tv_grps,
+                             share.radio_grps, share.sov, share.spots, share.avg_rating, share.total_spend, share.soe)
                             for share in result.brand_shares
                         ],
                     )
@@ -269,7 +289,7 @@ class PostgresCalculationsRepository:
                 return None
             rows = conn.execute(
                 '''
-                SELECT gc.*, ma.brand_id, ma.station, ma.programme, ma.day, ma.medium, ma.activity_date
+                SELECT gc.*, ma.brand_id, ma.station, ma.programme, ma.day, ma.medium, ma.time_band, ma.activity_date
                 FROM grp_calculations gc
                 JOIN media_activity ma ON ma.id = gc.media_activity_id
                 WHERE gc.run_id = %s
@@ -314,6 +334,27 @@ class PostgresCalculationsRepository:
         return [
             ProgrammeShareRecord(
                 run_id=str(row['run_id']), brand_id=str(row['brand_id']), programme=row['programme'] or '',
+                total_grps=float(row['total_grps']), spots=int(row['total_spots']),
+            )
+            for row in rows
+        ]
+
+    def list_daypart_shares(self, project_id, run_id):
+        # Reuses the grp_by_daypart view (db/schema.sql), same pattern as
+        # list_station_shares/list_programme_shares above.
+        with get_connection() as conn:
+            if self._run_exists(conn, project_id, run_id) is None:
+                return None
+            rows = conn.execute(
+                '''
+                SELECT run_id, brand_id, time_band, total_grps, total_spots
+                FROM grp_by_daypart WHERE run_id = %s ORDER BY total_grps DESC
+                ''',
+                [run_id],
+            ).fetchall()
+        return [
+            DaypartShareRecord(
+                run_id=str(row['run_id']), brand_id=str(row['brand_id']), time_band=row['time_band'] or '',
                 total_grps=float(row['total_grps']), spots=int(row['total_spots']),
             )
             for row in rows
@@ -366,8 +407,8 @@ class InMemoryCalculationsRepository:
         self._shares[run.id] = [
             BrandShareRecord(
                 run_id=run.id, brand_id=share.brand_id, total_grps=share.total_grps, tv_grps=share.tv_grps,
-                radio_grps=share.radio_grps, sov=share.sov, spots=share.spots, avg_rating=share.avg_rating,
-                total_spend=share.total_spend, soe=share.soe,
+                cable_tv_grps=share.cable_tv_grps, radio_grps=share.radio_grps, sov=share.sov, spots=share.spots,
+                avg_rating=share.avg_rating, total_spend=share.total_spend, soe=share.soe,
             )
             for share in result.brand_shares
         ]
@@ -375,8 +416,8 @@ class InMemoryCalculationsRepository:
             GrpCalculationRecord(
                 id=str(uuid.uuid4()), run_id=run.id, media_activity_id=row.media_activity_id,
                 brand_id=row.brand_id, station=row.station, programme=row.programme, day=row.day,
-                medium=row.medium, spots=row.spots, rating=row.rating, grp=row.grp, calculated_at=now,
-                activity_date=row.activity_date,
+                medium=row.medium, time_band=row.time_band, spots=row.spots, rating=row.rating, grp=row.grp,
+                calculated_at=now, activity_date=row.activity_date,
             )
             for row in result.calculated_rows
         ]
@@ -452,6 +493,21 @@ class InMemoryCalculationsRepository:
         records = [
             ProgrammeShareRecord(run_id=run_id, brand_id=brand_id, programme=programme, total_grps=grp, spots=spots)
             for (brand_id, programme), (grp, spots) in totals.items()
+        ]
+        return sorted(records, key=lambda r: r.total_grps, reverse=True)
+
+    def list_daypart_shares(self, project_id, run_id):
+        calculations = self._get_run_calculations(project_id, run_id)
+        if calculations is None:
+            return None
+        totals: Dict[tuple, List[float]] = defaultdict(lambda: [0.0, 0])
+        for row in calculations:
+            bucket = totals[(row.brand_id, row.time_band)]
+            bucket[0] += row.grp
+            bucket[1] += row.spots
+        records = [
+            DaypartShareRecord(run_id=run_id, brand_id=brand_id, time_band=time_band, total_grps=grp, spots=spots)
+            for (brand_id, time_band), (grp, spots) in totals.items()
         ]
         return sorted(records, key=lambda r: r.total_grps, reverse=True)
 

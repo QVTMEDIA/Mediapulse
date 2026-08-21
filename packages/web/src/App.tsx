@@ -153,11 +153,18 @@ function ProjectRow({
 
 function BrandShareRow({ share, maxGrp }: { share: BrandShare; maxGrp: number }) {
   const width = maxGrp ? `${Math.max((share.totalGrps / maxGrp) * 100, 3)}%` : '3%';
-  // Split the bar itself by TV/Radio GRP share, not just report the numbers
-  // in the caption — tvGrps/radioGrps summed to totalGrps back on Phase 1,
-  // this is the first place either value gets rendered anywhere.
-  const isMixedMedia = share.tvGrps > 0 && share.radioGrps > 0;
+  // Split the bar itself by TV/Cable TV/Radio GRP share, not just report the
+  // numbers in the caption — tvGrps/cableTvGrps/radioGrps summed to
+  // totalGrps, this is the first place any of them gets rendered anywhere.
+  const mediumsPresent = [share.tvGrps, share.cableTvGrps, share.radioGrps].filter((g) => g > 0).length;
+  const isMixedMedia = mediumsPresent >= 2;
   const tvShare = share.totalGrps > 0 ? (share.tvGrps / share.totalGrps) * 100 : 100;
+  const cableTvShare = share.totalGrps > 0 ? (share.cableTvGrps / share.totalGrps) * 100 : 0;
+  const radioShare = share.totalGrps > 0 ? (share.radioGrps / share.totalGrps) * 100 : 0;
+  // Solid-bar case: pick whichever single medium actually has GRPs, rather
+  // than assuming TV — a Radio-only or Cable-TV-only brand shouldn't render
+  // in the default TV green.
+  const soloColor = share.cableTvGrps > 0 ? 'var(--violet)' : share.radioGrps > 0 ? 'var(--blue)' : undefined;
   return (
     <div className="brand-row">
       <div className="brand-line">
@@ -176,15 +183,18 @@ function BrandShareRow({ share, maxGrp }: { share: BrandShare; maxGrp: number })
         {isMixedMedia ? (
           <div className="bar-fill split" style={{ width }}>
             <div className="bar-fill-tv" style={{ width: `${tvShare}%` }} />
-            <div className="bar-fill-radio" style={{ width: `${100 - tvShare}%` }} />
+            <div className="bar-fill-cable-tv" style={{ width: `${cableTvShare}%` }} />
+            <div className="bar-fill-radio" style={{ width: `${radioShare}%` }} />
           </div>
         ) : (
-          <div className="bar-fill" style={{ width, background: share.radioGrps > 0 ? 'var(--blue)' : undefined }} />
+          <div className="bar-fill" style={{ width, background: soloColor }} />
         )}
       </div>
       <small>
         {share.spots} spots | {share.totalGrps.toFixed(1)} GRPs
-        {isMixedMedia ? ` (TV ${share.tvGrps.toFixed(1)} · Radio ${share.radioGrps.toFixed(1)})` : ''}
+        {isMixedMedia
+          ? ` (TV ${share.tvGrps.toFixed(1)}${share.cableTvGrps > 0 ? ` · Cable TV ${share.cableTvGrps.toFixed(1)}` : ''} · Radio ${share.radioGrps.toFixed(1)})`
+          : ''}
         {share.avgRating !== null ? ` | avg rating ${share.avgRating.toFixed(2)}` : ''}
         {share.totalSpend > 0 ? ` | spend ${formatNumber(share.totalSpend)}` : ''}
       </small>
@@ -880,9 +890,14 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
                   </div>
                   <BarChart3 size={20} aria-hidden />
                 </div>
-                {brandShares.some((share) => share.tvGrps > 0 && share.radioGrps > 0) && (
+                {brandShares.some(
+                  (share) => [share.tvGrps, share.cableTvGrps, share.radioGrps].filter((g) => g > 0).length >= 2,
+                ) && (
                   <div className="medium-split-legend">
                     <span><i className="tv" /> TV</span>
+                    {brandShares.some((share) => share.cableTvGrps > 0) && (
+                      <span><i className="cable-tv" /> Cable TV</span>
+                    )}
                     <span><i className="radio" /> Radio</span>
                   </div>
                 )}

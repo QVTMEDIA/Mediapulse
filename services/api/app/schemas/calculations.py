@@ -45,7 +45,10 @@ class BrandShareOut(CamelModel):
     brand_id: str
     brand: str  # joined in by the router (brand_shares doesn't itself store a name)
     total_grps: float
+    # tv_grps means terrestrial/generic TV, cable_tv_grps a newer additive
+    # bucket (DStv/GOtv/satellite/pay-TV) — see grp_calculator.normalize_medium_type.
     tv_grps: float
+    cable_tv_grps: float
     radio_grps: float
     sov: float
     spots: int
@@ -73,6 +76,37 @@ class ProgrammeShareOut(CamelModel):
     programme: str
     total_grps: float
     spots: int
+
+
+class DaypartShareOut(CamelModel):
+    # Grouped by the vendor's own daypart/time-band label, not a canonical
+    # bucket this app defines — see grp_calculator.py's
+    # SYNONYMS['time_band'] comment. timeBand is '' for rows with no
+    # daypart column mapped, not omitted.
+    run_id: str
+    brand_id: str
+    brand: str
+    time_band: str
+    total_grps: float
+    spots: int
+
+
+class SpotEfficiencyOut(CamelModel):
+    """PRODUCT_ROADMAP.md's Overview 'spot-volume-vs-GRP' view: flags a
+    brand/station combination as buying weak inventory when its own average
+    GRP per spot sits well below the category's average GRP per spot for
+    this run, at high enough volume that it's a real pattern rather than
+    one noisy spot. See routers/runs.py's get_spot_efficiency for the exact
+    thresholds and rationale — this is a judgment call, not a fact, which
+    is also why it's computed on every read rather than stored."""
+    run_id: str
+    brand_id: str
+    brand: str
+    station: str
+    spots: int
+    total_grps: float
+    grp_per_spot: float
+    is_weak: bool
 
 
 class TrendPointOut(CamelModel):

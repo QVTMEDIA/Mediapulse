@@ -442,6 +442,71 @@ class GrpCalculatorTests(unittest.TestCase):
         report, _issues = calc.build_brand_report(raw, mapping, 'no_spend.csv', default_medium='TV')
         self.assertTrue(pd.isna(report['Cost'].iloc[0]))
 
+    def test_build_brand_report_captures_vendor_daypart_label_separately_from_programme(self):
+        # 'time_band'/'Daypart' is a distinct field from 'programme' — a
+        # file with both a Programme column and its own separate daypart
+        # column (real vendor files often have one, e.g. "Time Belt") must
+        # capture both, not have one clobber the other's detection.
+        raw = pd.DataFrame({
+            'Channel': ['ADABA FM'], 'Programme': ['ROS'], 'Time Belt': ['AM'],
+            'Day': ['Monday'], 'Spots': [1],
+        })
+        mapping = {
+            'brand': '-- none --', 'medium': '-- none --', 'date': '-- none --', 'day': 'Day',
+            'channel': 'Channel', 'programme': 'Programme', 'spots': 'Spots', 'time_band': 'Time Belt',
+        }
+        report, issues = calc.build_brand_report(raw, mapping, 'daypart.csv', default_medium='Radio')
+        self.assertEqual(len(issues), 0)
+        self.assertEqual(report['Programme / Time Band'].iloc[0], 'ROS')
+        self.assertEqual(report['Daypart'].iloc[0], 'AM')
+
+    def test_detect_column_time_band_does_not_steal_the_day_column(self):
+        # Regression test: detect_column's fuzzy fallback does substring
+        # matching, and 'daypart' was briefly a 'time_band' synonym whose
+        # substring ('day') falsely matched a plain 'Day' column whenever a
+        # file had no real daypart column at all.
+        columns = ['Channel', 'Programme', 'Day', 'Spots']
+        self.assertIsNone(calc.detect_column(columns, 'time_band'))
+        self.assertEqual(calc.detect_column(columns, 'day'), 'Day')
+
+    def test_build_brand_report_daypart_is_blank_when_no_time_band_mapped(self):
+        raw = pd.DataFrame({
+            'Channel': ['AIT'], 'Programme': ['Morning Show'], 'Day': ['Monday'], 'Spots': [1],
+        })
+        mapping = {
+            'brand': '-- none --', 'medium': '-- none --', 'date': '-- none --', 'day': 'Day',
+            'channel': 'Channel', 'programme': 'Programme', 'spots': 'Spots',
+        }
+        report, _issues = calc.build_brand_report(raw, mapping, 'no_daypart.csv', default_medium='TV')
+        self.assertEqual(report['Daypart'].iloc[0], '')
+
+    def test_normalize_medium_type_recognizes_cable_tv_aliases(self):
+        for value in ('Cable TV', 'Cable', 'DStv', 'GOtv', 'Pay TV', 'Satellite TV', 'cable'):
+            self.assertEqual(calc.normalize_medium_type(value), 'CABLE TV', msg=value)
+        # A bare/generic 'TV' — and explicit 'Terrestrial TV' — still means
+        # the historical TV bucket, not Cable TV, so existing data with a
+        # plain 'TV' medium doesn't silently reclassify.
+        for value in ('TV', 'Television', 'Terrestrial TV', 'Terrestrial', 'FTA'):
+            self.assertEqual(calc.normalize_medium_type(value), 'TV', msg=value)
+        self.assertEqual(calc.normalize_medium_type('Radio'), 'RADIO')
+
+    def test_summarize_media_splits_cable_tv_grps_separately(self):
+        media = pd.DataFrame({
+            'Brand': ['Brand A', 'Brand A', 'Brand A'],
+            'Medium': ['TV', 'Cable TV', 'Radio'],
+            'Spots': [1, 1, 1],
+            'GRP': [10.0, 5.0, 2.0],
+            'Match Status': ['MATCHED', 'MATCHED', 'MATCHED'],
+        })
+        summary, category_grps, suspicious_mediums = calc.summarize_media(media)
+        row = summary.iloc[0]
+        self.assertEqual(suspicious_mediums, [])
+        self.assertAlmostEqual(float(row['TV GRPs']), 10.0)
+        self.assertAlmostEqual(float(row['Cable TV GRPs']), 5.0)
+        self.assertAlmostEqual(float(row['Radio GRPs']), 2.0)
+        self.assertAlmostEqual(float(row['Total GRPs']), 17.0)
+        self.assertAlmostEqual(float(category_grps), 17.0)
+
 
 if __name__ == '__main__':
     unittest.main()

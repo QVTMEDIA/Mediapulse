@@ -102,6 +102,27 @@ def test_upload_resolves_cost_from_spots_times_rate_when_no_direct_cost(client, 
     assert activity[0]['cost'] == pytest.approx(3 * 6200)
 
 
+def test_upload_captures_vendor_daypart_label_separately_from_programme(client, project, brand):
+    csv = (
+        b'Channel,Programme,Time Belt,Day,Spots\n'
+        b'ADABA FM,ROS,AM,Monday,1\n'
+        b'AREWA FM,ROS,PM,Tuesday,1\n'
+    )
+    _post_upload(client, project['projectId'], brand['brandId'], content=csv)
+    activity = client.get(f"/api/projects/{project['projectId']}/media-activity").json()
+    by_station = {row['station']: row for row in activity}
+    assert by_station['ADABA FM']['timeBand'] == 'AM'
+    assert by_station['AREWA FM']['timeBand'] == 'PM'
+    assert all(row['programme'] == 'ROS' for row in activity)  # unaffected by the separate Daypart field
+
+
+def test_upload_time_band_is_blank_string_when_no_daypart_column(client, project, brand):
+    response = _post_upload(client, project['projectId'], brand['brandId'])
+    assert response.status_code == 201
+    activity = client.get(f"/api/projects/{project['projectId']}/media-activity").json()
+    assert all(row['timeBand'] == '' for row in activity)
+
+
 def test_upload_appears_in_uploads_list(client, project, brand):
     _post_upload(client, project['projectId'], brand['brandId'])
     uploads = client.get(f"/api/projects/{project['projectId']}/uploads").json()

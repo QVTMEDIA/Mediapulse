@@ -14,6 +14,7 @@
   --green: #0f766e;
   --green-dark: #0b5f58;
   --blue: #2764b0;
+  --violet: #6d28d9;
   --amber: #a15c05;
   --red: #b42318;
 }
@@ -488,12 +489,17 @@ button:disabled {
 }
 
 .bar-fill-tv,
+.bar-fill-cable-tv,
 .bar-fill-radio {
   height: 100%;
 }
 
 .bar-fill-tv {
   background: var(--green);
+}
+
+.bar-fill-cable-tv {
+  background: var(--violet);
 }
 
 .bar-fill-radio {
@@ -523,6 +529,10 @@ button:disabled {
 
 .medium-split-legend .tv {
   background: var(--green);
+}
+
+.medium-split-legend .cable-tv {
+  background: var(--violet);
 }
 
 .medium-split-legend .radio {

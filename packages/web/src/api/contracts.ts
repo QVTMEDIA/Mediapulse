@@ -97,7 +97,12 @@ export interface BrandShare {
   brandId: string;
   brand: string;
   totalGrps: number;
+  // tvGrps means terrestrial/generic TV, same as it always has; cableTvGrps
+  // is a newer, additive bucket (DStv/GOtv/satellite/pay-TV) that only gets
+  // populated when a source explicitly says so — see the Medium synonym
+  // list this session added in grp_calculator.normalize_medium_type.
   tvGrps: number;
+  cableTvGrps: number;
   radioGrps: number;
   sov: number;
   spots: number;
@@ -125,6 +130,33 @@ export interface ProgrammeShare {
   programme: string;
   totalGrps: number;
   spots: number;
+}
+
+export interface DaypartShare {
+  runId: string;
+  brandId: string;
+  brand: string;
+  // The vendor's own daypart/time-band label (e.g. "AM", "Prime Time"),
+  // not a canonical bucket the app defines — '' for rows with no daypart
+  // column mapped in the source file.
+  timeBand: string;
+  totalGrps: number;
+  spots: number;
+}
+
+export interface SpotEfficiency {
+  runId: string;
+  brandId: string;
+  brand: string;
+  station: string;
+  spots: number;
+  totalGrps: number;
+  grpPerSpot: number;
+  // Flagged when this brand/station's own GRP-per-spot sits well below the
+  // category's average for the run, at high enough spot volume for it to
+  // be a real pattern — see services/api's routers/runs.py for the exact
+  // thresholds. A computed judgment call, not a stored fact.
+  isWeak: boolean;
 }
 
 export interface TrendPoint {
@@ -187,6 +219,10 @@ export interface MediaActivityRow {
   // no cost/rate column was ever mapped for this upload, not a confirmed
   // zero spend.
   cost: number | null;
+  // The vendor's own daypart/time-band label, captured as-is — '' when the
+  // file had no such column. Separate from `programme`; never used for
+  // rating matching.
+  timeBand: string;
   sourceFile: string;
 }
 
@@ -346,10 +382,10 @@ export const sampleWorkspace: MediapulseWorkspace = {
     generatedAt: '2026-08-19 15:28:00',
   },
   brandShares: [
-    { runId: 'RUN-001', brandId: 'BRAND-A', brand: 'Brand A', totalGrps: 42.3, tvGrps: 42.3, radioGrps: 0, sov: 37.2, spots: 64, avgRating: 0.66, totalSpend: 3_120_000, soe: 37.1 },
-    { runId: 'RUN-001', brandId: 'BRAND-B', brand: 'Brand B', totalGrps: 31.8, tvGrps: 20.1, radioGrps: 11.7, sov: 28.0, spots: 52, avgRating: 0.61, totalSpend: 2_360_000, soe: 28.0 },
-    { runId: 'RUN-001', brandId: 'BRAND-C', brand: 'Brand C', totalGrps: 23.5, tvGrps: 23.5, radioGrps: 0, sov: 20.7, spots: 45, avgRating: 0.52, totalSpend: 1_740_000, soe: 20.7 },
-    { runId: 'RUN-001', brandId: 'BRAND-D', brand: 'Brand D', totalGrps: 16.1, tvGrps: 9.4, radioGrps: 6.7, sov: 14.1, spots: 41, avgRating: 0.39, totalSpend: 1_200_000, soe: 14.2 },
+    { runId: 'RUN-001', brandId: 'BRAND-A', brand: 'Brand A', totalGrps: 42.3, tvGrps: 34.1, cableTvGrps: 8.2, radioGrps: 0, sov: 37.2, spots: 64, avgRating: 0.66, totalSpend: 3_120_000, soe: 37.1 },
+    { runId: 'RUN-001', brandId: 'BRAND-B', brand: 'Brand B', totalGrps: 31.8, tvGrps: 20.1, cableTvGrps: 0, radioGrps: 11.7, sov: 28.0, spots: 52, avgRating: 0.61, totalSpend: 2_360_000, soe: 28.0 },
+    { runId: 'RUN-001', brandId: 'BRAND-C', brand: 'Brand C', totalGrps: 23.5, tvGrps: 23.5, cableTvGrps: 0, radioGrps: 0, sov: 20.7, spots: 45, avgRating: 0.52, totalSpend: 1_740_000, soe: 20.7 },
+    { runId: 'RUN-001', brandId: 'BRAND-D', brand: 'Brand D', totalGrps: 16.1, tvGrps: 9.4, cableTvGrps: 0, radioGrps: 6.7, sov: 14.1, spots: 41, avgRating: 0.39, totalSpend: 1_200_000, soe: 14.2 },
   ],
   validationIssues: [
     {

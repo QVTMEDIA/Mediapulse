@@ -136,7 +136,7 @@ The normalized, standard-structure row produced after mapping.
 - `activityDate` (renamed from `date` — matches `db/schema.sql`'s `activity_date` column; `date` reads ambiguously once this is JSON on the wire)
 - `day`
 - `programme`
-- `timeBand`
+- `timeBand` (the vendor's own daypart/time-band label, captured as-is and separate from `programme` — `''` when the file had no such column; never used for rating matching, only informational/aggregation, see `DaypartShare`)
 - `spots`
 - `duration`
 - `adType`
@@ -148,7 +148,7 @@ The normalized, standard-structure row produced after mapping.
 - `sourceFile`
 - `sourceRowNumber`
 
-Implemented so far (`services/api`'s `brand_report` upload path): `mediaActivityId`, `projectId`, `brandId`, `uploadId`, `medium`, `station`, `activityDate`, `day`, `programme`, `spots`, `cost`, `sourceFile`. `timeBand`, `duration`, `adType`, `startTime`, `endTime`, `campaign`, `product`, `sourceRowNumber` aren't populated yet — `grp_calculator.build_brand_report()` doesn't extract them from a spot-level report, and `build_brand_report` drops the row-number column it briefly computes internally before returning, so there's currently no cheap way to recover `sourceRowNumber` either. Revisit once a report format that actually carries that detail shows up.
+Implemented so far (`services/api`'s `brand_report` upload path): `mediaActivityId`, `projectId`, `brandId`, `uploadId`, `medium`, `station`, `activityDate`, `day`, `programme`, `spots`, `cost`, `timeBand`, `sourceFile`. `duration`, `adType`, `startTime`, `endTime`, `campaign`, `product`, `sourceRowNumber` aren't populated yet — `grp_calculator.build_brand_report()` doesn't extract them from a spot-level report, and `build_brand_report` drops the row-number column it briefly computes internally before returning, so there's currently no cheap way to recover `sourceRowNumber` either. Revisit once a report format that actually carries that detail shows up.
 
 ### RatingMatch
 
@@ -201,7 +201,8 @@ Per-brand rollup for a run, backing the SOV chart and brand comparison screen.
 - `brandId`
 - `brand`
 - `totalGrps`
-- `tvGrps`
+- `tvGrps` — terrestrial/generic TV, same meaning it always had
+- `cableTvGrps` — a newer, additive bucket (DStv/GOtv/satellite/pay-TV) — see `grp_calculator.normalize_medium_type`. `totalGrps = tvGrps + cableTvGrps + radioGrps`. Not in this contract's original field list.
 - `radioGrps`
 - `sov`
 - `spots`
@@ -230,6 +231,30 @@ Per-brand-per-programme GRP rollup for a run, same shape and purpose as `Station
 - `programme`
 - `totalGrps`
 - `spots`
+
+### DaypartShare
+
+Per-brand-per-daypart GRP rollup for a run, same shape and purpose as `StationShare`/`ProgrammeShare` but grouped by `timeBand` — the vendor's own daypart/time-band label from the source file, not a canonical bucket this app defines (`''` for rows with no such column mapped). Not in this contract's original field list.
+
+- `runId`
+- `brandId`
+- `brand`
+- `timeBand`
+- `totalGrps`
+- `spots`
+
+### SpotEfficiency
+
+Per-brand-per-station GRP-per-spot efficiency for a run, backing the Reports screen's Spot Efficiency panel (`GET /runs/{runId}/spot-efficiency`) — PRODUCT_ROADMAP.md's Overview "spot-volume-vs-GRP" view. Computed on every read from the same per-station aggregate `StationShare` uses, not stored: `isWeak` is `true` when `grpPerSpot` is under half the run's category-average GRP-per-spot, at 5 or more spots. Not in this contract's original field list.
+
+- `runId`
+- `brandId`
+- `brand`
+- `station`
+- `spots`
+- `totalGrps`
+- `grpPerSpot`
+- `isWeak`
 
 ### TrendPoint
 
@@ -329,6 +354,8 @@ GET    /api/projects/{projectId}/runs/{runId}/brand-shares
 GET    /api/projects/{projectId}/runs/{runId}/calculations
 GET    /api/projects/{projectId}/runs/{runId}/stations
 GET    /api/projects/{projectId}/runs/{runId}/programmes
+GET    /api/projects/{projectId}/runs/{runId}/dayparts
+GET    /api/projects/{projectId}/runs/{runId}/spot-efficiency
 GET    /api/projects/{projectId}/runs/{runId}/trend
 
 GET    /api/projects/{projectId}/validation-issues

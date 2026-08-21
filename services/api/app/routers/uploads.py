@@ -50,6 +50,7 @@ def _activity_to_out(record: MediaActivityRecord) -> MediaActivityRowOut:
         programme=record.programme,
         spots=record.spots,
         cost=record.cost,
+        time_band=record.time_band,
         source_file=record.source_file,
     )
 
@@ -130,7 +131,7 @@ async def create_upload(
                     row=ParsedMediaRow(
                         medium=row.medium, station=row.station, activity_date=row.activity_date, day=row.day,
                         programme=row.programme, spots=row.spots, source_file=row.source_file,
-                        source_row_number=None, cost=row.cost,
+                        source_row_number=None, cost=row.cost, time_band=row.time_band,
                     ),
                 ))
             upload_brand_id = None

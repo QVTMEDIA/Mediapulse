@@ -15,14 +15,14 @@ import pandas as pd
 from .schemas.ratings import RatingRowIn
 
 REQUIRED_MAPPING_FIELDS = ('channel', 'programme', 'spots')
-OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day', 'rate', 'cost')
+OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day', 'rate', 'cost', 'time_band')
 
 COMPOSITE_REQUIRED_MAPPING_FIELDS = ('channel', 'programme', 'spots')
 # 'rating'/'grp' were dropped from here once parse_composite_report switched
 # to build_brand_report (see that function's docstring) — build_brand_report
 # never reads those mapping keys, so keeping them would just be dead noise
 # in the mapping dict (and in the sourceLabel templates saved from it).
-COMPOSITE_OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day', 'rate', 'cost')
+COMPOSITE_OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day', 'rate', 'cost', 'time_band')
 
 RATINGS_REQUIRED_MAPPING_FIELDS = ('channel', 'day', 'programme', 'rating')
 RATINGS_OPTIONAL_MAPPING_FIELDS = ('medium', 'source')
@@ -66,6 +66,7 @@ class ParsedMediaRow:
     source_file: str
     source_row_number: Optional[int]
     cost: Optional[float] = None
+    time_band: str = ''
 
 
 @dataclass
@@ -105,6 +106,7 @@ def parse_brand_report(
             source_file=file_name,
             source_row_number=None,  # dropped by build_brand_report's issue-filtering; not worth re-deriving yet
             cost=_clean_cost(row['Cost']),
+            time_band=str(row['Daypart'] or ''),
         )
         for _, row in report.iterrows()
     ]
@@ -122,6 +124,7 @@ class ParsedCompositeRow:
     spots: int
     source_file: str
     cost: Optional[float] = None
+    time_band: str = ''
 
 
 @dataclass
@@ -179,6 +182,7 @@ def parse_composite_report(
             spots=int(row['Spots']),
             source_file=file_name,
             cost=_clean_cost(row['Cost']),
+            time_band=str(row['Daypart'] or ''),
         )
         for _, row in report.iterrows()
         if str(row['Brand'] or '').strip()

@@ -94,6 +94,7 @@ def _grp_sov_sheet(writer, brand_shares: List[dict]):
             'Brand': share['brand'],
             'Total GRPs': round(share['total_grps'], 2),
             'TV GRPs': round(share['tv_grps'], 2),
+            'Cable TV GRPs': round(share['cable_tv_grps'], 2),
             'Radio GRPs': round(share['radio_grps'], 2),
             'SOV %': round(share['sov'], 1),
             'Spots': share['spots'],
@@ -105,7 +106,7 @@ def _grp_sov_sheet(writer, brand_shares: List[dict]):
     ])
     _write(
         writer, df,
-        ['Brand', 'Total GRPs', 'TV GRPs', 'Radio GRPs', 'SOV %', 'Spots', 'Avg Rating', 'Spend', 'SOE %'],
+        ['Brand', 'Total GRPs', 'TV GRPs', 'Cable TV GRPs', 'Radio GRPs', 'SOV %', 'Spots', 'Avg Rating', 'Spend', 'SOE %'],
         'GRP & SOV',
     )
 
@@ -116,12 +117,13 @@ def _brand_comparison_sheet(writer, brand_shares: List[dict]):
     # rather than a ranked list (mirrors the Reports screen's brand-vs-brand
     # picker in packages/web, just for every brand at once instead of two).
     ordered = sorted(brand_shares, key=lambda s: s['total_grps'], reverse=True)
-    metrics = ['Total GRPs', 'TV GRPs', 'Radio GRPs', 'SOV %', 'Spots', 'Avg Rating', 'Spend', 'SOE %']
+    metrics = ['Total GRPs', 'TV GRPs', 'Cable TV GRPs', 'Radio GRPs', 'SOV %', 'Spots', 'Avg Rating', 'Spend', 'SOE %']
     data = {'Metric': metrics}
     for share in ordered:
         data[share['brand']] = [
             round(share['total_grps'], 2),
             round(share['tv_grps'], 2),
+            round(share['cable_tv_grps'], 2),
             round(share['radio_grps'], 2),
             round(share['sov'], 1),
             share['spots'],

@@ -32,4 +32,9 @@ class MediaActivityRowOut(CamelModel):
     # no cost/rate column was ever mapped for this upload, not a confirmed
     # zero spend. See db/schema.sql's comment on media_activity.cost.
     cost: Optional[float] = None
+    # Vendor's own daypart/time-band label, captured as-is (e.g. "AM",
+    # "Prime Time"), separate from `programme` — see grp_calculator.py's
+    # SYNONYMS['time_band'] comment. '' when the file had no such column,
+    # not used for matching (only `programme`/`day`/`station`/`medium` are).
+    time_band: str = ''
     source_file: str

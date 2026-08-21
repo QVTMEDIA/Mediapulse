@@ -765,7 +765,10 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
                     project={project}
                     key={project.projectId}
                     isActive={project.projectId === activeProjectId}
-                    onSelect={() => setActiveProjectId(project.projectId)}
+                    onSelect={() => {
+                      setActiveProjectId(project.projectId);
+                      setActiveSection('overview');
+                    }}
                   />
                 ))}
               </div>

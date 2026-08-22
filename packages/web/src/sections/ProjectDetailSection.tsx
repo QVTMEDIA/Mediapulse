@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BarChart3, History } from 'lucide-react';
+import { BarChart3, History, PieChart } from 'lucide-react';
 import { ApiError, getLatestRun, listBrandShares, listVersions, restoreVersion } from '../api/client';
 import type { BrandShare, GrpRunSummary, Project, ProjectVersion, User } from '../api/contracts';
 import { BrandShareRow } from './OverviewSection';
+import { BrandSpendRow, formatNumber } from './SpendIntelligenceSection';
 
 const statusClass = {
   Setup: 'status status-setup',
@@ -93,6 +94,9 @@ export default function ProjectDetailSection({
   }
 
   const maxGrp = Math.max(1, ...brandShares.map((share) => share.totalGrps));
+  const maxSpend = Math.max(1, ...brandShares.map((share) => share.totalSpend));
+  const spendRanked = [...brandShares].sort((a, b) => b.totalSpend - a.totalSpend);
+  const brandsWithSpend = brandShares.filter((share) => share.totalSpend > 0).length;
 
   return (
     <>
@@ -131,39 +135,86 @@ export default function ProjectDetailSection({
         )}
       </div>
 
-      <div className="panel">
-        <div className="panel-header">
-          <div>
-            <h2>Share of Voice</h2>
-            <p>
-              {sovLoading
-                ? 'Loading…'
-                : run
-                  ? `Run generated ${run.generatedAt}`
-                  : 'No calculation yet — click Calculate above'}
-            </p>
+      {run && (
+        <section className="metric-grid" aria-label="Project totals">
+          <div className="metric-panel">
+            <span>Total GRPs</span>
+            <strong>{formatNumber(run.totalGrps)}</strong>
+            <small>Run generated {run.generatedAt}</small>
           </div>
-          <BarChart3 size={20} aria-hidden />
+          <div className="metric-panel">
+            <span>Total Spots</span>
+            <strong>{formatNumber(run.totalSpots)}</strong>
+            <small>{run.totalBrands} brand{run.totalBrands === 1 ? '' : 's'}</small>
+          </div>
+          <div className="metric-panel">
+            <span>Total Spend</span>
+            <strong>{formatNumber(run.totalSpend)}</strong>
+            <small>{run.totalSpend === 0 ? 'No cost/rate column mapped yet' : `${brandsWithSpend} brand${brandsWithSpend === 1 ? '' : 's'} with spend`}</small>
+          </div>
+          <div className="metric-panel">
+            <span>Matched Activity</span>
+            <strong>{run.matchedRows + run.unmatchedRows > 0 ? `${((run.matchedRows / (run.matchedRows + run.unmatchedRows)) * 100).toFixed(0)}%` : '—'}</strong>
+            <small>{run.matchedRows} matched, {run.unmatchedRows} unmatched</small>
+          </div>
+        </section>
+      )}
+
+      <section className="content-grid">
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Share of Voice</h2>
+              <p>
+                {sovLoading
+                  ? 'Loading…'
+                  : run
+                    ? `Run generated ${run.generatedAt}`
+                    : 'No calculation yet — click Calculate above'}
+              </p>
+            </div>
+            <BarChart3 size={20} aria-hidden />
+          </div>
+          {sovError && <p className="inline-error">{sovError}</p>}
+          {brandShares.some(
+            (share) => [share.tvGrps, share.cableTvGrps, share.radioGrps].filter((g) => g > 0).length >= 2,
+          ) && (
+            <div className="medium-split-legend">
+              <span><i className="tv" /> TV</span>
+              {brandShares.some((share) => share.cableTvGrps > 0) && (
+                <span><i className="cable-tv" /> Cable TV</span>
+              )}
+              <span><i className="radio" /> Radio</span>
+            </div>
+          )}
+          <div className="brand-list">
+            {!sovLoading && brandShares.length === 0 && <p className="empty-state">No matched spots yet.</p>}
+            {brandShares.map((share) => (
+              <BrandShareRow share={share} maxGrp={maxGrp} key={share.brandId} />
+            ))}
+          </div>
         </div>
-        {sovError && <p className="inline-error">{sovError}</p>}
-        {brandShares.some(
-          (share) => [share.tvGrps, share.cableTvGrps, share.radioGrps].filter((g) => g > 0).length >= 2,
-        ) && (
-          <div className="medium-split-legend">
-            <span><i className="tv" /> TV</span>
-            {brandShares.some((share) => share.cableTvGrps > 0) && (
-              <span><i className="cable-tv" /> Cable TV</span>
+
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Share of Expenditure</h2>
+              <p>Spend-by-brand ranking and TV/Cable TV/Radio spend split</p>
+            </div>
+            <PieChart size={20} aria-hidden />
+          </div>
+          <div className="brand-list">
+            {!sovLoading && brandsWithSpend === 0 && (
+              <p className="empty-state">No spend data yet — upload a report with a Cost or Rate column.</p>
             )}
-            <span><i className="radio" /> Radio</span>
+            {spendRanked
+              .filter((share) => share.totalSpend > 0)
+              .map((share) => (
+                <BrandSpendRow share={share} maxSpend={maxSpend} key={share.brandId} />
+              ))}
           </div>
-        )}
-        <div className="brand-list">
-          {!sovLoading && brandShares.length === 0 && <p className="empty-state">No matched spots yet.</p>}
-          {brandShares.map((share) => (
-            <BrandShareRow share={share} maxGrp={maxGrp} key={share.brandId} />
-          ))}
         </div>
-      </div>
+      </section>
 
       {versions.length > 0 && (
         <div className="panel">

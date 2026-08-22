@@ -831,13 +831,34 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
     return pd.DataFrame(suggestions, columns=SUGGESTION_COLUMNS)
 
 
+def resolve_effective_programme(raw, mapping):
+    """The text that actually feeds the match key's 'Programme / Time Band'
+    component: the file's own Programme name where it has one, else its
+    Time Band/daypart label as a fallback — real radio audience-reach data
+    (Rch%/GRP by Channel + Day + Timeband, no named programme at all) has
+    always needed this, and it regressed when 'time_band' became a distinct
+    field from 'programme' (see the SYNONYMS['time_band'] comment): before
+    that split, a bare time-belt column could satisfy 'programme' itself
+    via a synonym match; after it, 'programme' had nowhere to fall back to
+    and every row failed 'Missing match field' for a file with no real
+    programme column, which is a normal, not a broken, shape for this kind
+    of source. Distinct from the separate 'Daypart' column build_brand_report/
+    build_composite_report still capture purely for display — this is the
+    one place time_band can actually affect matching, and only when there's
+    no real programme name to use instead.
+    """
+    programme_series = safe_col(raw, mapping['programme']).fillna('').astype(str).str.strip()
+    time_band_series = safe_col(raw, mapping.get('time_band', '-- none --'), '').fillna('').astype(str).str.strip()
+    return programme_series.mask(programme_series.eq(''), time_band_series)
+
+
 def build_ratings_lookup(ratings_raw, mapping, default_medium='TV'):
     rating_values = pd.to_numeric(safe_col(ratings_raw, mapping['rating']), errors='coerce')
     ratings_all = pd.DataFrame({
         'Medium': safe_col(ratings_raw, mapping['medium'], default_medium),
         'Channel / Station': safe_col(ratings_raw, mapping['channel']),
         'Day': safe_col(ratings_raw, mapping['day']),
-        'Programme / Time Band': safe_col(ratings_raw, mapping['programme']),
+        'Programme / Time Band': resolve_effective_programme(ratings_raw, mapping),
         'Rating (%)': rating_values,
         'Source / Period': safe_col(ratings_raw, mapping.get('source')),
     })
@@ -896,15 +917,19 @@ def build_brand_report(raw, mapping, file_name, default_medium='TV'):
         'Date': safe_col(raw, mapping['date']),
         'Day': day_series,
         'Channel / Station': safe_col(raw, mapping['channel']),
-        'Programme / Time Band': safe_col(raw, mapping['programme']),
+        'Programme / Time Band': resolve_effective_programme(raw, mapping),
         # Daypart contribution — the vendor's own time-band/daypart label,
-        # captured as-is, separate from 'Programme / Time Band' above (which
-        # only feeds the Matching Engine's match key). Blank, not NaN, when
-        # unmapped — same "informational text field" default as Day/Programme
-        # get elsewhere in this function, not the "no numeric data" NaN
-        # convention Cost uses. mapping.get(...), not mapping['time_band'],
-        # for the same reason resolve_row_cost() uses .get() for cost/rate:
-        # app.py builds its own narrower mapping dict that doesn't include it.
+        # captured as-is. Usually separate from 'Programme / Time Band'
+        # above; the exception is a file with no real programme name at all
+        # (see resolve_effective_programme), where the two end up holding
+        # the same text — that's intentional, not a bug, since the match
+        # key still needs *some* slot-identifying value in that position.
+        # Blank, not NaN, when unmapped — same "informational text field"
+        # default as Day/Programme get elsewhere in this function, not the
+        # "no numeric data" NaN convention Cost uses. mapping.get(...), not
+        # mapping['time_band'], for the same reason resolve_row_cost() uses
+        # .get() for cost/rate: app.py builds its own narrower mapping dict
+        # that doesn't include it.
         'Daypart': safe_col(raw, mapping.get('time_band', '-- none --'), ''),
         'Spots': spots_values.fillna(0),
         # NaN (not 0) when no cost/rate column was mapped at all — "no spend
@@ -949,7 +974,7 @@ def build_composite_report(raw, mapping, file_name, default_medium='TV'):
         'Date': safe_col(raw, mapping['date']),
         'Day': day_series,
         'Channel / Station': safe_col(raw, mapping['channel']),
-        'Programme / Time Band': safe_col(raw, mapping['programme']),
+        'Programme / Time Band': resolve_effective_programme(raw, mapping),
         'Daypart': safe_col(raw, mapping.get('time_band', '-- none --'), ''),
         'Spots': spots_values.fillna(0),
         'Matched Rating (%)': rating_values,

@@ -132,6 +132,32 @@ def _upload_ratings(client, content=RATINGS_CSV, filename='ratings.csv', **form)
     return client.post('/api/ratings-datasets/upload', files=files, data=form)
 
 
+def test_upload_ratings_file_with_only_a_timeband_column_still_maps(client):
+    # Regression test for a real incident: a real radio audience-reach file
+    # (Channel/WD/Timeband/Rch %, no Programme column at all — a normal
+    # shape for this kind of source, not broken data) came back "0 rows,
+    # every row invalid" because 'programme' (required) had nowhere to
+    # fall back to once 'time_band' became a separate field. See
+    # grp_calculator.resolve_effective_programme.
+    content = (
+        b'Channel,WD,Timeband,Rch %\n'
+        b'Abuja Cool FM,Sun,09:30-09:45,0.16\n'
+        b'Edo Speed FM,Fri,07:15-07:30,0.92\n'
+    )
+    response = _upload_ratings(client, content=content, filename='reach.csv', default_medium='Radio')
+    assert response.status_code == 201
+    body = response.json()
+    assert body['rows'] == 2
+    assert body['invalidRows'] == 0
+    assert body['status'] == 'Ready'
+    assert body.get('issues') in (None, [])
+
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    assert len(rows) == 2
+    assert all(row['medium'] == 'Radio' for row in rows)
+    assert sorted(row['rating'] for row in rows) == [0.16, 0.92]
+
+
 def test_upload_ratings_file_parses_real_spreadsheet(client):
     response = _upload_ratings(client, provider='Nielsen', period='Q1 2026')
     assert response.status_code == 201

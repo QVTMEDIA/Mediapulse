@@ -469,6 +469,52 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertIsNone(calc.detect_column(columns, 'time_band'))
         self.assertEqual(calc.detect_column(columns, 'day'), 'Day')
 
+    def test_resolve_effective_programme_falls_back_to_time_band_when_programme_missing(self):
+        # Regression test for a real incident: a real radio audience-reach
+        # file (Channel/WD/Timeband/Rch %, no Programme column at all —
+        # organized by time slot rather than named programme, a normal
+        # shape for this kind of source) came back with every row rejected
+        # as "Missing rating match field" once 'time_band' became a
+        # separate field from 'programme' — 'programme' had nowhere left to
+        # fall back to.
+        raw = pd.DataFrame({'Channel': ['Cool FM'], 'Timeband': ['09:30-09:45'], 'WD': ['Sun']})
+        mapping = {'programme': '-- none --', 'time_band': 'Timeband'}
+        result = calc.resolve_effective_programme(raw, mapping)
+        self.assertEqual(result.iloc[0], '09:30-09:45')
+
+    def test_resolve_effective_programme_prefers_real_programme_when_present(self):
+        raw = pd.DataFrame({'Programme': ['Prime Time'], 'Timeband': ['09:30-09:45']})
+        mapping = {'programme': 'Programme', 'time_band': 'Timeband'}
+        result = calc.resolve_effective_programme(raw, mapping)
+        self.assertEqual(result.iloc[0], 'Prime Time')
+
+    def test_resolve_effective_programme_blank_when_neither_mapped(self):
+        raw = pd.DataFrame({'Channel': ['Cool FM']})
+        mapping = {'programme': '-- none --'}
+        result = calc.resolve_effective_programme(raw, mapping)
+        self.assertEqual(result.iloc[0], '')
+
+    def test_build_ratings_lookup_matches_rows_with_only_a_timeband_no_programme_column(self):
+        # End-to-end reproduction of the real file: Channel/WD/Timeband/
+        # Rch %, no Programme column. Every row must be kept and matchable,
+        # not dropped.
+        raw = pd.DataFrame({
+            'Channel': ['Abuja, Cool FM, 96.9 Abuja', 'Edo, Speed 96.9 FM, Benin'],
+            'WD': ['Sun', 'Fri'],
+            'Timeband': ['09:30-09:45', '07:15-07:30'],
+            'Rch %': [0.16, 0.92],
+            'Medium': ['Radio', 'Radio'],
+        })
+        mapping = {
+            'medium': 'Medium', 'channel': 'Channel', 'day': 'WD', 'programme': '-- none --',
+            'time_band': 'Timeband', 'rating': 'Rch %', 'source': '-- none --',
+        }
+        ratings, invalid_ratings, dup_keys, lookup = calc.build_ratings_lookup(raw, mapping)
+        self.assertEqual(len(invalid_ratings), 0)
+        self.assertEqual(len(ratings), 2)
+        self.assertEqual(ratings['Programme / Time Band'].tolist(), ['09:30-09:45', '07:15-07:30'])
+        self.assertEqual(len(lookup), 2)  # both rows produced distinct, usable match keys
+
     def test_build_brand_report_daypart_is_blank_when_no_time_band_mapped(self):
         raw = pd.DataFrame({
             'Channel': ['AIT'], 'Programme': ['Morning Show'], 'Day': ['Monday'], 'Spots': [1],

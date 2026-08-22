@@ -39,11 +39,18 @@ export default function ProjectManagePanel({
   currentUser,
   onProjectUpdated,
   onClose,
+  refreshSignal,
 }: {
   project: Project;
   currentUser: User;
   onProjectUpdated: (project: Project) => void;
   onClose: () => void;
+  // Bumped by the caller after an upload or brand creation happens
+  // elsewhere on the page — this panel now stays mounted continuously
+  // (ProjectDetailSection's page, not a toggled overlay), so without this
+  // its Uploads/Brands tables would only ever reflect data as of first
+  // mount. Optional since ProjectManagePanel has no other caller today.
+  refreshSignal?: number;
 }) {
   const canManageData = currentUser.role === 'owner' || currentUser.role === 'admin';
 
@@ -88,7 +95,7 @@ export default function ProjectManagePanel({
 
   useEffect(() => {
     void refreshData(project.projectId);
-  }, [project.projectId, refreshData]);
+  }, [project.projectId, refreshSignal, refreshData]);
 
   function toggleMediaType(type: MediaType) {
     setForm((current) => ({

@@ -11,8 +11,10 @@ import { BrandSpendRow, formatNumber, HIGH_COST_MIN_SPOTS, HIGH_COST_RATIO } fro
 // or renders any of this. Only shows SOV now — SOE moved to its own
 // "Share of Expenditure" panel (BrandSpendRow, imported) once this screen
 // split GRP-weight and spend-weight into two side-by-side panels rather
-// than one combined list.
-function BrandShareRow({ share, maxGrp }: { share: BrandShare; maxGrp: number }) {
+// than one combined list. Exported so ProjectDetailSection's own SOV panel
+// (a per-project drill-down, distinct from this executive dashboard) reuses
+// the identical row instead of a third near-copy.
+export function BrandShareRow({ share, maxGrp }: { share: BrandShare; maxGrp: number }) {
   const width = maxGrp ? `${Math.max((share.totalGrps / maxGrp) * 100, 3)}%` : '3%';
   const mediumsPresent = [share.tvGrps, share.cableTvGrps, share.radioGrps].filter((g) => g > 0).length;
   const isMixedMedia = mediumsPresent >= 2;

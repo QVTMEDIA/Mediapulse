@@ -3,6 +3,7 @@ import {
   Activity as ActivityIcon,
   AlertTriangle,
   Archive,
+  ArrowLeft,
   BarChart3,
   Database,
   DollarSign,
@@ -10,13 +11,11 @@ import {
   FolderOpen,
   Gauge,
   GitCompare,
-  History,
   LayoutDashboard,
   LogOut,
   Search,
   Settings,
   Upload,
-  Wrench,
 } from 'lucide-react';
 import AuthScreen from './AuthScreen';
 import {
@@ -30,17 +29,16 @@ import {
   listBrands,
   listMappingTemplates,
   listProjects,
-  listVersions,
   onAuthTokenRejected,
-  restoreVersion,
   setAuthToken,
   uploadMediaReport,
 } from './api/client';
-import type { AuthSession, Brand, Project, ProjectVersion, UploadKind, User } from './api/contracts';
+import type { AuthSession, Brand, Project, UploadKind, User } from './api/contracts';
 import ActivitySection from './sections/ActivitySection';
 import ExportsSection from './sections/ExportsSection';
 import MatchesSection from './sections/MatchesSection';
 import OverviewSection from './sections/OverviewSection';
+import ProjectDetailSection from './sections/ProjectDetailSection';
 import ProjectManagePanel from './sections/ProjectManagePanel';
 import QualitySection from './sections/QualitySection';
 import RatingsSection from './sections/RatingsSection';
@@ -51,6 +49,7 @@ import SpendIntelligenceSection from './sections/SpendIntelligenceSection';
 type SectionKey =
   | 'overview'
   | 'projects'
+  | 'projectDetail'
   | 'ratings'
   | 'matches'
   | 'activity'
@@ -63,6 +62,9 @@ type SectionKey =
 const SECTION_LABELS: Record<SectionKey, string> = {
   overview: 'Overview',
   projects: 'Projects',
+  // Overridden per-render to the actual project name — see the topbar <h1>
+  // below — this is just the fallback if somehow no project is active.
+  projectDetail: 'Project',
   ratings: 'Ratings',
   matches: 'Matches',
   activity: 'Activity',
@@ -188,14 +190,14 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
   const [actionError, setActionError] = useState<string | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [calculateError, setCalculateError] = useState<string | null>(null);
-  const [versions, setVersions] = useState<ProjectVersion[]>([]);
-  const [versionsLoading, setVersionsLoading] = useState(false);
-  const [versionsError, setVersionsError] = useState<string | null>(null);
-  const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
+  // Bumped after a successful calculate so ProjectDetailSection (which owns
+  // its own SOV/version-history fetch, independent of this component) knows
+  // to refetch — its own project.projectId dependency doesn't change just
+  // because a new run was calculated for that same project.
+  const [projectDataVersion, setProjectDataVersion] = useState(0);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [brandsLoading, setBrandsLoading] = useState(false);
   const [isUploadOpen, setIsUploadOpen] = useState(false);
-  const [isManageOpen, setIsManageOpen] = useState(false);
   const [newBrandName, setNewBrandName] = useState('');
   const [isCreatingBrand, setIsCreatingBrand] = useState(false);
   const [brandFormError, setBrandFormError] = useState<string | null>(null);
@@ -239,42 +241,6 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
     () => projects.find((project) => project.projectId === activeProjectId) ?? null,
     [projects, activeProjectId],
   );
-
-  const refreshVersions = useCallback(async (projectId: string) => {
-    setVersionsLoading(true);
-    setVersionsError(null);
-    try {
-      setVersions(await listVersions(projectId));
-    } catch (error) {
-      setVersions([]);
-      setVersionsError(error instanceof ApiError ? error.message : 'Could not load version history.');
-    } finally {
-      setVersionsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeProjectId) {
-      void refreshVersions(activeProjectId);
-    } else {
-      setVersions([]);
-      setVersionsError(null);
-    }
-  }, [activeProjectId, refreshVersions]);
-
-  async function handleRestoreVersion(versionId: string) {
-    if (!activeProject) return;
-    setRestoringVersionId(versionId);
-    setVersionsError(null);
-    try {
-      await restoreVersion(activeProject.projectId, versionId);
-      await refreshVersions(activeProject.projectId);
-    } catch (error) {
-      setVersionsError(error instanceof ApiError ? error.message : 'Could not restore that version.');
-    } finally {
-      setRestoringVersionId(null);
-    }
-  }
 
   const refreshBrands = useCallback(async (projectId: string) => {
     setBrandsLoading(true);
@@ -345,7 +311,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
     setCalculateError(null);
     try {
       await calculateProject(activeProject.projectId);
-      await refreshVersions(activeProject.projectId);
+      setProjectDataVersion((current) => current + 1);
     } catch (error) {
       setCalculateError(error instanceof ApiError ? error.message : 'Could not calculate GRPs.');
     } finally {
@@ -367,6 +333,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
       setNewBrandName('');
       await refreshBrands(activeProject.projectId);
       setSelectedBrandId(created.brandId);
+      setProjectDataVersion((current) => current + 1);
     } catch (error) {
       setBrandFormError(error instanceof ApiError ? error.message : 'Could not create the brand.');
     } finally {
@@ -406,6 +373,10 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
           current.includes(uploadSourceLabel.trim()) ? current : [...current, uploadSourceLabel.trim()],
         );
       }
+      // So ProjectManagePanel's always-visible Uploads table (it stays
+      // mounted now, not toggled open fresh each time) picks up this file
+      // without the user having to navigate away and back.
+      setProjectDataVersion((current) => current + 1);
     } catch (error) {
       setUploadError(error instanceof ApiError ? error.message : 'Could not upload the file.');
     } finally {
@@ -465,13 +436,13 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
       <main className="workspace">
         <header className="topbar">
           <div>
-            <h1>{SECTION_LABELS[activeSection]}</h1>
+            <h1>{activeSection === 'projectDetail' && activeProject ? activeProject.projectName : SECTION_LABELS[activeSection]}</h1>
             <p>
               {activeSection === 'projects'
-                ? activeProject
-                  ? `${activeProject.projectName} — upload media reports and calculate, or switch to Overview for its dashboard.`
-                  : 'Create a project to start tracking GRPs and Share of Voice.'
-                : SECTION_DESCRIPTIONS[activeSection] ?? "This area isn't built yet."}
+                ? 'Create a project to start tracking GRPs and Share of Voice, or click one to open it.'
+                : activeSection === 'projectDetail'
+                  ? `${activeProject?.client || 'No client'} — upload media reports and calculate, or switch to Overview for the executive dashboard.`
+                  : SECTION_DESCRIPTIONS[activeSection] ?? "This area isn't built yet."}
             </p>
           </div>
           {activeSection === 'projects' && (
@@ -485,22 +456,24 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
                   onChange={(event) => setSearchInput(event.target.value)}
                 />
               </label>
+            </div>
+          )}
+          {activeSection === 'projectDetail' && activeProject && (
+            <div className="toolbar">
               <button
                 type="button"
                 className="icon-button"
-                aria-label="Project settings"
-                title={activeProject ? `Edit ${activeProject.projectName} and manage its data` : 'Select a project first'}
-                disabled={!activeProject}
-                onClick={() => setIsManageOpen((open) => !open)}
+                aria-label="Back to Projects"
+                title="Back to Projects"
+                onClick={() => setActiveSection('projects')}
               >
-                <Wrench size={18} aria-hidden />
+                <ArrowLeft size={18} aria-hidden />
               </button>
               <button
                 type="button"
                 className="icon-button"
                 aria-label="Archive active project"
-                title={activeProject ? `Archive ${activeProject.projectName}` : 'Select a project to archive'}
-                disabled={!activeProject}
+                title={`Archive ${activeProject.projectName}`}
                 onClick={handleArchiveActiveProject}
               >
                 <Archive size={18} aria-hidden />
@@ -508,8 +481,8 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
               <button
                 type="button"
                 className="secondary-button"
-                disabled={!activeProject || isCalculating}
-                title={activeProject ? `Calculate GRPs for ${activeProject.projectName}` : 'Select a project first'}
+                disabled={isCalculating}
+                title={`Calculate GRPs for ${activeProject.projectName}`}
                 onClick={handleCalculate}
               >
                 <BarChart3 size={18} aria-hidden />
@@ -518,8 +491,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
               <button
                 type="button"
                 className="primary-button"
-                disabled={!activeProject}
-                title={activeProject ? 'Upload a brand report' : 'Select a project first'}
+                title="Upload a brand report"
                 onClick={() => {
                   setIsUploadOpen((open) => !open);
                   setUploadError(null);
@@ -558,23 +530,21 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
           <SettingsSection currentUser={currentUser} />
         ) : activeSection === 'exports' ? (
           <ExportsSection project={activeProject} />
-        ) : activeSection !== 'projects' ? (
-          <ComingSoonPanel section={activeSection} />
-        ) : (
+        ) : activeSection === 'projectDetail' ? (
           <>
             {[actionError, calculateError].filter(Boolean).map((message, index) => (
               <p className="inline-error" key={index}>{message}</p>
             ))}
 
-            {isManageOpen && activeProject && (
-              <ProjectManagePanel
-                project={activeProject}
-                currentUser={currentUser}
-                onProjectUpdated={handleProjectUpdated}
-                onClose={() => setIsManageOpen(false)}
-              />
+            {!activeProject && (
+              <div className="panel placeholder-panel">
+                <h2>No project selected</h2>
+                <p>Go back to Projects and click one to open its details.</p>
+              </div>
             )}
 
+            {activeProject && (
+              <>
             {isUploadOpen && activeProject && (
               <form className="panel upload-form" onSubmit={handleUploadSubmit}>
                 <div className="panel-header">
@@ -707,6 +677,21 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
               </form>
             )}
 
+                <ProjectDetailSection project={activeProject} currentUser={currentUser} refreshSignal={projectDataVersion} />
+
+                <ProjectManagePanel
+                  project={activeProject}
+                  currentUser={currentUser}
+                  onProjectUpdated={handleProjectUpdated}
+                  onClose={() => setActiveSection('projects')}
+                  refreshSignal={projectDataVersion}
+                />
+              </>
+            )}
+          </>
+        ) : activeSection !== 'projects' ? (
+          <ComingSoonPanel section={activeSection} />
+        ) : (
             <div className="panel project-panel">
               <div className="panel-header">
                 <div>
@@ -767,66 +752,12 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
                     isActive={project.projectId === activeProjectId}
                     onSelect={() => {
                       setActiveProjectId(project.projectId);
-                      setActiveSection('overview');
+                      setActiveSection('projectDetail');
                     }}
                   />
                 ))}
               </div>
             </div>
-
-            {activeProject && versions.length > 0 && (
-              <div className="panel">
-                <div className="panel-header">
-                  <div>
-                    <h2>Version History</h2>
-                    <p>
-                      {versionsLoading
-                        ? 'Loading…'
-                        : `Every calculation for ${activeProject.projectName}, oldest calculations kept even after a newer one lands`}
-                    </p>
-                  </div>
-                  <History size={20} aria-hidden />
-                </div>
-                {versionsError && <p className="inline-error">{versionsError}</p>}
-                <div className="table-scroll">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Generated</th>
-                        <th>Summary</th>
-                        <th>Status</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {versions.map((version) => (
-                        <tr key={version.versionId}>
-                          <td>{version.createdAt}</td>
-                          <td>{version.description}</td>
-                          <td>
-                            {version.isCurrent && <span className="status status-complete">Current</span>}
-                          </td>
-                          <td>
-                            {!version.isCurrent && (currentUser.role === 'owner' || currentUser.role === 'admin') && (
-                              <button
-                                type="button"
-                                className="secondary-button"
-                                disabled={restoringVersionId === version.versionId}
-                                onClick={() => handleRestoreVersion(version.versionId)}
-                                title={`Make this the current version for ${activeProject.projectName}`}
-                              >
-                                {restoringVersionId === version.versionId ? 'Restoring…' : 'Restore'}
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </>
         )}
       </main>
     </div>

@@ -168,9 +168,58 @@ def test_upload_ratings_file_drops_out_of_range_rating_and_flags_it(client):
     assert body['invalidRows'] == 1
     assert body['status'] == 'Needs Review'
 
+    # Not just a bare count — the actual dropped row, with why, is on the
+    # upload response too (this is the only time it's ever available: the
+    # row itself is never stored, so there's no other way to see it later).
+    assert len(body['issues']) == 1
+    assert body['issues'][0]['station'] == 'AIT'
+    assert body['issues'][0]['reason'] == 'Invalid or out-of-range rating'
+    assert body['issues'][0]['rating'] == 150
+
     rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
     assert len(rows) == 1  # the invalid row was never stored
     assert rows[0]['station'] == 'TVC'
+
+
+def test_upload_ratings_file_rejecting_every_row_still_explains_why(client):
+    # Regression test for a real incident: a file where every row failed to
+    # parse a Rating value at all (e.g. the Rating column wasn't detected,
+    # or every cell was blank/non-numeric) used to come back as "0 rows,
+    # invalidRows: N" with no way to tell why short of inspecting the
+    # source file by hand.
+    content = (
+        b'Channel,Day,Programme,Score\n'  # 'Score', not 'Rating' -> Rating column never detected
+        b'TVC,Monday,Prime Time,1.2\n'
+        b'AIT,Tuesday,News,2.5\n'
+    )
+    response = _upload_ratings(client, content=content, filename='wrong_headers.csv')
+    assert response.status_code == 201
+    body = response.json()
+    assert body['rows'] == 2
+    assert body['invalidRows'] == 2
+    assert len(body['issues']) == 2
+    assert all(issue['reason'] == 'Invalid or out-of-range rating' for issue in body['issues'])
+    assert all(issue['rating'] is None for issue in body['issues'])  # confirms it's a missing value, not just out of range
+    # Match fields (Channel/Day/Programme) still came through fine — proves
+    # the failure is specifically the Rating column, not the whole mapping.
+    assert {issue['station'] for issue in body['issues']} == {'TVC', 'AIT'}
+
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    assert rows == []
+
+
+def test_upload_ratings_file_missing_field_reason_differs_from_bad_rating(client):
+    content = (
+        b'Channel,Day,Programme,Rating\n'
+        b'TVC,Monday,Prime Time,1.2\n'
+        b',Tuesday,News,2.5\n'  # blank Channel -> missing match field, not a rating problem
+    )
+    response = _upload_ratings(client, content=content, filename='blank_channel.csv')
+    assert response.status_code == 201
+    body = response.json()
+    assert len(body['issues']) == 1
+    assert body['issues'][0]['reason'] == 'Missing rating match field'
+    assert body['issues'][0]['rating'] == 2.5  # the rating itself was fine — it's the match field that's missing
 
 
 def test_upload_ratings_file_rejects_unknown_media_type(client):

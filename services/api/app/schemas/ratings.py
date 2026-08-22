@@ -48,6 +48,22 @@ class RatingsDatasetCreate(CamelModel):
         return value
 
 
+class RatingsRowIssueOut(CamelModel):
+    """Why one specific row got dropped during file-upload parsing and
+    never stored — see parsing.py's RatingsRowIssue. Only ever populated on
+    the response to POST /ratings-datasets/upload; every other route that
+    returns RatingsDatasetOut leaves this unset, since dropped rows are
+    never persisted anywhere to look up again later."""
+
+    row_number: int
+    reason: str
+    medium: str
+    station: str
+    day: str
+    programme: str
+    rating: Optional[float] = None
+
+
 class RatingsDatasetOut(CamelModel):
     ratings_dataset_id: str
     provider: str
@@ -60,3 +76,7 @@ class RatingsDatasetOut(CamelModel):
     duplicate_keys: int
     status: str
     uploaded_at: datetime
+    # Capped (see routers/ratings.py) so a file that rejects thousands of
+    # rows doesn't balloon the upload response — invalidRows above still
+    # carries the true total either way.
+    issues: Optional[List[RatingsRowIssueOut]] = None

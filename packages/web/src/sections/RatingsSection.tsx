@@ -9,7 +9,7 @@ import {
   listRatingsLibrary,
   uploadRatingsFile,
 } from '../api/client';
-import type { Project, RatingRow, RatingsDataset } from '../api/contracts';
+import type { Project, RatingRow, RatingsDataset, RatingsRowIssue } from '../api/contracts';
 
 // Mirrors services/api/app/repositories/ratings.py's _row_is_invalid() and
 // services/api/app/matching.py's make_match_key() (in turn grp_calculator.
@@ -144,6 +144,11 @@ export default function RatingsSection({ project }: { project: Project | null })
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  // Which specific rows this upload rejected, and why — never fetchable
+  // again after this response, since a dropped row is never stored. Clears
+  // on the next upload attempt so stale detail doesn't linger.
+  const [uploadIssues, setUploadIssues] = useState<RatingsRowIssue[]>([]);
+  const [uploadIssuesTotal, setUploadIssuesTotal] = useState(0);
 
   const [attachSelection, setAttachSelection] = useState('');
   const [isAttaching, setIsAttaching] = useState(false);
@@ -237,6 +242,8 @@ export default function RatingsSection({ project }: { project: Project | null })
     setIsUploading(true);
     setUploadError(null);
     setUploadSuccess(null);
+    setUploadIssues([]);
+    setUploadIssuesTotal(0);
     try {
       const dataset = await uploadRatingsFile({
         provider,
@@ -252,6 +259,8 @@ export default function RatingsSection({ project }: { project: Project | null })
           (dataset.invalidRows ? `, ${dataset.invalidRows} invalid.` : '.') +
           ' Attached to this project.',
       );
+      setUploadIssues(dataset.issues ?? []);
+      setUploadIssuesTotal(dataset.invalidRows);
       setFile(null);
       setFileInputKey((key) => key + 1);
       if (sourceLabel.trim()) {
@@ -391,6 +400,50 @@ export default function RatingsSection({ project }: { project: Project | null })
             {uploadError && <p className="inline-error">{uploadError}</p>}
             {uploadSuccess && <p className="empty-state">{uploadSuccess}</p>}
           </form>
+        )}
+
+        {uploadIssues.length > 0 && (
+          <div className="panel warning-panel" style={{ marginTop: 12 }}>
+            <div className="panel-header">
+              <div>
+                <h2>Rows rejected during upload</h2>
+                <p>
+                  These {uploadIssues.length === uploadIssuesTotal ? '' : `first ${uploadIssues.length} of `}
+                  {uploadIssuesTotal} row{uploadIssuesTotal === 1 ? '' : 's'} never made it into the dataset — nothing to
+                  click into later, so here's why each one failed.
+                </p>
+              </div>
+              <AlertTriangle size={20} aria-hidden />
+            </div>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th className="num">Row</th>
+                    <th>Issue</th>
+                    <th>Medium</th>
+                    <th>Station</th>
+                    <th>Day</th>
+                    <th>Programme</th>
+                    <th className="num">Rating</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {uploadIssues.map((issue) => (
+                    <tr key={issue.rowNumber}>
+                      <td className="num">{issue.rowNumber}</td>
+                      <td>{issue.reason}</td>
+                      <td>{issue.medium || '—'}</td>
+                      <td>{issue.station || '—'}</td>
+                      <td>{issue.day || '—'}</td>
+                      <td>{issue.programme || '—'}</td>
+                      <td className="num">{issue.rating !== null ? issue.rating : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
 
         {attachableLibrary.length > 0 && (

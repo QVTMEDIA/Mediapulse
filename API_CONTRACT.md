@@ -75,6 +75,7 @@ Shared across projects via the Ratings Library — not owned by a single project
 - `duplicateKeys`
 - `uploadedAt`
 - `status` (`Ready` | `Needs Review`)
+- `issues` — optional, up to 100 entries: `{ rowNumber, reason, medium, station, day, programme, rating }` for rows dropped during file-upload parsing and never stored. Not in this contract's original field list. Only ever present on the response to `POST /ratings-datasets/upload`; every other route that returns a `RatingsDataset` leaves it unset, since a dropped row is never persisted anywhere to look up again — `invalidRows` above is the only trace of it elsewhere.
 
 `DELETE /projects/{projectId}/ratings-datasets/{ratingsDatasetId}/attach` detaches the dataset from that one project — the shared dataset (and every other project's attachment to it) is untouched, and so is anything already matched or calculated against it, since `RatingMatch`/`GrpCalculationRow` reference the actual `RatingRow`s directly, not the attachment. Any authenticated user can detach, same as attach — no owner/admin requirement, unlike deleting an upload or brand.
 

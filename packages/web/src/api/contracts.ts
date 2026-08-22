@@ -52,6 +52,21 @@ export interface RatingsDataset {
   duplicateKeys: number;
   uploadedAt: string;
   status: 'Ready' | 'Needs Review';
+  // Why up to 100 rows were dropped during file-upload parsing and never
+  // stored — only ever present on the response to POST
+  // /ratings-datasets/upload; every other route leaves it undefined, since
+  // dropped rows aren't persisted anywhere to look up again later.
+  issues?: RatingsRowIssue[];
+}
+
+export interface RatingsRowIssue {
+  rowNumber: number;
+  reason: string;
+  medium: string;
+  station: string;
+  day: string;
+  programme: string;
+  rating: number | null;
 }
 
 export interface Brand {

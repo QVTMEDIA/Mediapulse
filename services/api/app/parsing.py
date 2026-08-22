@@ -191,6 +191,26 @@ def parse_composite_report(
 
 
 @dataclass
+class RatingsRowIssue:
+    """One dropped row's actual explanation — grp_calculator.build_ratings_
+    lookup() already computes exactly this (row number, reason, and the
+    field values that led to it) via issue_frame(), but parse_ratings_file
+    used to discard everything except a bare count. A file that rejects
+    every row (a real incident: 134/134 dropped, 0 stored) gave no way to
+    tell "the Rating column wasn't detected at all" from "every rating
+    happened to be out of range" from "the Day column is blank" without
+    downloading and inspecting the source file by hand."""
+
+    row_number: int
+    reason: str
+    medium: str
+    station: str
+    day: str
+    programme: str
+    rating: Optional[float]
+
+
+@dataclass
 class RatingsParseResult:
     rows: List[RatingRowIn]
     mapping: dict
@@ -199,6 +219,7 @@ class RatingsParseResult:
     # stricter than RatingRowIn's own looser validity check, so these are
     # never silently absorbed into a 0 via the usual invalid-row counting.
     dropped_invalid_rows: int
+    issues: List[RatingsRowIssue]
 
 
 def parse_ratings_file(
@@ -229,7 +250,19 @@ def parse_ratings_file(
         )
         for _, row in ratings.iterrows()
     ]
-    return RatingsParseResult(rows=rows, mapping=mapping, dropped_invalid_rows=len(invalid_ratings))
+    issues = [
+        RatingsRowIssue(
+            row_number=int(row['Input Row']),
+            reason=row['Issue'],
+            medium=str(row['Medium'] or ''),
+            station=str(row['Channel / Station'] or ''),
+            day=str(row['Day'] or ''),
+            programme=str(row['Programme / Time Band'] or ''),
+            rating=float(row['Rating (%)']) if pd.notna(row['Rating (%)']) else None,
+        )
+        for _, row in invalid_ratings.iterrows()
+    ]
+    return RatingsParseResult(rows=rows, mapping=mapping, dropped_invalid_rows=len(invalid_ratings), issues=issues)
 
 
 def _clean_cost(value) -> Optional[float]:

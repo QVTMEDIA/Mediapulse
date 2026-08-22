@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import ValidationError
@@ -12,12 +12,18 @@ from ..repositories.ratings import (
     RatingsRepository,
     get_ratings_repository,
 )
-from ..schemas.ratings import RatingRowOut, RatingsDatasetCreate, RatingsDatasetOut
+from ..parsing import RatingsRowIssue
+from ..schemas.ratings import RatingRowOut, RatingsDatasetCreate, RatingsDatasetOut, RatingsRowIssueOut
 
 router = APIRouter(prefix='/api', tags=['ratings-library'], dependencies=[Depends(get_current_user)])
 
+# Cap on how many dropped-row explanations the upload response carries — a
+# file that rejects thousands of rows shouldn't balloon the response; the
+# dataset's own invalidRows count still reports the true total regardless.
+MAX_REPORTED_ISSUES = 100
 
-def _dataset_to_out(record: RatingsDatasetRecord) -> RatingsDatasetOut:
+
+def _dataset_to_out(record: RatingsDatasetRecord, issues: Optional[List[RatingsRowIssue]] = None) -> RatingsDatasetOut:
     return RatingsDatasetOut(
         ratings_dataset_id=record.id,
         provider=record.provider,
@@ -30,6 +36,17 @@ def _dataset_to_out(record: RatingsDatasetRecord) -> RatingsDatasetOut:
         duplicate_keys=record.duplicate_keys,
         status=record.status,
         uploaded_at=record.uploaded_at,
+        issues=(
+            [
+                RatingsRowIssueOut(
+                    row_number=issue.row_number, reason=issue.reason, medium=issue.medium, station=issue.station,
+                    day=issue.day, programme=issue.programme, rating=issue.rating,
+                )
+                for issue in issues[:MAX_REPORTED_ISSUES]
+            ]
+            if issues
+            else None
+        ),
     )
 
 
@@ -113,7 +130,7 @@ async def upload_ratings_dataset(
     elif source_label:
         templates_repo.touch_used(source_label)
 
-    return _dataset_to_out(repo.create_dataset(payload, extra_invalid_rows=parsed.dropped_invalid_rows))
+    return _dataset_to_out(repo.create_dataset(payload, extra_invalid_rows=parsed.dropped_invalid_rows), issues=parsed.issues)
 
 
 @router.get('/ratings-datasets/{ratings_dataset_id}/rows', response_model=list[RatingRowOut])

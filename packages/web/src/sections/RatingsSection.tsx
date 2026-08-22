@@ -1,18 +1,112 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Database } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { AlertTriangle, Database } from 'lucide-react';
 import {
   ApiError,
   attachRatingsDataset,
   listMappingTemplates,
   listProjectRatingsDatasets,
+  listRatingRows,
   listRatingsLibrary,
   uploadRatingsFile,
 } from '../api/client';
-import type { Project, RatingsDataset } from '../api/contracts';
+import type { Project, RatingRow, RatingsDataset } from '../api/contracts';
 
-function RatingsDatasetRow({ dataset }: { dataset: RatingsDataset }) {
+// Mirrors services/api/app/repositories/ratings.py's _row_is_invalid() and
+// services/api/app/matching.py's make_match_key() (in turn grp_calculator.
+// normalize_text/normalize_day) — client-side so a clicked row can explain
+// itself immediately, without a round trip. This is display-only: the
+// dataset summary's invalidRows/duplicateKeys counts (computed server-side
+// at upload time) stay the source of truth for the badge numbers.
+const DAY_MAP: Record<string, string> = {
+  monday: 'MON', mon: 'MON',
+  tuesday: 'TUE', tue: 'TUE', tues: 'TUE',
+  wednesday: 'WED', wed: 'WED',
+  thursday: 'THU', thu: 'THU', thur: 'THU', thurs: 'THU',
+  friday: 'FRI', fri: 'FRI',
+  saturday: 'SAT', sat: 'SAT',
+  sunday: 'SUN', sun: 'SUN',
+};
+
+function normalizeText(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
+function normalizeDay(value: string): string {
+  const s = value.trim().toLowerCase();
+  if (!s) return '';
+  if (s in DAY_MAP) return DAY_MAP[s];
+  const s3 = s.slice(0, 3);
+  for (const [key, code] of Object.entries(DAY_MAP)) {
+    if (key.slice(0, 3) === s3) return code;
+  }
+  return normalizeText(value).slice(0, 3);
+}
+
+function matchKey(row: RatingRow): string {
+  const combinedProgramme = [row.programme, row.timeBand].map((part) => (part || '').trim()).filter(Boolean).join(' ');
+  return [normalizeText(row.medium), normalizeText(row.station), normalizeDay(row.day), normalizeText(combinedProgramme)].join('|');
+}
+
+function rowIsInvalid(row: RatingRow): boolean {
+  return !(row.medium.trim() && row.station.trim() && row.day.trim()) || row.rating === null;
+}
+
+interface RowIssue {
+  label: string;
+  detail: string;
+}
+
+function describeIssue(row: RatingRow, duplicateSiblings: RatingRow[]): RowIssue | null {
+  const missingFields = [
+    !row.medium.trim() && 'Medium',
+    !row.station.trim() && 'Station',
+    !row.day.trim() && 'Day',
+  ].filter(Boolean) as string[];
+
+  if (missingFields.length > 0 && row.rating === null) {
+    return { label: 'Missing data', detail: `Missing ${missingFields.join(', ')} and Rating — this row can never be matched or calculated.` };
+  }
+  if (missingFields.length > 0) {
+    return { label: 'Missing field', detail: `Missing ${missingFields.join(', ')} — the Matching Engine needs all three to build a match key.` };
+  }
+  if (row.rating === null) {
+    return { label: 'No rating', detail: 'No Rating value for this row — it will never produce a GRP even if a spot matches it.' };
+  }
+  if (duplicateSiblings.length > 0) {
+    const siblingDescriptions = duplicateSiblings
+      .map((sibling) => `${sibling.station} · ${sibling.day} · ${sibling.programme || 'No programme'} (${sibling.rating ?? 'no rating'})`)
+      .join('; ');
+    return {
+      label: 'Duplicate key',
+      detail: `${duplicateSiblings.length + 1} rows share the same Medium/Station/Day/Programme key — whichever the app picks wins, the rest are ignored. Also matching: ${siblingDescriptions}.`,
+    };
+  }
+  return null;
+}
+
+function RatingsDatasetRow({
+  dataset,
+  isActive,
+  onSelect,
+}: {
+  dataset: RatingsDataset;
+  isActive: boolean;
+  onSelect: () => void;
+}) {
   return (
-    <div className="dataset-row">
+    <div
+      className={isActive ? 'dataset-row active' : 'dataset-row'}
+      role="button"
+      tabIndex={0}
+      aria-pressed={isActive}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+    >
       <div>
         <strong>{dataset.provider || 'Untitled dataset'}</strong>
         <span>{[dataset.period, dataset.audience].filter(Boolean).join(' | ') || 'No period or audience set'}</span>
@@ -55,6 +149,16 @@ export default function RatingsSection({ project }: { project: Project | null })
   const [isAttaching, setIsAttaching] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
 
+  // The actual ratings data, not just the summary counts — selecting a
+  // dataset loads and shows its rows in a table, defaulting to the first
+  // attached dataset so the common one-dataset-per-project case shows real
+  // data immediately, with no extra click needed.
+  const [selectedDatasetId, setSelectedDatasetId] = useState('');
+  const [datasetRows, setDatasetRows] = useState<RatingRow[]>([]);
+  const [rowsLoading, setRowsLoading] = useState(false);
+  const [rowsError, setRowsError] = useState<string | null>(null);
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+
   const refresh = useCallback(async (projectId: string) => {
     setLoading(true);
     setLoadError(null);
@@ -65,6 +169,11 @@ export default function RatingsSection({ project }: { project: Project | null })
       ]);
       setAttached(attachedResult);
       setLibrary(libraryResult);
+      setSelectedDatasetId((current) =>
+        current && attachedResult.some((dataset) => dataset.ratingsDatasetId === current)
+          ? current
+          : (attachedResult[0]?.ratingsDatasetId ?? ''),
+      );
     } catch (error) {
       setLoadError(error instanceof ApiError ? error.message : 'Could not load the Ratings Library.');
     } finally {
@@ -78,8 +187,49 @@ export default function RatingsSection({ project }: { project: Project | null })
     } else {
       setAttached([]);
       setLibrary([]);
+      setSelectedDatasetId('');
     }
   }, [project, refresh]);
+
+  useEffect(() => {
+    if (!selectedDatasetId) {
+      setDatasetRows([]);
+      return;
+    }
+    setRowsLoading(true);
+    setRowsError(null);
+    setExpandedRowId(null);
+    listRatingRows(selectedDatasetId)
+      .then(setDatasetRows)
+      .catch((error) => {
+        setRowsError(error instanceof ApiError ? error.message : 'Could not load this dataset’s rows.');
+        setDatasetRows([]);
+      })
+      .finally(() => setRowsLoading(false));
+  }, [selectedDatasetId]);
+
+  // Grouped by match key so each row can point to its duplicate siblings by
+  // name, not just say "this is a duplicate" with no way to see the other
+  // half of the collision.
+  const duplicateGroups = useMemo(() => {
+    const groups = new Map<string, RatingRow[]>();
+    for (const row of datasetRows) {
+      const key = matchKey(row);
+      const group = groups.get(key) ?? [];
+      group.push(row);
+      groups.set(key, group);
+    }
+    return groups;
+  }, [datasetRows]);
+
+  const selectedDataset = attached.find((dataset) => dataset.ratingsDatasetId === selectedDatasetId) ?? null;
+  const inspectableInvalidCount = datasetRows.filter(rowIsInvalid).length;
+  // Some invalid rows never made it into datasetRows at all — grp_calculator's
+  // own upload-time validation (missing match field, or a rating outside
+  // 0-100) drops them before they're ever stored, so there's no row to click
+  // into for those. The gap between the dataset's own invalidRows count and
+  // what's actually inspectable here is exactly that dropped set.
+  const droppedInvalidCount = selectedDataset ? Math.max(0, selectedDataset.invalidRows - inspectableInvalidCount) : 0;
 
   async function handleUpload(event: FormEvent) {
     event.preventDefault();
@@ -107,6 +257,7 @@ export default function RatingsSection({ project }: { project: Project | null })
       if (sourceLabel.trim()) {
         setKnownSourceLabels((current) => (current.includes(sourceLabel.trim()) ? current : [...current, sourceLabel.trim()]));
       }
+      setSelectedDatasetId(dataset.ratingsDatasetId);
       await refresh(project.projectId);
     } catch (error) {
       setUploadError(error instanceof ApiError ? error.message : 'Could not upload the ratings file.');
@@ -121,7 +272,9 @@ export default function RatingsSection({ project }: { project: Project | null })
     setAttachError(null);
     try {
       await attachRatingsDataset(project.projectId, attachSelection);
+      const attachedId = attachSelection;
       setAttachSelection('');
+      setSelectedDatasetId(attachedId);
       await refresh(project.projectId);
     } catch (error) {
       setAttachError(error instanceof ApiError ? error.message : 'Could not attach that dataset.');
@@ -271,10 +424,106 @@ export default function RatingsSection({ project }: { project: Project | null })
             <p className="empty-state">No ratings attached yet. Upload a file or attach one from the library above.</p>
           )}
           {attached.map((dataset) => (
-            <RatingsDatasetRow dataset={dataset} key={dataset.ratingsDatasetId} />
+            <RatingsDatasetRow
+              dataset={dataset}
+              key={dataset.ratingsDatasetId}
+              isActive={dataset.ratingsDatasetId === selectedDatasetId}
+              onSelect={() => setSelectedDatasetId(dataset.ratingsDatasetId)}
+            />
           ))}
         </div>
       </div>
+
+      {selectedDataset && (
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>{selectedDataset.provider || 'Untitled dataset'} — rows</h2>
+              <p>
+                {rowsLoading
+                  ? 'Loading…'
+                  : `${datasetRows.length} row${datasetRows.length === 1 ? '' : 's'}${
+                      inspectableInvalidCount || selectedDataset.duplicateKeys
+                        ? ` — click a flagged row for details`
+                        : ''
+                    }`}
+              </p>
+            </div>
+            <AlertTriangle size={20} aria-hidden />
+          </div>
+          {rowsError && <p className="inline-error">{rowsError}</p>}
+          {droppedInvalidCount > 0 && (
+            <p className="field-hint">
+              {droppedInvalidCount} more row{droppedInvalidCount === 1 ? '' : 's'} {droppedInvalidCount === 1 ? 'was' : 'were'} dropped
+              during upload (missing a match field, or a rating outside 0–100) and never stored — not shown below.
+            </p>
+          )}
+          {!rowsLoading && datasetRows.length === 0 && !rowsError && (
+            <p className="empty-state">No rows in this dataset.</p>
+          )}
+          {datasetRows.length > 0 && (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Medium</th>
+                    <th>Station</th>
+                    <th>Day</th>
+                    <th>Programme</th>
+                    <th>Time Band</th>
+                    <th className="num">Rating</th>
+                    <th>Week</th>
+                    <th>Month</th>
+                    <th>Issue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {datasetRows.map((row) => {
+                    const siblings = (duplicateGroups.get(matchKey(row)) ?? []).filter(
+                      (sibling) => sibling.ratingRowId !== row.ratingRowId,
+                    );
+                    const issue = describeIssue(row, siblings);
+                    const isExpanded = expandedRowId === row.ratingRowId;
+                    return (
+                      <Fragment key={row.ratingRowId}>
+                        <tr
+                          className={issue ? 'clickable-row' : undefined}
+                          onClick={issue ? () => setExpandedRowId(isExpanded ? null : row.ratingRowId) : undefined}
+                        >
+                          <td>{row.medium || '—'}</td>
+                          <td>{row.station || '—'}</td>
+                          <td>{row.day || '—'}</td>
+                          <td>{row.programme || '—'}</td>
+                          <td>{row.timeBand || '—'}</td>
+                          <td className="num">{row.rating !== null ? row.rating : '—'}</td>
+                          <td>{row.week ?? '—'}</td>
+                          <td>{row.month ?? '—'}</td>
+                          <td>
+                            {issue ? (
+                              <span className="status status-review">{issue.label}</span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                        </tr>
+                        {isExpanded && issue && (
+                          <tr>
+                            <td colSpan={9}>
+                              <p className="field-hint" style={{ margin: 0 }}>
+                                {issue.detail}
+                              </p>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }

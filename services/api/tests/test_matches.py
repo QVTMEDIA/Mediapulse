@@ -212,6 +212,29 @@ def test_matches_time_bands_on_media_and_ratings_rows(client, project, brand):
     assert matches[0]['matchStatus'] == 'exact'
 
 
+def test_exact_match_accepts_media_time_inside_rating_15_minute_band(client, project, brand):
+    dataset = client.post(
+        '/api/ratings-datasets',
+        json={'provider': 'Nielsen', 'rows': [{
+            'medium': 'Radio', 'station': 'Cool FM', 'day': 'Monday',
+            'programme': 'Vendor Programme', 'timeBand': '1:00 - 1:15', 'rating': 1.2,
+        }]},
+    ).json()
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
+
+    media = b'Channel,Programme,Time Band,Day,Spots\nCool FM,Any Programme,1:07:43,Monday,3\n'
+    files = {'file': ('report.csv', io.BytesIO(media), 'text/csv')}
+    client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={'brand_id': brand['brandId'], 'default_medium': 'Radio'},
+    )
+
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    assert len(matches) == 1
+    assert matches[0]['matchStatus'] == 'exact'
+
+
 def test_exact_matching_uses_time_band_instead_of_programme(client, project, brand):
     dataset = client.post(
         '/api/ratings-datasets',

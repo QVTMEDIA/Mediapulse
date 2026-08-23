@@ -76,13 +76,14 @@ def _suggest_matches(unresolved, rating_records) -> Dict[str, tuple]:
     if not rating_records:
         return {}
 
+    unique_unresolved = list({key: (activity, key) for activity, key in unresolved}.values())
     media_df = pd.DataFrame({
-        'Source File': [a.source_file for a, _ in unresolved],
-        'Medium': [a.medium for a, _ in unresolved],
-        'Channel / Station': [a.station for a, _ in unresolved],
-        'Day': [a.day for a, _ in unresolved],
-        'Programme / Time Band': [a.programme for a, _ in unresolved],
-        'Match Key': [key for _, key in unresolved],
+        'Source File': [a.source_file for a, _ in unique_unresolved],
+        'Medium': [a.medium for a, _ in unique_unresolved],
+        'Channel / Station': [a.station for a, _ in unique_unresolved],
+        'Day': [a.day for a, _ in unique_unresolved],
+        'Programme / Time Band': [_combine_programme(a.programme, a.time_band) for a, _ in unique_unresolved],
+        'Match Key': [key for _, key in unique_unresolved],
         'Match Status': ['NO RATING MATCH'] * len(unresolved),
     })
     ratings_df = pd.DataFrame({

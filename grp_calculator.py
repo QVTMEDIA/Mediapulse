@@ -1,9 +1,9 @@
 import math
 import re
-from difflib import SequenceMatcher
 from pathlib import Path
 
 import pandas as pd
+from rapidfuzz import process, fuzz
 
 DAY_MAP = {
     'monday': 'MON', 'mon': 'MON',
@@ -238,7 +238,7 @@ def text_similarity(left, right):
     right_norm = normalize_text(right)
     if not left_norm or not right_norm:
         return 0.0
-    return float(SequenceMatcher(None, left_norm, right_norm).ratio())
+    return float(fuzz.ratio(left_norm, right_norm) / 100)
 
 
 def suggestion_confidence(score):
@@ -755,6 +755,19 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
     ratings_index['_DayNorm'] = normalized_series(ratings_index, 'Day', normalize_day)
     ratings_index['_ProgrammeNorm'] = normalized_series(ratings_index, 'Programme / Time Band')
 
+    # Build the three candidate tiers once. Re-filtering the full ratings
+    # frame for every unresolved row becomes costly on large uploads.
+    candidates_by_medium_channel_day = {}
+    candidates_by_medium_channel = {}
+    candidates_by_medium_day = {}
+    for rating_index, rating in ratings_index.iterrows():
+        medium = rating['_MediumNorm']
+        channel = rating['_ChannelNorm']
+        day = rating['_DayNorm']
+        candidates_by_medium_channel_day.setdefault((medium, channel, day), []).append(rating_index)
+        candidates_by_medium_channel.setdefault((medium, channel), []).append(rating_index)
+        candidates_by_medium_day.setdefault((medium, day), []).append(rating_index)
+
     suggestions = []
     for media_index, row in unmatched.iterrows():
         medium_norm = normalize_text(row.get('Medium', ''))
@@ -762,47 +775,34 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         day_norm = normalize_day(row.get('Day', ''))
         programme = row.get('Programme / Time Band', '')
 
-        candidate_sets = [
-            (
-                'Same medium, channel, and day',
-                ratings_index[
-                    ratings_index['_MediumNorm'].eq(medium_norm)
-                    & ratings_index['_ChannelNorm'].eq(channel_norm)
-                    & ratings_index['_DayNorm'].eq(day_norm)
-                ],
-            ),
-            (
-                'Same medium and channel',
-                ratings_index[
-                    ratings_index['_MediumNorm'].eq(medium_norm)
-                    & ratings_index['_ChannelNorm'].eq(channel_norm)
-                ],
-            ),
-            (
-                'Same medium and day',
-                ratings_index[
-                    ratings_index['_MediumNorm'].eq(medium_norm)
-                    & ratings_index['_DayNorm'].eq(day_norm)
-                ],
-            ),
+        candidate_groups = [
+            ('Same medium, channel, and day', candidates_by_medium_channel_day.get((medium_norm, channel_norm, day_norm))),
+            ('Same medium and channel', candidates_by_medium_channel.get((medium_norm, channel_norm))),
+            ('Same medium and day', candidates_by_medium_day.get((medium_norm, day_norm))),
         ]
-
-        candidate_rows = pd.DataFrame()
+        candidate_rows = None
         basis = ''
-        for candidate_basis, candidates in candidate_sets:
-            if not candidates.empty:
-                candidate_rows = candidates.copy()
+        for candidate_basis, candidate_indexes in candidate_groups:
+            if candidate_indexes:
+                candidate_rows = ratings_index.loc[candidate_indexes].copy()
                 basis = candidate_basis
                 break
-        if candidate_rows.empty:
+        if candidate_rows is None:
             continue
 
-        candidate_rows['_Similarity'] = candidate_rows['Programme / Time Band'].map(
-            lambda candidate: text_similarity(programme, candidate)
+        choices = candidate_rows['Programme / Time Band'].to_dict()
+        extracted = process.extract(
+            programme,
+            choices,
+            scorer=fuzz.ratio,
+            score_cutoff=min_score * 100,
+            limit=max_suggestions_per_row * 5,
         )
-        candidate_rows = candidate_rows.loc[candidate_rows['_Similarity'].ge(min_score)].copy()
-        if candidate_rows.empty:
+        if not extracted:
             continue
+        candidate_indexes = [index for _value, _score, index in extracted]
+        candidate_rows = candidate_rows.loc[candidate_indexes].copy()
+        candidate_rows['_Similarity'] = [score / 100 for _value, score, _index in extracted]
         candidate_rows = candidate_rows.sort_values(['_Similarity', 'Rating (%)'], ascending=[False, False])
         candidate_rows = candidate_rows.drop_duplicates(
             subset=['Channel / Station', 'Day', 'Programme / Time Band', 'Rating (%)']

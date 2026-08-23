@@ -759,7 +759,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
                     }}
                   />
                 ))}
-                <LimitedRowsControls shown={limitedProjects.visibleRows.length} total={projects.length} hasMore={limitedProjects.hasMore} canShowLess={limitedProjects.canShowLess} onShowMore={limitedProjects.showMore} onShowLess={limitedProjects.showLess} />
+                <LimitedRowsControls {...limitedProjects} total={projects.length} />
               </div>
             </div>
         )}

@@ -364,7 +364,7 @@ export default function ProjectManagePanel({
             ))}
           </tbody>
         </table>
-        <LimitedRowsControls shown={limitedUploads.visibleRows.length} total={uploads.length} hasMore={limitedUploads.hasMore} canShowLess={limitedUploads.canShowLess} onShowMore={limitedUploads.showMore} onShowLess={limitedUploads.showLess} />
+        <LimitedRowsControls {...limitedUploads} total={uploads.length} />
       </div>
 
       <h3 className="subsection">Brands {dataLoading ? '(loading…)' : `(${brands.length})`}</h3>
@@ -406,7 +406,7 @@ export default function ProjectManagePanel({
             ))}
           </tbody>
         </table>
-        <LimitedRowsControls shown={limitedBrands.visibleRows.length} total={brands.length} hasMore={limitedBrands.hasMore} canShowLess={limitedBrands.canShowLess} onShowMore={limitedBrands.showMore} onShowLess={limitedBrands.showLess} />
+        <LimitedRowsControls {...limitedBrands} total={brands.length} />
       </div>
 
       <h3 className="subsection">Attached ratings datasets {dataLoading ? '(loading…)' : `(${datasets.length})`}</h3>
@@ -448,7 +448,7 @@ export default function ProjectManagePanel({
             ))}
           </tbody>
         </table>
-        <LimitedRowsControls shown={limitedDatasets.visibleRows.length} total={datasets.length} hasMore={limitedDatasets.hasMore} canShowLess={limitedDatasets.canShowLess} onShowMore={limitedDatasets.showMore} onShowLess={limitedDatasets.showLess} />
+        <LimitedRowsControls {...limitedDatasets} total={datasets.length} />
       </div>
     </div>
   );

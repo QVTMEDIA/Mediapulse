@@ -138,7 +138,7 @@ export default function ExportsSection({ project }: { project: Project | null })
             ))}
           </tbody>
         </table>
-        <LimitedRowsControls shown={limitedExports.visibleRows.length} total={exports.length} hasMore={limitedExports.hasMore} canShowLess={limitedExports.canShowLess} onShowMore={limitedExports.showMore} onShowLess={limitedExports.showLess} />
+        <LimitedRowsControls {...limitedExports} total={exports.length} />
       </div>
     </div>
   );

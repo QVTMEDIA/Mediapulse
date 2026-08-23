@@ -263,7 +263,7 @@ export default function ProjectDetailSection({
                 ))}
               </tbody>
             </table>
-            <LimitedRowsControls shown={limitedVersions.visibleRows.length} total={versions.length} hasMore={limitedVersions.hasMore} canShowLess={limitedVersions.canShowLess} onShowMore={limitedVersions.showMore} onShowLess={limitedVersions.showLess} />
+            <LimitedRowsControls {...limitedVersions} total={versions.length} />
           </div>
         </div>
       )}

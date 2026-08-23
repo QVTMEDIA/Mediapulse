@@ -278,6 +278,45 @@ button:disabled {
   font-size: 12px;
 }
 
+.row-pagination {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.page-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--panel);
+  font-weight: 700;
+}
+
+.page-button:hover:not(:disabled),
+.page-button-active {
+  border-color: #a99bff;
+  color: #4c3ca8;
+  background: #f0edff;
+}
+
+.page-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.page-ellipsis {
+  padding: 0 4px;
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .metric-grid {
   display: grid;
   /* auto-fit rather than a fixed column count — this class is shared by

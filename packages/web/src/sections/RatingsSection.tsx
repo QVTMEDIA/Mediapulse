@@ -447,7 +447,7 @@ export default function RatingsSection({ project }: { project: Project | null })
                   ))}
                 </tbody>
               </table>
-              <LimitedRowsControls shown={limitedUploadIssues.visibleRows.length} total={uploadIssues.length} hasMore={limitedUploadIssues.hasMore} canShowLess={limitedUploadIssues.canShowLess} onShowMore={limitedUploadIssues.showMore} onShowLess={limitedUploadIssues.showLess} />
+              <LimitedRowsControls {...limitedUploadIssues} total={uploadIssues.length} />
             </div>
           </div>
         )}
@@ -490,7 +490,7 @@ export default function RatingsSection({ project }: { project: Project | null })
               onSelect={() => setSelectedDatasetId(dataset.ratingsDatasetId)}
             />
           ))}
-          <LimitedRowsControls shown={limitedAttached.visibleRows.length} total={attached.length} hasMore={limitedAttached.hasMore} canShowLess={limitedAttached.canShowLess} onShowMore={limitedAttached.showMore} onShowLess={limitedAttached.showLess} />
+          <LimitedRowsControls {...limitedAttached} total={attached.length} />
         </div>
       </div>
 
@@ -580,7 +580,7 @@ export default function RatingsSection({ project }: { project: Project | null })
                   })}
                 </tbody>
               </table>
-              <LimitedRowsControls shown={limitedDatasetRows.visibleRows.length} total={datasetRows.length} hasMore={limitedDatasetRows.hasMore} canShowLess={limitedDatasetRows.canShowLess} onShowMore={limitedDatasetRows.showMore} onShowLess={limitedDatasetRows.showLess} />
+              <LimitedRowsControls {...limitedDatasetRows} total={datasetRows.length} />
             </div>
           )}
         </div>

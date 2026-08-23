@@ -257,7 +257,7 @@ export default function MatchesSection({ project }: { project: Project | null })
             );
           })}
         </div>
-        <LimitedRowsControls shown={limitedSuggested.visibleRows.length} total={suggested.length} hasMore={limitedSuggested.hasMore} canShowLess={limitedSuggested.canShowLess} onShowMore={limitedSuggested.showMore} onShowLess={limitedSuggested.showLess} />
+        <LimitedRowsControls {...limitedSuggested} total={suggested.length} />
       </div>}
 
       <div className="content-grid bottom-grid">
@@ -312,7 +312,7 @@ export default function MatchesSection({ project }: { project: Project | null })
               </div>
             ))}
           </div>
-          <LimitedRowsControls shown={limitedUnmatched.visibleRows.length} total={unmatched.length} hasMore={limitedUnmatched.hasMore} canShowLess={limitedUnmatched.canShowLess} onShowMore={limitedUnmatched.showMore} onShowLess={limitedUnmatched.showLess} />
+          <LimitedRowsControls {...limitedUnmatched} total={unmatched.length} />
         </div>}
 
         {showResolved && <div className="panel">
@@ -333,7 +333,7 @@ export default function MatchesSection({ project }: { project: Project | null })
               </div>
             ))}
           </div>
-          <LimitedRowsControls shown={limitedResolved.visibleRows.length} total={resolved.length} hasMore={limitedResolved.hasMore} canShowLess={limitedResolved.canShowLess} onShowMore={limitedResolved.showMore} onShowLess={limitedResolved.showLess} />
+          <LimitedRowsControls {...limitedResolved} total={resolved.length} />
         </div>}
       </div>
     </>

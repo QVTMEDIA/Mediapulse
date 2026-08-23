@@ -92,14 +92,7 @@ export default function ActivitySection({ project }: { project: Project | null }
               ))}
             </tbody>
           </table>
-          <LimitedRowsControls
-            shown={limitedRows.visibleRows.length}
-            total={rows.length}
-            hasMore={limitedRows.hasMore}
-            canShowLess={limitedRows.canShowLess}
-            onShowMore={limitedRows.showMore}
-            onShowLess={limitedRows.showLess}
-          />
+          <LimitedRowsControls {...limitedRows} total={rows.length} />
         </div>
       )}
     </div>

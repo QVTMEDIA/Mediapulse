@@ -225,7 +225,7 @@ export default function SpendIntelligenceSection({ project }: { project: Project
                       ))}
                     </tbody>
                   </table>
-                  <LimitedRowsControls shown={limitedCostEfficiency.visibleRows.length} total={costEfficiency.length} hasMore={limitedCostEfficiency.hasMore} canShowLess={limitedCostEfficiency.canShowLess} onShowMore={limitedCostEfficiency.showMore} onShowLess={limitedCostEfficiency.showLess} />
+                  <LimitedRowsControls {...limitedCostEfficiency} total={costEfficiency.length} />
                 </div>
               )}
             </div>

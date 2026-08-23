@@ -258,7 +258,7 @@ export default function ReportsSection({ project }: { project: Project | null })
               {limitedStationRanking.visibleRows.map((row) => (
                 <RankedBarRow row={row} maxGrp={maxStationGrp} key={row.key} />
               ))}
-              <LimitedRowsControls shown={limitedStationRanking.visibleRows.length} total={stationRanking.length} hasMore={limitedStationRanking.hasMore} canShowLess={limitedStationRanking.canShowLess} onShowMore={limitedStationRanking.showMore} onShowLess={limitedStationRanking.showLess} />
+              <LimitedRowsControls {...limitedStationRanking} total={stationRanking.length} />
             </div>
           </div>
 
@@ -277,7 +277,7 @@ export default function ReportsSection({ project }: { project: Project | null })
               {limitedProgrammeRanking.visibleRows.map((row) => (
                 <RankedBarRow row={row} maxGrp={maxProgrammeGrp} key={row.key} />
               ))}
-              <LimitedRowsControls shown={limitedProgrammeRanking.visibleRows.length} total={programmeRanking.length} hasMore={limitedProgrammeRanking.hasMore} canShowLess={limitedProgrammeRanking.canShowLess} onShowMore={limitedProgrammeRanking.showMore} onShowLess={limitedProgrammeRanking.showLess} />
+              <LimitedRowsControls {...limitedProgrammeRanking} total={programmeRanking.length} />
             </div>
           </div>
 
@@ -298,7 +298,7 @@ export default function ReportsSection({ project }: { project: Project | null })
               {limitedDaypartRanking.visibleRows.map((row) => (
                 <RankedBarRow row={row} maxGrp={maxDaypartGrp} key={row.key} />
               ))}
-              <LimitedRowsControls shown={limitedDaypartRanking.visibleRows.length} total={daypartRanking.length} hasMore={limitedDaypartRanking.hasMore} canShowLess={limitedDaypartRanking.canShowLess} onShowMore={limitedDaypartRanking.showMore} onShowLess={limitedDaypartRanking.showLess} />
+              <LimitedRowsControls {...limitedDaypartRanking} total={daypartRanking.length} />
             </div>
           </div>
 
@@ -349,7 +349,7 @@ export default function ReportsSection({ project }: { project: Project | null })
                     ))}
                   </tbody>
                 </table>
-                <LimitedRowsControls shown={limitedSpotEfficiency.visibleRows.length} total={spotEfficiencyInScope.length} hasMore={limitedSpotEfficiency.hasMore} canShowLess={limitedSpotEfficiency.canShowLess} onShowMore={limitedSpotEfficiency.showMore} onShowLess={limitedSpotEfficiency.showLess} />
+                <LimitedRowsControls {...limitedSpotEfficiency} total={spotEfficiencyInScope.length} />
               </div>
             )}
           </div>
@@ -398,7 +398,7 @@ export default function ReportsSection({ project }: { project: Project | null })
                         ))}
                   </tbody>
                 </table>
-                <LimitedRowsControls shown={limitedTrendRows.visibleRows.length} total={trendRows.length} hasMore={limitedTrendRows.hasMore} canShowLess={limitedTrendRows.canShowLess} onShowMore={limitedTrendRows.showMore} onShowLess={limitedTrendRows.showLess} />
+                <LimitedRowsControls {...limitedTrendRows} total={trendRows.length} />
               </div>
             )}
           </div>

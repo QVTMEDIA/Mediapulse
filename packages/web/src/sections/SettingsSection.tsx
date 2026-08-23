@@ -132,7 +132,7 @@ export default function SettingsSection({ currentUser }: { currentUser: User }) 
                 })}
               </tbody>
             </table>
-            <LimitedRowsControls shown={limitedUsers.visibleRows.length} total={users.length} hasMore={limitedUsers.hasMore} canShowLess={limitedUsers.canShowLess} onShowMore={limitedUsers.showMore} onShowLess={limitedUsers.showLess} />
+            <LimitedRowsControls {...limitedUsers} total={users.length} />
           </div>
         </div>
       ) : (

@@ -58,11 +58,14 @@ export default function MatchesSection({ project }: { project: Project | null })
     setLoading(true);
     setLoadError(null);
     try {
-      const [matchResults, activityResults, datasets] = await Promise.all([
+      let [matchResults, activityResults, datasets] = await Promise.all([
         listMatches(projectId),
         listMediaActivity(projectId),
         listProjectRatingsDatasets(projectId),
       ]);
+      if (datasets.length > 0 && matchResults.some((match) => match.matchStatus === 'unmatched')) {
+        matchResults = await recomputeMatches(projectId);
+      }
       setMatches(matchResults);
       setActivityById(new Map(activityResults.map((row) => [row.mediaActivityId, row])));
 

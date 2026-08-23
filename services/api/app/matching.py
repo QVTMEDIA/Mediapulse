@@ -18,6 +18,38 @@ from grp_calculator import normalize_day, normalize_text
 _CLOCK_PATTERN = re.compile(r'^(\d{1,2}):?(\d{2})(?::?(\d{2}))?\s*(AM|PM)?$', re.IGNORECASE)
 _RANGE_PATTERN = re.compile(r'^(.+?)\s*(?:-|–|to)\s*(.+?)$')
 
+# Station names arrive from vendors/CSVs with inconsistent boilerplate: the
+# same station shows up as "Human Right Radio 101.1 FM, Abuja" in one file
+# and "Human Right FM Abuja" in another. normalize_text alone (case +
+# whitespace only) treats those as different exact-match keys. For station
+# comparison specifically we also drop punctuation, frequency numbers, band
+# words, and treat word order/repeats as insignificant. This is intentionally
+# NOT folded into normalize_text/make_match_key: those stay byte-for-byte in
+# sync with grp_calculator.py and db/schema.sql's normalize_match_text() for
+# duplicate-key detection and the Streamlit calculator, where this extra
+# aggressiveness isn't wanted (or needed). It also can't fix genuine spelling
+# differences (e.g. "Right" vs "Rights") -- those still need a manual
+# correction or a station alias, not text normalization.
+_STATION_FREQUENCY_PATTERN = re.compile(r'\b\d+(?:\.\d+)?\b')
+_STATION_PUNCTUATION_PATTERN = re.compile(r'[^A-Z0-9\s]')
+_STATION_NOISE_WORDS = {'RADIO', 'STATION', 'FM', 'AM', 'TV'}
+
+
+def normalize_station(value) -> str:
+    """Normalize a station/channel name for exact-match comparison.
+
+    Strips frequency numbers ("101.1") and punctuation, drops common
+    band/boilerplate words (RADIO, STATION, FM, AM, TV), and de-duplicates
+    and alphabetizes the remaining words so word order and repetition don't
+    matter. See module-level comment above for what this deliberately
+    doesn't handle.
+    """
+    text = normalize_text(value)
+    text = _STATION_FREQUENCY_PATTERN.sub(' ', text)
+    text = _STATION_PUNCTUATION_PATTERN.sub(' ', text)
+    tokens = {token for token in text.split() if token not in _STATION_NOISE_WORDS}
+    return ' '.join(sorted(tokens))
+
 
 def _clock_seconds(value):
     match = _CLOCK_PATTERN.match(str(value or '').strip())
@@ -78,7 +110,7 @@ def make_exact_match_key(medium, station, day, programme='', time_band='') -> st
     slot = time_band if str(time_band or '').strip() else programme
     return '|'.join([
         normalize_text(medium),
-        normalize_text(station),
+        normalize_station(station),
         normalize_day(day),
         normalize_text(slot),
     ])

@@ -15,7 +15,15 @@ from typing import Dict, List, Optional
 import grp_calculator as calc
 import pandas as pd
 
-from .matching import is_time_band_range, make_exact_match_key, make_match_key, normalize_day, normalize_text, time_band_contains
+from .matching import (
+    is_time_band_range,
+    make_exact_match_key,
+    make_match_key,
+    normalize_day,
+    normalize_station,
+    normalize_text,
+    time_band_contains,
+)
 
 
 @dataclass
@@ -41,7 +49,7 @@ def compute_matches(media_activity_records, rating_records) -> List[ComputedMatc
         key = make_exact_match_key(rating.medium, rating.station, rating.day, rating.programme, rating.time_band)
         ratings_by_key.setdefault(key, rating)  # first occurrence wins on a duplicate key
         if is_time_band_range(rating.time_band):
-            slot_key = (normalize_text(rating.medium), normalize_text(rating.station), normalize_day(rating.day))
+            slot_key = (normalize_text(rating.medium), normalize_station(rating.station), normalize_day(rating.day))
             ratings_by_slot.setdefault(slot_key, []).append(rating)
 
     exact_results: List[ComputedMatch] = []
@@ -52,7 +60,7 @@ def compute_matches(media_activity_records, rating_records) -> List[ComputedMatc
         key = make_exact_match_key(activity.medium, activity.station, activity.day, activity.programme, activity.time_band)
         rating = ratings_by_key.get(key)
         if rating is None:
-            slot_key = (normalize_text(activity.medium), normalize_text(activity.station), normalize_day(activity.day))
+            slot_key = (normalize_text(activity.medium), normalize_station(activity.station), normalize_day(activity.day))
             rating = next(
                 (
                     candidate for candidate in ratings_by_slot.get(slot_key, [])

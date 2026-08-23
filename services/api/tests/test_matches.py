@@ -235,6 +235,60 @@ def test_exact_match_accepts_media_time_inside_rating_15_minute_band(client, pro
     assert matches[0]['matchStatus'] == 'exact'
 
 
+def test_exact_match_tolerates_station_boilerplate_differences(client, project, brand):
+    # "Abuja, Human Right Radio 101.1 FM, Abuja" vs "Human Right FM Abuja":
+    # different punctuation, word order, a repeated city token, and an extra
+    # frequency number -- normalize_station should treat these as the same
+    # station for exact-match purposes.
+    dataset = client.post(
+        '/api/ratings-datasets',
+        json={'provider': 'Nielsen', 'rows': [{
+            'medium': 'Radio', 'station': 'Abuja, Human Right Radio 101.1 FM, Abuja', 'day': 'Monday',
+            'programme': 'Morning Show', 'rating': 1.2,
+        }]},
+    ).json()
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
+
+    media = b'Channel,Programme,Day,Spots\nHuman Right FM Abuja,Morning Show,Monday,3\n'
+    files = {'file': ('report.csv', io.BytesIO(media), 'text/csv')}
+    client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={'brand_id': brand['brandId'], 'default_medium': 'Radio'},
+    )
+
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    assert len(matches) == 1
+    assert matches[0]['matchStatus'] == 'exact'
+    assert matches[0]['matchedRatingId'] is not None
+
+
+def test_exact_match_does_not_bridge_genuine_station_spelling_differences(client, project, brand):
+    # "Human Right FM Abuja" vs "Human Rights FM Abuja" -- a real spelling
+    # difference, not boilerplate -- must NOT be papered over by station
+    # normalization; it should still fall through to fuzzy suggestion.
+    dataset = client.post(
+        '/api/ratings-datasets',
+        json={'provider': 'Nielsen', 'rows': [{
+            'medium': 'Radio', 'station': 'Human Right FM Abuja', 'day': 'Monday',
+            'programme': 'Morning Show', 'rating': 1.2,
+        }]},
+    ).json()
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
+
+    media = b'Channel,Programme,Day,Spots\nHuman Rights FM Abuja,Morning Show,Monday,3\n'
+    files = {'file': ('report.csv', io.BytesIO(media), 'text/csv')}
+    client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={'brand_id': brand['brandId'], 'default_medium': 'Radio'},
+    )
+
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    assert len(matches) == 1
+    assert matches[0]['matchStatus'] == 'suggested'
+
+
 def test_exact_matching_uses_time_band_instead_of_programme(client, project, brand):
     dataset = client.post(
         '/api/ratings-datasets',

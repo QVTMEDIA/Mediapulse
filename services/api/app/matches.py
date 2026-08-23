@@ -84,7 +84,7 @@ def _suggest_matches(unresolved, rating_records) -> Dict[str, tuple]:
         'Day': [a.day for a, _ in unique_unresolved],
         'Programme / Time Band': [_combine_programme(a.programme, a.time_band) for a, _ in unique_unresolved],
         'Match Key': [key for _, key in unique_unresolved],
-        'Match Status': ['NO RATING MATCH'] * len(unresolved),
+        'Match Status': ['NO RATING MATCH'] * len(unique_unresolved),
     })
     ratings_df = pd.DataFrame({
         'Medium': [r.medium for r in rating_records],

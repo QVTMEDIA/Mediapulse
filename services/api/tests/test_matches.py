@@ -114,6 +114,32 @@ def test_matches_computed_as_exact_suggested_and_unmatched(client, project, bran
     assert by_status['unmatched'][0]['matchedRatingId'] is None
 
 
+def test_duplicate_unresolved_rows_do_not_crash_matching(client, project, brand):
+    ratings = (
+        b'Channel,Day,Programme,Rating\n'
+        b'Other FM,Monday,Morning Show,1.2\n'
+    )
+    files = {'file': ('ratings.csv', io.BytesIO(ratings), 'text/csv')}
+    dataset = client.post('/api/ratings-datasets/upload', files=files).json()
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
+
+    media = (
+        b'Channel,Programme,Day,Spots\n'
+        b'Unknown FM,Drive Time,Monday,3\n'
+        b'Unknown FM,Drive Time,Monday,2\n'
+    )
+    files = {'file': ('report.csv', io.BytesIO(media), 'text/csv')}
+    client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={'brand_id': brand['brandId'], 'default_medium': 'Radio'},
+    )
+
+    response = client.get(f"/api/projects/{project['projectId']}/matches")
+    assert response.status_code == 200
+    assert len(response.json()) == 2
+
+
 def test_matches_dated_ratings_to_media_rows(client, project, brand):
     content = (
         b'Channel,Date,Programme,Rating\n'

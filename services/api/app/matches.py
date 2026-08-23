@@ -15,7 +15,7 @@ from typing import Dict, List, Optional
 import grp_calculator as calc
 import pandas as pd
 
-from .matching import make_match_key
+from .matching import make_exact_match_key, make_match_key
 
 
 @dataclass
@@ -37,7 +37,7 @@ def compute_matches(media_activity_records, rating_records) -> List[ComputedMatc
 
     ratings_by_key: Dict[str, object] = {}
     for rating in rating_records:
-        key = make_match_key(rating.medium, rating.station, rating.day, rating.programme, rating.time_band)
+        key = make_exact_match_key(rating.medium, rating.station, rating.day, rating.programme, rating.time_band)
         ratings_by_key.setdefault(key, rating)  # first occurrence wins on a duplicate key
 
     exact_results: List[ComputedMatch] = []
@@ -45,7 +45,7 @@ def compute_matches(media_activity_records, rating_records) -> List[ComputedMatc
     for activity in media_activity_records:
         # media_activity.programme already holds the combined "Programme /
         # Time Band" text (see app/parsing.py) — no separate time_band field.
-        key = make_match_key(activity.medium, activity.station, activity.day, activity.programme, activity.time_band)
+        key = make_exact_match_key(activity.medium, activity.station, activity.day, activity.programme, activity.time_band)
         rating = ratings_by_key.get(key)
         if rating is not None:
             exact_results.append(ComputedMatch(activity.id, 'exact', rating.id, None, key))

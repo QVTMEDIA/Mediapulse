@@ -23,3 +23,18 @@ def make_match_key(medium, station, day, programme='', time_band='') -> str:
         normalize_day(day),
         normalize_text(combined_programme),
     ])
+
+
+def make_exact_match_key(medium, station, day, programme='', time_band='') -> str:
+    """Build the exact key from medium, station, day, and time band.
+
+    Programme is the fallback slot identifier for sources that do not
+    provide a separate time-band value.
+    """
+    slot = time_band if str(time_band or '').strip() else programme
+    return '|'.join([
+        normalize_text(medium),
+        normalize_text(station),
+        normalize_day(day),
+        normalize_text(slot),
+    ])

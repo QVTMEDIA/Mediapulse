@@ -166,6 +166,39 @@ def test_matches_time_bands_on_media_and_ratings_rows(client, project, brand):
     assert matches[0]['matchStatus'] == 'exact'
 
 
+def test_exact_matching_uses_time_band_instead_of_programme(client, project, brand):
+    dataset = client.post(
+        '/api/ratings-datasets',
+        json={
+            'provider': 'Nielsen',
+            'rows': [{
+                'medium': 'Radio',
+                'station': 'Cool FM',
+                'day': 'Monday',
+                'programme': 'Vendor Programme Name',
+                'timeBand': '19:00-20:00',
+                'rating': 1.2,
+            }],
+        },
+    ).json()
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
+
+    media = (
+        b'Channel,Programme,Time Band,Day,Spots\n'
+        b'Cool FM,Different Programme Name,19:00-20:00,Monday,3\n'
+    )
+    files = {'file': ('report.csv', io.BytesIO(media), 'text/csv')}
+    client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={'brand_id': brand['brandId'], 'default_medium': 'Radio'},
+    )
+
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    assert len(matches) == 1
+    assert matches[0]['matchStatus'] == 'exact'
+
+
 def test_matches_are_computed_once_and_then_persisted(client, project, brand):
     _upload(client, project['projectId'], brand['brandId'])
     _attach_ratings(client, project['projectId'])

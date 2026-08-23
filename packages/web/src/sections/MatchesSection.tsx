@@ -10,6 +10,8 @@ import {
 } from '../api/client';
 import type { MediaActivityRow, Project, RatingMatch, RatingRow } from '../api/contracts';
 
+type MatchFilter = 'all' | 'matched' | 'suggested' | 'unmatched';
+
 function describeRatingOption(row: RatingRow) {
   const rating = row.rating === null ? 'no rating value' : row.rating;
   return `${row.station} · ${row.day} · ${row.programme || 'No programme'} · ${rating}`;
@@ -53,6 +55,7 @@ export default function MatchesSection({ project }: { project: Project | null })
   const [actionError, setActionError] = useState<string | null>(null);
   const [isRecomputing, setIsRecomputing] = useState(false);
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({});
+  const [matchFilter, setMatchFilter] = useState<MatchFilter>('all');
 
   const refresh = useCallback(async (projectId: string) => {
     setLoading(true);
@@ -141,6 +144,9 @@ export default function MatchesSection({ project }: { project: Project | null })
   const suggested = matches.filter((match) => match.matchStatus === 'suggested');
   const unmatched = matches.filter((match) => match.matchStatus === 'unmatched');
   const resolved = matches.filter((match) => match.matchStatus === 'exact' || match.matchStatus === 'manual');
+  const showSuggested = matchFilter === 'all' || matchFilter === 'suggested';
+  const showUnmatched = matchFilter === 'all' || matchFilter === 'unmatched';
+  const showResolved = matchFilter === 'all' || matchFilter === 'matched';
   const ratingOptions = Array.from(ratingsById.values()).sort((a, b) =>
     `${a.station} ${a.day} ${a.programme}`.localeCompare(`${b.station} ${b.day} ${b.programme}`),
   );
@@ -173,7 +179,26 @@ export default function MatchesSection({ project }: { project: Project | null })
       {actionError && <p className="inline-error">{actionError}</p>}
       {loadError && <p className="inline-error">{loadError}</p>}
 
-      <div className="panel">
+      <div className="match-filter-bar" aria-label="Filter matches">
+        {([
+          ['all', 'All', matches.length],
+          ['matched', 'Matched', (counts.exact ?? 0) + (counts.manual ?? 0)],
+          ['suggested', 'Fuzzy matched', counts.suggested ?? 0],
+          ['unmatched', 'Unmatched', counts.unmatched ?? 0],
+        ] as const).map(([value, label, count]) => (
+          <button
+            type="button"
+            className={matchFilter === value ? 'primary-button' : 'secondary-button'}
+            aria-pressed={matchFilter === value}
+            onClick={() => setMatchFilter(value)}
+            key={value}
+          >
+            {label} ({count})
+          </button>
+        ))}
+      </div>
+
+      {showSuggested && <div className="panel">
         <div className="panel-header">
           <div>
             <h2>Needs review</h2>
@@ -217,10 +242,10 @@ export default function MatchesSection({ project }: { project: Project | null })
             );
           })}
         </div>
-      </div>
+      </div>}
 
       <div className="content-grid bottom-grid">
-        <div className="panel">
+        {showUnmatched && <div className="panel">
           <div className="panel-header">
             <div>
               <h2>Unmatched</h2>
@@ -271,9 +296,9 @@ export default function MatchesSection({ project }: { project: Project | null })
               </div>
             ))}
           </div>
-        </div>
+        </div>}
 
-        <div className="panel">
+        {showResolved && <div className="panel">
           <div className="panel-header">
             <div>
               <h2>Confirmed</h2>
@@ -291,7 +316,7 @@ export default function MatchesSection({ project }: { project: Project | null })
               </div>
             ))}
           </div>
-        </div>
+        </div>}
       </div>
     </>
   );

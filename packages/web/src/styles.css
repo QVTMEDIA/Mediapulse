@@ -261,6 +261,13 @@ button:disabled {
   padding: 0;
 }
 
+.match-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 .metric-grid {
   display: grid;
   /* auto-fit rather than a fixed column count — this class is shared by

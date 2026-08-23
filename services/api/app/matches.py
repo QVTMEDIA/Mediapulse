@@ -81,7 +81,7 @@ def _suggest_matches(unresolved, rating_records) -> Dict[str, tuple]:
         'Medium': [a.medium for a, _ in unresolved],
         'Channel / Station': [a.station for a, _ in unresolved],
         'Day': [a.day for a, _ in unresolved],
-        'Programme / Time Band': [a.programme for a, _ in unresolved],
+        'Programme / Time Band': [_combine_programme(a.programme, a.time_band) for a, _ in unresolved],
         'Match Key': [key for _, key in unresolved],
         'Match Status': ['NO RATING MATCH'] * len(unresolved),
     })

@@ -14,7 +14,7 @@ import {
 import type { Brand, MediaType, Project, ProjectStatus, RatingsDataset, UploadBatch, User } from '../api/contracts';
 
 const STATUS_OPTIONS = ['Setup', 'Data Review', 'Complete'] as const;
-const MEDIA_TYPE_OPTIONS: MediaType[] = ['TV', 'Radio'];
+const MEDIA_TYPE_OPTIONS: MediaType[] = ['TV', 'Radio', 'Cable TV'];
 
 function toFormState(project: Project) {
   return {

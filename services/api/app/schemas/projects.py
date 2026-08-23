@@ -6,7 +6,7 @@ from pydantic import Field, field_validator
 from .common import CamelModel
 
 PROJECT_STATUS_OPTIONS = ('Setup', 'Data Review', 'Complete')
-MEDIA_TYPE_OPTIONS = ('TV', 'Radio')
+MEDIA_TYPE_OPTIONS = ('TV', 'Radio', 'Cable TV')
 
 
 def _validate_status(value: Optional[str]) -> Optional[str]:

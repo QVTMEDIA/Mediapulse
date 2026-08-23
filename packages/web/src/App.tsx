@@ -573,6 +573,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
                     <select value={uploadDefaultMedium} onChange={(event) => setUploadDefaultMedium(event.target.value)}>
                       <option value="TV">TV</option>
                       <option value="Radio">Radio</option>
+                      <option value="Cable TV">Cable TV</option>
                     </select>
                   </label>
                 </div>

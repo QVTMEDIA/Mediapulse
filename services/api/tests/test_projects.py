@@ -54,6 +54,12 @@ def test_create_project_rejects_unknown_media_type(client):
     assert response.status_code == 422
 
 
+def test_create_project_accepts_cable_tv_media_type(client):
+    response = client.post('/api/projects', json={'projectName': 'Cable Campaign', 'mediaTypes': ['Cable TV']})
+    assert response.status_code == 201
+    assert response.json()['mediaTypes'] == ['Cable TV']
+
+
 def test_get_project_round_trips(client):
     created = client.post('/api/projects', json={'projectName': 'Malaria Category', 'client': 'Client A'}).json()
     fetched = client.get(f"/api/projects/{created['projectId']}")

@@ -5,7 +5,7 @@ from pydantic import Field, field_validator
 
 from .common import CamelModel
 
-MEDIA_TYPE_OPTIONS = ('TV', 'Radio')
+MEDIA_TYPE_OPTIONS = ('TV', 'Radio', 'Cable TV')
 
 
 class RatingRowIn(CamelModel):

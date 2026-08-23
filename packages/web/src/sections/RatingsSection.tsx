@@ -347,6 +347,7 @@ export default function RatingsSection({ project }: { project: Project | null })
                 <select value={defaultMedium} onChange={(event) => setDefaultMedium(event.target.value)}>
                   <option value="TV">TV</option>
                   <option value="Radio">Radio</option>
+                  <option value="Cable TV">Cable TV</option>
                 </select>
               </label>
             </div>

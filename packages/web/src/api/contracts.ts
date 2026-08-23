@@ -1,5 +1,5 @@
 export type ProjectStatus = 'Setup' | 'Data Review' | 'Complete';
-export type MediaType = 'TV' | 'Radio';
+export type MediaType = 'TV' | 'Radio' | 'Cable TV';
 export type UploadKind = 'ratings' | 'brand_report' | 'composite_report';
 export type ValidationSeverity = 'info' | 'warning' | 'error';
 export type UserRole = 'owner' | 'admin' | 'member';

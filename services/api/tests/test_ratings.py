@@ -289,6 +289,6 @@ def test_upload_ratings_file_rejects_blocked_xlsm_extension(client):
 
 
 def test_upload_ratings_file_accepts_media_types_list(client):
-    response = _upload_ratings(client, media_types='TV,Radio')
+    response = _upload_ratings(client, media_types='TV,Radio,Cable TV')
     assert response.status_code == 201
-    assert response.json()['mediaTypes'] == ['TV', 'Radio']
+    assert response.json()['mediaTypes'] == ['TV', 'Radio', 'Cable TV']

@@ -768,6 +768,27 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         candidates_by_medium_channel.setdefault((medium, channel), []).append(rating_index)
         candidates_by_medium_day.setdefault((medium, day), []).append(rating_index)
 
+    candidate_cache = {}
+    for candidate_indexes in set(
+        tuple(indexes)
+        for indexes in (
+            *candidates_by_medium_channel_day.values(),
+            *candidates_by_medium_channel.values(),
+            *candidates_by_medium_day.values(),
+        )
+    ):
+        candidate_cache[candidate_indexes] = [
+            (
+                index,
+                ratings_index.at[index, 'Programme / Time Band'],
+                ratings_index.at[index, 'Channel / Station'],
+                ratings_index.at[index, 'Day'],
+                ratings_index.at[index, 'Rating (%)'],
+                ratings_index.at[index, 'Match Key'],
+            )
+            for index in candidate_indexes
+        ]
+
     suggestions = []
     for media_index, row in unmatched.iterrows():
         medium_norm = normalize_text(row.get('Medium', ''))
@@ -776,21 +797,21 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         programme = row.get('Programme / Time Band', '')
 
         candidate_groups = [
-            ('Same medium, channel, and day', candidates_by_medium_channel_day.get((medium_norm, channel_norm, day_norm))),
-            ('Same medium and channel', candidates_by_medium_channel.get((medium_norm, channel_norm))),
-            ('Same medium and day', candidates_by_medium_day.get((medium_norm, day_norm))),
+            ('Same medium, channel, and day', tuple(candidates_by_medium_channel_day.get((medium_norm, channel_norm, day_norm), []))),
+            ('Same medium and channel', tuple(candidates_by_medium_channel.get((medium_norm, channel_norm), []))),
+            ('Same medium and day', tuple(candidates_by_medium_day.get((medium_norm, day_norm), []))),
         ]
         candidate_rows = None
         basis = ''
         for candidate_basis, candidate_indexes in candidate_groups:
             if candidate_indexes:
-                candidate_rows = ratings_index.loc[candidate_indexes].copy()
+                candidate_rows = candidate_cache[candidate_indexes]
                 basis = candidate_basis
                 break
         if candidate_rows is None:
             continue
 
-        choices = candidate_rows['Programme / Time Band'].to_dict()
+        choices = [candidate[1] for candidate in candidate_rows]
         extracted = process.extract(
             programme,
             choices,
@@ -800,16 +821,26 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         )
         if not extracted:
             continue
-        candidate_indexes = [index for _value, _score, index in extracted]
-        candidate_rows = candidate_rows.loc[candidate_indexes].copy()
-        candidate_rows['_Similarity'] = [score / 100 for _value, score, _index in extracted]
-        candidate_rows = candidate_rows.sort_values(['_Similarity', 'Rating (%)'], ascending=[False, False])
-        candidate_rows = candidate_rows.drop_duplicates(
-            subset=['Channel / Station', 'Day', 'Programme / Time Band', 'Rating (%)']
-        ).head(max_suggestions_per_row)
+        ranked_candidates = sorted(
+            (
+                candidate_rows[index],
+                score / 100,
+            )
+            for _value, score, index in extracted
+        )
+        selected_candidates = []
+        seen_candidates = set()
+        for candidate, score in ranked_candidates:
+            duplicate_key = (candidate[2], candidate[3], candidate[1], candidate[4])
+            if duplicate_key in seen_candidates:
+                continue
+            seen_candidates.add(duplicate_key)
+            selected_candidates.append((candidate, score))
+            if len(selected_candidates) >= max_suggestions_per_row:
+                break
 
-        for _, candidate in candidate_rows.iterrows():
-            score = round(float(candidate['_Similarity']), 3)
+        for candidate, similarity in selected_candidates:
+            score = round(float(similarity), 3)
             suggestions.append({
                 'Brand': row.get('Brand', ''),
                 'Source File': row.get('Source File', ''),
@@ -817,15 +848,15 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
                 'Input Channel / Station': row.get('Channel / Station', ''),
                 'Input Day': row.get('Day', ''),
                 'Input Programme / Time Band': programme,
-                'Suggested Channel / Station': candidate.get('Channel / Station', ''),
-                'Suggested Day': candidate.get('Day', ''),
-                'Suggested Programme / Time Band': candidate.get('Programme / Time Band', ''),
-                'Suggested Rating (%)': candidate.get('Rating (%)', pd.NA),
+                'Suggested Channel / Station': candidate[2],
+                'Suggested Day': candidate[3],
+                'Suggested Programme / Time Band': candidate[1],
+                'Suggested Rating (%)': candidate[4] if pd.notna(candidate[4]) else pd.NA,
                 'Similarity Score': score,
                 'Confidence': suggestion_confidence(score),
                 'Suggestion Basis': basis,
                 'Input Match Key': row.get('Match Key', ''),
-                'Suggested Match Key': candidate.get('Match Key', ''),
+                'Suggested Match Key': candidate[5],
             })
 
     return pd.DataFrame(suggestions, columns=SUGGESTION_COLUMNS)

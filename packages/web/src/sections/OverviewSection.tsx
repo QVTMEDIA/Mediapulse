@@ -142,20 +142,31 @@ export default function OverviewSection({ project }: { project: Project | null }
   const [spotEfficiency, setSpotEfficiency] = useState<SpotEfficiency[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [efficiencyError, setEfficiencyError] = useState<string | null>(null);
 
   const refresh = useCallback(async (projectId: string) => {
     setLoading(true);
     setLoadError(null);
+    setEfficiencyError(null);
     try {
       const latestRun = await getLatestRun(projectId);
       setRun(latestRun);
       if (latestRun) {
-        const [shares, efficiency] = await Promise.all([
+        const [shares, efficiency] = await Promise.allSettled([
           listBrandShares(projectId, latestRun.runId),
           listSpotEfficiency(projectId, latestRun.runId),
         ]);
-        setBrandShares(shares);
-        setSpotEfficiency(efficiency);
+        if (shares.status === 'fulfilled') {
+          setBrandShares(shares.value);
+        } else {
+          throw shares.reason;
+        }
+        if (efficiency.status === 'fulfilled') {
+          setSpotEfficiency(efficiency.value);
+        } else {
+          setSpotEfficiency([]);
+          setEfficiencyError(efficiency.reason instanceof Error ? efficiency.reason.message : 'Could not load spot efficiency.');
+        }
       } else {
         setBrandShares([]);
         setSpotEfficiency([]);
@@ -165,6 +176,7 @@ export default function OverviewSection({ project }: { project: Project | null }
       setRun(null);
       setBrandShares([]);
       setSpotEfficiency([]);
+      setEfficiencyError(null);
     } finally {
       setLoading(false);
     }
@@ -177,6 +189,7 @@ export default function OverviewSection({ project }: { project: Project | null }
       setRun(null);
       setBrandShares([]);
       setSpotEfficiency([]);
+      setEfficiencyError(null);
     }
   }, [project, refresh]);
 
@@ -205,6 +218,7 @@ export default function OverviewSection({ project }: { project: Project | null }
   return (
     <>
       {loadError && <p className="inline-error">{loadError}</p>}
+      {efficiencyError && <p className="inline-error">Spot efficiency: {efficiencyError}</p>}
 
       {!loading && !run && !loadError && (
         <div className="panel placeholder-panel">

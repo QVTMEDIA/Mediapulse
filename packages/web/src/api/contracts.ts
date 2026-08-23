@@ -260,6 +260,13 @@ export interface RatingMatch {
   correctedAt: string | null;
 }
 
+export interface MatchJob {
+  jobId: string;
+  projectId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  error: string | null;
+}
+
 export interface RatingRow {
   ratingRowId: string;
   ratingsDatasetId: string;

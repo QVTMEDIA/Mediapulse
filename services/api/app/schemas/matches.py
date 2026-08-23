@@ -19,3 +19,10 @@ class MatchCorrection(CamelModel):
     # algorithm having found nothing (match_status stays 'manual' either way,
     # so a human decision is never indistinguishable from an unreviewed row).
     matched_rating_id: Optional[str] = None
+
+
+class MatchJobOut(CamelModel):
+    job_id: str
+    project_id: str
+    status: str  # 'queued' | 'running' | 'completed' | 'failed'
+    error: Optional[str] = None

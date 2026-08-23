@@ -1,4 +1,5 @@
 import io
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -112,6 +113,25 @@ def test_matches_computed_as_exact_suggested_and_unmatched(client, project, bran
 
     assert len(by_status.get('unmatched', [])) == 1
     assert by_status['unmatched'][0]['matchedRatingId'] is None
+
+
+def test_match_job_completes_and_persists_results(client, project, brand):
+    _upload(client, project['projectId'], brand['brandId'])
+    _attach_ratings(client, project['projectId'])
+
+    response = client.post(f"/api/projects/{project['projectId']}/matches/jobs?mode=ensure")
+    assert response.status_code == 202
+    job = response.json()
+    assert job['status'] in ('queued', 'running', 'completed')
+
+    for _ in range(40):
+        if job['status'] in ('completed', 'failed'):
+            break
+        time.sleep(0.05)
+        job = client.get(f"/api/projects/{project['projectId']}/matches/jobs/{job['jobId']}").json()
+
+    assert job['status'] == 'completed'
+    assert len(client.get(f"/api/projects/{project['projectId']}/matches").json()) == 3
 
 
 def test_duplicate_unresolved_rows_do_not_crash_matching(client, project, brand):

@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_user
+from ..match_jobs import get_match_job, start_match_job
 from ..matches import compute_matches
 from ..repositories.matches import MatchesRepository, RatingMatchRecord, get_matches_repository
 from ..repositories.projects import ProjectsRepository, get_projects_repository
 from ..repositories.ratings import RatingsRepository, get_ratings_repository
 from ..repositories.uploads import UploadsRepository, get_uploads_repository
-from ..schemas.matches import MatchCorrection, RatingMatchOut
+from ..schemas.matches import MatchCorrection, MatchJobOut, RatingMatchOut
 
 router = APIRouter(prefix='/api/projects/{project_id}/matches', tags=['matches'], dependencies=[Depends(get_current_user)])
 
@@ -21,6 +22,33 @@ def _to_out(record: RatingMatchRecord) -> RatingMatchOut:
         match_key=record.match_key,
         corrected_at=record.corrected_at,
     )
+
+
+@router.post('/jobs', response_model=MatchJobOut, status_code=202)
+def start_job(
+    project_id: str,
+    mode: str = 'ensure',
+    matches_repo: MatchesRepository = Depends(get_matches_repository),
+    uploads_repo: UploadsRepository = Depends(get_uploads_repository),
+    ratings_repo: RatingsRepository = Depends(get_ratings_repository),
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+):
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    if mode not in ('ensure', 'recompute'):
+        raise HTTPException(status_code=422, detail='mode must be ensure or recompute')
+    job = start_match_job(project_id, mode, matches_repo, uploads_repo, ratings_repo)
+    return MatchJobOut(job_id=job.id, project_id=job.project_id, status=job.status)
+
+
+@router.get('/jobs/{job_id}', response_model=MatchJobOut)
+def get_job(project_id: str, job_id: str, projects_repo: ProjectsRepository = Depends(get_projects_repository)):
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    job = get_match_job(job_id)
+    if job is None or job.project_id != project_id:
+        raise HTTPException(status_code=404, detail='Match job not found for this project')
+    return MatchJobOut(job_id=job.id, project_id=job.project_id, status=job.status, error=job.error)
 
 
 @router.get('', response_model=list[RatingMatchOut])

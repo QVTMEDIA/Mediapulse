@@ -346,6 +346,8 @@ POST   /api/projects/{projectId}/uploads/{uploadId}/map
 GET    /api/projects/{projectId}/media-activity
 
 GET    /api/projects/{projectId}/matches
+POST   /api/projects/{projectId}/matches/jobs?mode=ensure|recompute
+GET    /api/projects/{projectId}/matches/jobs/{jobId}
 POST   /api/projects/{projectId}/matches/{ratingMatchId}/correct
 POST   /api/projects/{projectId}/matches/recompute
 

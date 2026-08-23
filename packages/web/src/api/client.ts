@@ -7,6 +7,7 @@ import type {
   GrpCalculationRow,
   GrpRunSummary,
   MappingTemplate,
+  MatchJob,
   MediaActivityRow,
   ProgrammeShare,
   Project,
@@ -255,6 +256,14 @@ export function listMediaActivity(projectId: string): Promise<MediaActivityRow[]
 
 export function listMatches(projectId: string): Promise<RatingMatch[]> {
   return request<RatingMatch[]>(`/api/projects/${projectId}/matches`);
+}
+
+export function startMatchJob(projectId: string, mode: 'ensure' | 'recompute' = 'ensure'): Promise<MatchJob> {
+  return request<MatchJob>(`/api/projects/${projectId}/matches/jobs?mode=${mode}`, { method: 'POST' });
+}
+
+export function getMatchJob(projectId: string, jobId: string): Promise<MatchJob> {
+  return request<MatchJob>(`/api/projects/${projectId}/matches/jobs/${jobId}`);
 }
 
 export function correctMatch(projectId: string, ratingMatchId: string, matchedRatingId: string | null): Promise<RatingMatch> {

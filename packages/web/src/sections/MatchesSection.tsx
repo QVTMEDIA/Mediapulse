@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ApiError,
   correctMatch,
+  getMatchJob,
   listMatches,
   listMediaActivity,
   listProjectRatingsDatasets,
   listRatingRows,
-  recomputeMatches,
+  startMatchJob,
 } from '../api/client';
 import type { MediaActivityRow, Project, RatingMatch, RatingRow } from '../api/contracts';
 
@@ -61,11 +62,18 @@ export default function MatchesSection({ project }: { project: Project | null })
     setLoading(true);
     setLoadError(null);
     try {
-      const [matchResults, activityResults, datasets] = await Promise.all([
-        listMatches(projectId),
+      const [job, activityResults, datasets] = await Promise.all([
+        startMatchJob(projectId),
         listMediaActivity(projectId),
         listProjectRatingsDatasets(projectId),
       ]);
+      let jobResult = job;
+      while (jobResult.status === 'queued' || jobResult.status === 'running') {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        jobResult = await getMatchJob(projectId, job.jobId);
+      }
+      if (jobResult.status === 'failed') throw new ApiError(500, jobResult.error ?? 'Matching failed.');
+      const matchResults = await listMatches(projectId);
       setMatches(matchResults);
       setActivityById(new Map(activityResults.map((row) => [row.mediaActivityId, row])));
 
@@ -116,7 +124,13 @@ export default function MatchesSection({ project }: { project: Project | null })
     setIsRecomputing(true);
     setActionError(null);
     try {
-      await recomputeMatches(project.projectId);
+      const job = await startMatchJob(project.projectId, 'recompute');
+      let jobResult = job;
+      while (jobResult.status === 'queued' || jobResult.status === 'running') {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        jobResult = await getMatchJob(project.projectId, job.jobId);
+      }
+      if (jobResult.status === 'failed') throw new ApiError(500, jobResult.error ?? 'Matching failed.');
       await refresh(project.projectId);
     } catch (error) {
       setActionError(error instanceof ApiError ? error.message : 'Could not recompute matches.');

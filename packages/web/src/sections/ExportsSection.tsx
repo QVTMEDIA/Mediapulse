@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Download, FileSpreadsheet } from 'lucide-react';
 import { ApiError, createExport, downloadExport, listExports } from '../api/client';
 import type { ExportJob, Project } from '../api/contracts';
+import { LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 
 function suggestedFileName(project: Project): string {
   const safe = project.projectName.replace(/[^a-zA-Z0-9 _-]/g, '').trim().replace(/\s+/g, '_');
@@ -10,6 +11,7 @@ function suggestedFileName(project: Project): string {
 
 export default function ExportsSection({ project }: { project: Project | null }) {
   const [exports, setExports] = useState<ExportJob[]>([]);
+  const limitedExports = useLimitedRows(exports);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -117,7 +119,7 @@ export default function ExportsSection({ project }: { project: Project | null })
                 </td>
               </tr>
             )}
-            {exports.map((job) => (
+            {limitedExports.visibleRows.map((job) => (
               <tr key={job.exportId}>
                 <td>{job.generatedAt}</td>
                 <td>{job.format}</td>
@@ -136,6 +138,7 @@ export default function ExportsSection({ project }: { project: Project | null })
             ))}
           </tbody>
         </table>
+        <LimitedRowsControls shown={limitedExports.visibleRows.length} total={exports.length} hasMore={limitedExports.hasMore} canShowLess={limitedExports.canShowLess} onShowMore={limitedExports.showMore} onShowLess={limitedExports.showLess} />
       </div>
     </div>
   );

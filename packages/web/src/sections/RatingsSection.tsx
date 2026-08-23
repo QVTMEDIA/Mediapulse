@@ -10,6 +10,7 @@ import {
   uploadRatingsFile,
 } from '../api/client';
 import type { Project, RatingRow, RatingsDataset, RatingsRowIssue } from '../api/contracts';
+import { LimitedRows, LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 
 // Mirrors services/api/app/repositories/ratings.py's _row_is_invalid() and
 // services/api/app/matching.py's make_match_key() (in turn grp_calculator.
@@ -163,6 +164,9 @@ export default function RatingsSection({ project }: { project: Project | null })
   const [rowsLoading, setRowsLoading] = useState(false);
   const [rowsError, setRowsError] = useState<string | null>(null);
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+  const limitedAttached = useLimitedRows(attached);
+  const limitedDatasetRows = useLimitedRows(datasetRows);
+  const limitedUploadIssues = useLimitedRows(uploadIssues);
 
   const refresh = useCallback(async (projectId: string) => {
     setLoading(true);
@@ -430,7 +434,7 @@ export default function RatingsSection({ project }: { project: Project | null })
                   </tr>
                 </thead>
                 <tbody>
-                  {uploadIssues.map((issue) => (
+                  {limitedUploadIssues.visibleRows.map((issue) => (
                     <tr key={issue.rowNumber}>
                       <td className="num">{issue.rowNumber}</td>
                       <td>{issue.reason}</td>
@@ -443,6 +447,7 @@ export default function RatingsSection({ project }: { project: Project | null })
                   ))}
                 </tbody>
               </table>
+              <LimitedRowsControls shown={limitedUploadIssues.visibleRows.length} total={uploadIssues.length} hasMore={limitedUploadIssues.hasMore} canShowLess={limitedUploadIssues.canShowLess} onShowMore={limitedUploadIssues.showMore} onShowLess={limitedUploadIssues.showLess} />
             </div>
           </div>
         )}
@@ -477,7 +482,7 @@ export default function RatingsSection({ project }: { project: Project | null })
           {!loading && attached.length === 0 && !loadError && (
             <p className="empty-state">No ratings attached yet. Upload a file or attach one from the library above.</p>
           )}
-          {attached.map((dataset) => (
+          {limitedAttached.visibleRows.map((dataset) => (
             <RatingsDatasetRow
               dataset={dataset}
               key={dataset.ratingsDatasetId}
@@ -485,6 +490,7 @@ export default function RatingsSection({ project }: { project: Project | null })
               onSelect={() => setSelectedDatasetId(dataset.ratingsDatasetId)}
             />
           ))}
+          <LimitedRowsControls shown={limitedAttached.visibleRows.length} total={attached.length} hasMore={limitedAttached.hasMore} canShowLess={limitedAttached.canShowLess} onShowMore={limitedAttached.showMore} onShowLess={limitedAttached.showLess} />
         </div>
       </div>
 
@@ -532,7 +538,7 @@ export default function RatingsSection({ project }: { project: Project | null })
                   </tr>
                 </thead>
                 <tbody>
-                  {datasetRows.map((row) => {
+                  {limitedDatasetRows.visibleRows.map((row) => {
                     const siblings = (duplicateGroups.get(matchKey(row)) ?? []).filter(
                       (sibling) => sibling.ratingRowId !== row.ratingRowId,
                     );
@@ -574,6 +580,7 @@ export default function RatingsSection({ project }: { project: Project | null })
                   })}
                 </tbody>
               </table>
+              <LimitedRowsControls shown={limitedDatasetRows.visibleRows.length} total={datasetRows.length} hasMore={limitedDatasetRows.hasMore} canShowLess={limitedDatasetRows.canShowLess} onShowMore={limitedDatasetRows.showMore} onShowLess={limitedDatasetRows.showLess} />
             </div>
           )}
         </div>

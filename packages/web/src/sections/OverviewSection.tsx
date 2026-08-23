@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, BarChart3, Gauge, PieChart } from 'lucide-react';
+import { AlertTriangle, BarChart3, PieChart } from 'lucide-react';
 import { ApiError, getLatestRun, listBrandShares, listSpotEfficiency } from '../api/client';
 import type { BrandShare, GrpRunSummary, Project, SpotEfficiency } from '../api/contracts';
+import { LimitedRows } from '../components/LimitedRows';
 import { BrandSpendRow, formatNumber, HIGH_COST_MIN_SPOTS, HIGH_COST_RATIO } from './SpendIntelligenceSection';
 
 // Moved from App.tsx's "Projects" tab, which used to double as the
@@ -273,9 +274,9 @@ export default function OverviewSection({ project }: { project: Project | null }
               )}
               <div className="brand-list">
                 {brandShares.length === 0 && <p className="empty-state">No matched spots yet.</p>}
-                {brandShares.map((share) => (
+                <LimitedRows rows={brandShares} render={(share) => (
                   <BrandShareRow share={share} maxGrp={maxGrp} key={share.brandId} />
-                ))}
+                )} />
               </div>
             </div>
 
@@ -291,11 +292,9 @@ export default function OverviewSection({ project }: { project: Project | null }
                 {brandShares.every((share) => share.totalSpend === 0) && (
                   <p className="empty-state">No spend data yet — upload a report with a Cost or Rate column.</p>
                 )}
-                {spendRanked
-                  .filter((share) => share.totalSpend > 0)
-                  .map((share) => (
+                <LimitedRows rows={spendRanked.filter((share) => share.totalSpend > 0)} render={(share) => (
                     <BrandSpendRow share={share} maxSpend={maxSpend} key={share.brandId} />
-                  ))}
+                  )} />
               </div>
             </div>
           </section>
@@ -303,9 +302,9 @@ export default function OverviewSection({ project }: { project: Project | null }
           {readingInsights.length > 0 && (
             <div className="panel reading-panel">
               <span className="reading-eyebrow">Reading of the period</span>
-              {readingInsights.map((sentence, index) => (
+              <LimitedRows rows={readingInsights} render={(sentence, index) => (
                 <p key={index}>{sentence}</p>
-              ))}
+              )} />
             </div>
           )}
 
@@ -323,7 +322,7 @@ export default function OverviewSection({ project }: { project: Project | null }
             </div>
             <div className="brand-list">
               {weakBuys.length === 0 && <p className="empty-state">Nothing flagged.</p>}
-              {weakBuys.slice(0, 5).map((row) => (
+              <LimitedRows rows={weakBuys} render={(row) => (
                 <div className="brand-row" key={`${row.brandId}-${row.station}`}>
                   <div className="brand-line">
                     <span>{row.brand} · {row.station}</span>
@@ -331,12 +330,7 @@ export default function OverviewSection({ project }: { project: Project | null }
                   </div>
                   <small>{row.spots} spots | {row.totalGrps.toFixed(1)} GRPs total</small>
                 </div>
-              ))}
-              {weakBuys.length > 5 && (
-                <p className="field-hint">
-                  <Gauge size={14} aria-hidden /> {weakBuys.length - 5} more on the Reports screen's Spot Efficiency panel.
-                </p>
-              )}
+              )} />
             </div>
           </div>
         </>

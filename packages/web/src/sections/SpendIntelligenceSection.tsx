@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, DollarSign, PieChart } from 'lucide-react';
 import { ApiError, getLatestRun, listBrandShares } from '../api/client';
 import type { BrandShare, GrpRunSummary, Project } from '../api/contracts';
+import { LimitedRows, LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 
 export function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value);
@@ -91,15 +92,6 @@ export default function SpendIntelligenceSection({ project }: { project: Project
     }
   }, [project, refresh]);
 
-  if (!project) {
-    return (
-      <div className="panel placeholder-panel">
-        <h2>No project selected</h2>
-        <p>Open or create a project to see its media spend and Share of Expenditure.</p>
-      </div>
-    );
-  }
-
   const maxSpend = Math.max(1, ...brandShares.map((share) => share.totalSpend));
   const categorySpend = brandShares.reduce((sum, share) => sum + share.totalSpend, 0);
   const categoryGrps = brandShares.reduce((sum, share) => sum + share.totalGrps, 0);
@@ -122,6 +114,16 @@ export default function SpendIntelligenceSection({ project }: { project: Project
     }))
     .sort((a, b) => b.costPerGrp - a.costPerGrp);
   const highCostCount = costEfficiency.filter((row) => row.isHighCost).length;
+  const limitedCostEfficiency = useLimitedRows(costEfficiency);
+
+  if (!project) {
+    return (
+      <div className="panel placeholder-panel">
+        <h2>No project selected</h2>
+        <p>Open or create a project to see its media spend and Share of Expenditure.</p>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -175,9 +177,9 @@ export default function SpendIntelligenceSection({ project }: { project: Project
               )}
               {brandsWithSpend > 0 && (
                 <div className="brand-list">
-                  {spendRanked.map((share) => (
+                  <LimitedRows rows={spendRanked} render={(share) => (
                     <BrandSpendRow share={share} maxSpend={maxSpend} key={share.brandId} />
-                  ))}
+                  )} />
                 </div>
               )}
             </div>
@@ -210,7 +212,7 @@ export default function SpendIntelligenceSection({ project }: { project: Project
                       </tr>
                     </thead>
                     <tbody>
-                      {costEfficiency.map((row) => (
+                      {limitedCostEfficiency.visibleRows.map((row) => (
                         <tr key={row.share.brandId}>
                           <td>{row.share.brand}</td>
                           <td className="num">{formatNumber(row.share.totalSpend)}</td>
@@ -223,6 +225,7 @@ export default function SpendIntelligenceSection({ project }: { project: Project
                       ))}
                     </tbody>
                   </table>
+                  <LimitedRowsControls shown={limitedCostEfficiency.visibleRows.length} total={costEfficiency.length} hasMore={limitedCostEfficiency.hasMore} canShowLess={limitedCostEfficiency.canShowLess} onShowMore={limitedCostEfficiency.showMore} onShowLess={limitedCostEfficiency.showLess} />
                 </div>
               )}
             </div>

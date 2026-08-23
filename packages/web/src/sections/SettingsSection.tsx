@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Users } from 'lucide-react';
 import { ApiError, listUsers, updateUserRole } from '../api/client';
 import type { User, UserRole } from '../api/contracts';
+import { LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 
 const ROLES: UserRole[] = ['owner', 'admin', 'member'];
 
@@ -12,6 +13,7 @@ function RoleBadge({ role }: { role: UserRole }) {
 export default function SettingsSection({ currentUser }: { currentUser: User }) {
   const canManageTeam = currentUser.role === 'owner' || currentUser.role === 'admin';
   const [users, setUsers] = useState<User[]>([]);
+  const limitedUsers = useLimitedRows(users);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingUserId, setPendingUserId] = useState<string | null>(null);
@@ -95,7 +97,7 @@ export default function SettingsSection({ currentUser }: { currentUser: User }) 
                 </tr>
               </thead>
               <tbody>
-                {users.map((user) => {
+                {limitedUsers.visibleRows.map((user) => {
                   // Only an owner can change roles (services/api's
                   // require_role('owner') on PATCH /users/{id}/role); an
                   // admin can see the team but not edit it. An owner also
@@ -130,6 +132,7 @@ export default function SettingsSection({ currentUser }: { currentUser: User }) 
                 })}
               </tbody>
             </table>
+            <LimitedRowsControls shown={limitedUsers.visibleRows.length} total={users.length} hasMore={limitedUsers.hasMore} canShowLess={limitedUsers.canShowLess} onShowMore={limitedUsers.showMore} onShowLess={limitedUsers.showLess} />
           </div>
         </div>
       ) : (

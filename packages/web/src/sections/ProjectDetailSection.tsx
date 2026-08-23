@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { BarChart3, History, PieChart } from 'lucide-react';
 import { ApiError, getLatestRun, listBrandShares, listVersions, restoreVersion } from '../api/client';
 import type { BrandShare, GrpRunSummary, Project, ProjectVersion, User } from '../api/contracts';
+import { LimitedRows, LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 import { BrandShareRow } from './OverviewSection';
 import { BrandSpendRow, formatNumber } from './SpendIntelligenceSection';
 
@@ -97,6 +98,7 @@ export default function ProjectDetailSection({
   const maxSpend = Math.max(1, ...brandShares.map((share) => share.totalSpend));
   const spendRanked = [...brandShares].sort((a, b) => b.totalSpend - a.totalSpend);
   const brandsWithSpend = brandShares.filter((share) => share.totalSpend > 0).length;
+  const limitedVersions = useLimitedRows(versions);
 
   return (
     <>
@@ -189,9 +191,9 @@ export default function ProjectDetailSection({
           )}
           <div className="brand-list">
             {!sovLoading && brandShares.length === 0 && <p className="empty-state">No matched spots yet.</p>}
-            {brandShares.map((share) => (
+            <LimitedRows rows={brandShares} render={(share) => (
               <BrandShareRow share={share} maxGrp={maxGrp} key={share.brandId} />
-            ))}
+            )} />
           </div>
         </div>
 
@@ -207,11 +209,9 @@ export default function ProjectDetailSection({
             {!sovLoading && brandsWithSpend === 0 && (
               <p className="empty-state">No spend data yet — upload a report with a Cost or Rate column.</p>
             )}
-            {spendRanked
-              .filter((share) => share.totalSpend > 0)
-              .map((share) => (
+            <LimitedRows rows={spendRanked.filter((share) => share.totalSpend > 0)} render={(share) => (
                 <BrandSpendRow share={share} maxSpend={maxSpend} key={share.brandId} />
-              ))}
+              )} />
           </div>
         </div>
       </section>
@@ -241,7 +241,7 @@ export default function ProjectDetailSection({
                 </tr>
               </thead>
               <tbody>
-                {versions.map((version) => (
+                {limitedVersions.visibleRows.map((version) => (
                   <tr key={version.versionId}>
                     <td>{version.createdAt}</td>
                     <td>{version.description}</td>
@@ -263,6 +263,7 @@ export default function ProjectDetailSection({
                 ))}
               </tbody>
             </table>
+            <LimitedRowsControls shown={limitedVersions.visibleRows.length} total={versions.length} hasMore={limitedVersions.hasMore} canShowLess={limitedVersions.canShowLess} onShowMore={limitedVersions.showMore} onShowLess={limitedVersions.showLess} />
           </div>
         </div>
       )}

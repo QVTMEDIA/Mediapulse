@@ -20,6 +20,7 @@ import type {
   StationShare,
   TrendPoint,
 } from '../api/contracts';
+import { LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 
 interface RankedRow {
   key: string;
@@ -187,6 +188,17 @@ export default function ReportsSection({ project }: { project: Project | null })
   const brandA = brandShares.find((share) => share.brandId === compareBrandA) ?? null;
   const brandB = brandShares.find((share) => share.brandId === compareBrandB) ?? null;
   const drillBrand = brandShares.find((share) => share.brandId === drillBrandId) ?? null;
+  const limitedStationRanking = useLimitedRows(stationRanking);
+  const limitedProgrammeRanking = useLimitedRows(programmeRanking);
+  const limitedDaypartRanking = useLimitedRows(daypartRanking);
+  const limitedSpotEfficiency = useLimitedRows(spotEfficiencyInScope);
+  const trendRows = useMemo(
+    () => trendWeeks.flatMap((week) => trendBrandOrder
+      .map((brand) => trendInScope.find((point) => point.weekStart === week && point.brand === brand))
+      .filter((point): point is TrendPoint => Boolean(point))),
+    [trendWeeks, trendBrandOrder, trendInScope],
+  );
+  const limitedTrendRows = useLimitedRows(trendRows);
 
   if (!project) {
     return (
@@ -243,9 +255,10 @@ export default function ReportsSection({ project }: { project: Project | null })
             </div>
             <div className="brand-list">
               {!loading && stationRanking.length === 0 && <p className="empty-state">No matched spots yet.</p>}
-              {stationRanking.map((row) => (
+              {limitedStationRanking.visibleRows.map((row) => (
                 <RankedBarRow row={row} maxGrp={maxStationGrp} key={row.key} />
               ))}
+              <LimitedRowsControls shown={limitedStationRanking.visibleRows.length} total={stationRanking.length} hasMore={limitedStationRanking.hasMore} canShowLess={limitedStationRanking.canShowLess} onShowMore={limitedStationRanking.showMore} onShowLess={limitedStationRanking.showLess} />
             </div>
           </div>
 
@@ -261,9 +274,10 @@ export default function ReportsSection({ project }: { project: Project | null })
             </div>
             <div className="brand-list">
               {!loading && programmeRanking.length === 0 && <p className="empty-state">No matched spots yet.</p>}
-              {programmeRanking.map((row) => (
+              {limitedProgrammeRanking.visibleRows.map((row) => (
                 <RankedBarRow row={row} maxGrp={maxProgrammeGrp} key={row.key} />
               ))}
+              <LimitedRowsControls shown={limitedProgrammeRanking.visibleRows.length} total={programmeRanking.length} hasMore={limitedProgrammeRanking.hasMore} canShowLess={limitedProgrammeRanking.canShowLess} onShowMore={limitedProgrammeRanking.showMore} onShowLess={limitedProgrammeRanking.showLess} />
             </div>
           </div>
 
@@ -281,9 +295,10 @@ export default function ReportsSection({ project }: { project: Project | null })
             </div>
             <div className="brand-list">
               {!loading && daypartRanking.length === 0 && <p className="empty-state">No matched spots yet.</p>}
-              {daypartRanking.map((row) => (
+              {limitedDaypartRanking.visibleRows.map((row) => (
                 <RankedBarRow row={row} maxGrp={maxDaypartGrp} key={row.key} />
               ))}
+              <LimitedRowsControls shown={limitedDaypartRanking.visibleRows.length} total={daypartRanking.length} hasMore={limitedDaypartRanking.hasMore} canShowLess={limitedDaypartRanking.canShowLess} onShowMore={limitedDaypartRanking.showMore} onShowLess={limitedDaypartRanking.showLess} />
             </div>
           </div>
 
@@ -316,7 +331,7 @@ export default function ReportsSection({ project }: { project: Project | null })
                     </tr>
                   </thead>
                   <tbody>
-                    {spotEfficiencyInScope.map((row) => (
+                    {limitedSpotEfficiency.visibleRows.map((row) => (
                       <tr key={`${row.brandId}-${row.station}`}>
                         <td>{row.brand}</td>
                         <td>{row.station}</td>
@@ -334,6 +349,7 @@ export default function ReportsSection({ project }: { project: Project | null })
                     ))}
                   </tbody>
                 </table>
+                <LimitedRowsControls shown={limitedSpotEfficiency.visibleRows.length} total={spotEfficiencyInScope.length} hasMore={limitedSpotEfficiency.hasMore} canShowLess={limitedSpotEfficiency.canShowLess} onShowMore={limitedSpotEfficiency.showMore} onShowLess={limitedSpotEfficiency.showLess} />
               </div>
             )}
           </div>
@@ -364,11 +380,7 @@ export default function ReportsSection({ project }: { project: Project | null })
                     </tr>
                   </thead>
                   <tbody>
-                    {trendWeeks.flatMap((week) =>
-                      trendBrandOrder
-                        .map((brand) => trendInScope.find((point) => point.weekStart === week && point.brand === brand))
-                        .filter((point): point is TrendPoint => Boolean(point))
-                        .map((point) => (
+                    {limitedTrendRows.visibleRows.map((point) => (
                           <tr key={`${point.weekStart}-${point.brandId}`}>
                             <td>{point.weekStart}</td>
                             <td>{point.brand}</td>
@@ -383,10 +395,10 @@ export default function ReportsSection({ project }: { project: Project | null })
                               </div>
                             </td>
                           </tr>
-                        )),
-                    )}
+                        ))}
                   </tbody>
                 </table>
+                <LimitedRowsControls shown={limitedTrendRows.visibleRows.length} total={trendRows.length} hasMore={limitedTrendRows.hasMore} canShowLess={limitedTrendRows.canShowLess} onShowMore={limitedTrendRows.showMore} onShowLess={limitedTrendRows.showLess} />
               </div>
             )}
           </div>

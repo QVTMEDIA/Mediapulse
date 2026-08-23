@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, getLatestRun, listCalculations } from '../api/client';
 import type { GrpCalculationRow, GrpRunSummary, Project } from '../api/contracts';
+import { LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 
 export default function ActivitySection({ project }: { project: Project | null }) {
   const [run, setRun] = useState<GrpRunSummary | null>(null);
   const [rows, setRows] = useState<GrpCalculationRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const limitedRows = useLimitedRows(rows);
 
   const refresh = useCallback(async (projectId: string) => {
     setLoading(true);
@@ -76,7 +78,7 @@ export default function ActivitySection({ project }: { project: Project | null }
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {limitedRows.visibleRows.map((row) => (
                 <tr key={row.grpCalculationId}>
                   <td>{row.brand}</td>
                   <td>{row.station}</td>
@@ -90,6 +92,14 @@ export default function ActivitySection({ project }: { project: Project | null }
               ))}
             </tbody>
           </table>
+          <LimitedRowsControls
+            shown={limitedRows.visibleRows.length}
+            total={rows.length}
+            hasMore={limitedRows.hasMore}
+            canShowLess={limitedRows.canShowLess}
+            onShowMore={limitedRows.showMore}
+            onShowLess={limitedRows.showLess}
+          />
         </div>
       )}
     </div>

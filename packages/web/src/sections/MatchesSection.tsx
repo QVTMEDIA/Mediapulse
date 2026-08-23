@@ -10,6 +10,7 @@ import {
   startMatchJob,
 } from '../api/client';
 import type { MediaActivityRow, Project, RatingMatch, RatingRow } from '../api/contracts';
+import { LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 
 type MatchFilter = 'all' | 'matched' | 'suggested' | 'unmatched';
 
@@ -161,6 +162,9 @@ export default function MatchesSection({ project }: { project: Project | null })
   const ratingOptions = Array.from(ratingsById.values()).sort((a, b) =>
     `${a.station} ${a.day} ${a.programme}`.localeCompare(`${b.station} ${b.day} ${b.programme}`),
   );
+  const limitedSuggested = useLimitedRows(suggested);
+  const limitedUnmatched = useLimitedRows(unmatched);
+  const limitedResolved = useLimitedRows(resolved);
 
   return (
     <>
@@ -218,7 +222,7 @@ export default function MatchesSection({ project }: { project: Project | null })
         </div>
         <div className="match-list">
           {!loading && suggested.length === 0 && <p className="empty-state">Nothing needs review right now.</p>}
-          {suggested.map((match) => {
+          {limitedSuggested.visibleRows.map((match) => {
             const activity = activityById.get(match.mediaActivityId);
             const rating = match.matchedRatingId ? ratingsById.get(match.matchedRatingId) : undefined;
             return (
@@ -253,6 +257,7 @@ export default function MatchesSection({ project }: { project: Project | null })
             );
           })}
         </div>
+        <LimitedRowsControls shown={limitedSuggested.visibleRows.length} total={suggested.length} hasMore={limitedSuggested.hasMore} canShowLess={limitedSuggested.canShowLess} onShowMore={limitedSuggested.showMore} onShowLess={limitedSuggested.showLess} />
       </div>}
 
       <div className="content-grid bottom-grid">
@@ -274,7 +279,7 @@ export default function MatchesSection({ project }: { project: Project | null })
           </div>
           <div className="match-list">
             {!loading && unmatched.length === 0 && <p className="empty-state">No unmatched spots.</p>}
-            {unmatched.map((match) => (
+            {limitedUnmatched.visibleRows.map((match) => (
               <div className="match-row" key={match.ratingMatchId}>
                 <p className="match-input">{describeActivity(activityById.get(match.mediaActivityId))}</p>
                 {ratingOptions.length === 0 ? (
@@ -307,6 +312,7 @@ export default function MatchesSection({ project }: { project: Project | null })
               </div>
             ))}
           </div>
+          <LimitedRowsControls shown={limitedUnmatched.visibleRows.length} total={unmatched.length} hasMore={limitedUnmatched.hasMore} canShowLess={limitedUnmatched.canShowLess} onShowMore={limitedUnmatched.showMore} onShowLess={limitedUnmatched.showLess} />
         </div>}
 
         {showResolved && <div className="panel">
@@ -318,7 +324,7 @@ export default function MatchesSection({ project }: { project: Project | null })
           </div>
           <div className="match-list">
             {!loading && resolved.length === 0 && <p className="empty-state">No confirmed matches yet.</p>}
-            {resolved.map((match) => (
+            {limitedResolved.visibleRows.map((match) => (
               <div className="match-row" key={match.ratingMatchId}>
                 <div className="match-row-main">
                   <span className={STATUS_CLASS[match.matchStatus]}>{STATUS_LABEL[match.matchStatus]}</span>
@@ -327,6 +333,7 @@ export default function MatchesSection({ project }: { project: Project | null })
               </div>
             ))}
           </div>
+          <LimitedRowsControls shown={limitedResolved.visibleRows.length} total={resolved.length} hasMore={limitedResolved.hasMore} canShowLess={limitedResolved.canShowLess} onShowMore={limitedResolved.showMore} onShowLess={limitedResolved.showLess} />
         </div>}
       </div>
     </>

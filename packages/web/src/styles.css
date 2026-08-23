@@ -268,6 +268,16 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+.row-limit-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .metric-grid {
   display: grid;
   /* auto-fit rather than a fixed column count — this class is shared by

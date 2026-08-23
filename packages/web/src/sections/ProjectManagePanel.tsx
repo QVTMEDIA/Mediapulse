@@ -12,6 +12,7 @@ import {
   type UpdateProjectInput,
 } from '../api/client';
 import type { Brand, MediaType, Project, ProjectStatus, RatingsDataset, UploadBatch, User } from '../api/contracts';
+import { LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 
 const STATUS_OPTIONS = ['Setup', 'Data Review', 'Complete'] as const;
 const MEDIA_TYPE_OPTIONS: MediaType[] = ['TV', 'Radio', 'Cable TV'];
@@ -73,6 +74,9 @@ export default function ProjectManagePanel({
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
+  const limitedUploads = useLimitedRows(uploads);
+  const limitedBrands = useLimitedRows(brands);
+  const limitedDatasets = useLimitedRows(datasets);
 
   const refreshData = useCallback(async (projectId: string) => {
     setDataLoading(true);
@@ -337,7 +341,7 @@ export default function ProjectManagePanel({
                 </td>
               </tr>
             )}
-            {uploads.map((upload) => (
+            {limitedUploads.visibleRows.map((upload) => (
               <tr key={upload.uploadId}>
                 <td>{upload.fileName}</td>
                 <td>{upload.kind}</td>
@@ -360,6 +364,7 @@ export default function ProjectManagePanel({
             ))}
           </tbody>
         </table>
+        <LimitedRowsControls shown={limitedUploads.visibleRows.length} total={uploads.length} hasMore={limitedUploads.hasMore} canShowLess={limitedUploads.canShowLess} onShowMore={limitedUploads.showMore} onShowLess={limitedUploads.showLess} />
       </div>
 
       <h3 className="subsection">Brands {dataLoading ? '(loading…)' : `(${brands.length})`}</h3>
@@ -380,7 +385,7 @@ export default function ProjectManagePanel({
                 </td>
               </tr>
             )}
-            {brands.map((brand) => (
+            {limitedBrands.visibleRows.map((brand) => (
               <tr key={brand.brandId}>
                 <td>{brand.name}</td>
                 <td>{brand.createdAt}</td>
@@ -401,6 +406,7 @@ export default function ProjectManagePanel({
             ))}
           </tbody>
         </table>
+        <LimitedRowsControls shown={limitedBrands.visibleRows.length} total={brands.length} hasMore={limitedBrands.hasMore} canShowLess={limitedBrands.canShowLess} onShowMore={limitedBrands.showMore} onShowLess={limitedBrands.showLess} />
       </div>
 
       <h3 className="subsection">Attached ratings datasets {dataLoading ? '(loading…)' : `(${datasets.length})`}</h3>
@@ -422,7 +428,7 @@ export default function ProjectManagePanel({
                 </td>
               </tr>
             )}
-            {datasets.map((dataset) => (
+            {limitedDatasets.visibleRows.map((dataset) => (
               <tr key={dataset.ratingsDatasetId}>
                 <td>{dataset.provider || 'Untitled'}</td>
                 <td>{dataset.period || '—'}</td>
@@ -442,6 +448,7 @@ export default function ProjectManagePanel({
             ))}
           </tbody>
         </table>
+        <LimitedRowsControls shown={limitedDatasets.visibleRows.length} total={datasets.length} hasMore={limitedDatasets.hasMore} canShowLess={limitedDatasets.canShowLess} onShowMore={limitedDatasets.showMore} onShowLess={limitedDatasets.showLess} />
       </div>
     </div>
   );

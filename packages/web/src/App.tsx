@@ -45,6 +45,7 @@ import RatingsSection from './sections/RatingsSection';
 import ReportsSection from './sections/ReportsSection';
 import SettingsSection from './sections/SettingsSection';
 import SpendIntelligenceSection from './sections/SpendIntelligenceSection';
+import { LimitedRowsControls, useLimitedRows } from './components/LimitedRows';
 
 type SectionKey =
   | 'overview'
@@ -179,6 +180,7 @@ function ComingSoonPanel({ section }: { section: SectionKey }) {
 function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: () => void }) {
   const [activeSection, setActiveSection] = useState<SectionKey>('overview');
   const [projects, setProjects] = useState<Project[]>([]);
+  const limitedProjects = useLimitedRows(projects);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState('');
@@ -746,7 +748,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
                 {!projectsLoading && projects.length === 0 && !projectsError && (
                   <p className="empty-state">No projects yet. Click "New" to create one.</p>
                 )}
-                {projects.map((project) => (
+                {limitedProjects.visibleRows.map((project) => (
                   <ProjectRow
                     project={project}
                     key={project.projectId}
@@ -757,6 +759,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
                     }}
                   />
                 ))}
+                <LimitedRowsControls shown={limitedProjects.visibleRows.length} total={projects.length} hasMore={limitedProjects.hasMore} canShowLess={limitedProjects.canShowLess} onShowMore={limitedProjects.showMore} onShowLess={limitedProjects.showLess} />
               </div>
             </div>
         )}

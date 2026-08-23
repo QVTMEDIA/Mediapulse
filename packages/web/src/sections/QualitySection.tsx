@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, listValidationIssues } from '../api/client';
 import type { Project, ValidationIssue } from '../api/contracts';
+import { LimitedRows } from '../components/LimitedRows';
 
 export default function QualitySection({ project }: { project: Project | null }) {
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
@@ -66,7 +67,7 @@ export default function QualitySection({ project }: { project: Project | null })
           {!loading && issues.length === 0 && !loadError && (
             <p className="empty-state">No issues found — ratings and uploads for this project look clean.</p>
           )}
-          {issues.map((issue) => (
+          <LimitedRows rows={issues} render={(issue) => (
             <div className="issue-row" key={issue.issueId}>
               <span className="issue-dot" />
               <div>
@@ -75,7 +76,7 @@ export default function QualitySection({ project }: { project: Project | null })
               </div>
               <small>{issue.rows} row{issue.rows === 1 ? '' : 's'}</small>
             </div>
-          ))}
+          )} />
         </div>
       </div>
     </>

@@ -854,10 +854,14 @@ def resolve_effective_programme(raw, mapping):
 
 def build_ratings_lookup(ratings_raw, mapping, default_medium='TV'):
     rating_values = pd.to_numeric(safe_col(ratings_raw, mapping['rating']), errors='coerce')
+    day_series = safe_col(ratings_raw, mapping.get('day', '-- none --'))
+    if mapping.get('date', '-- none --') != '-- none --':
+        derived = derive_day(safe_col(ratings_raw, mapping['date']))
+        day_series = day_series.where(non_empty_mask(day_series), derived)
     ratings_all = pd.DataFrame({
         'Medium': safe_col(ratings_raw, mapping['medium'], default_medium),
         'Channel / Station': safe_col(ratings_raw, mapping['channel']),
-        'Day': safe_col(ratings_raw, mapping['day']),
+        'Day': day_series,
         'Programme / Time Band': resolve_effective_programme(ratings_raw, mapping),
         'Rating (%)': rating_values,
         'Source / Period': safe_col(ratings_raw, mapping.get('source')),

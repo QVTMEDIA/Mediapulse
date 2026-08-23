@@ -24,14 +24,14 @@ COMPOSITE_REQUIRED_MAPPING_FIELDS = ('channel', 'programme', 'spots')
 # in the mapping dict (and in the sourceLabel templates saved from it).
 COMPOSITE_OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day', 'rate', 'cost', 'time_band')
 
-RATINGS_REQUIRED_MAPPING_FIELDS = ('channel', 'day', 'programme', 'rating')
+RATINGS_REQUIRED_MAPPING_FIELDS = ('channel', 'programme', 'rating')
 # 'time_band' lets calc.resolve_effective_programme() fall back to a bare
 # time-belt/daypart column when the file has no distinct Programme name at
 # all (real radio audience-reach data commonly doesn't) — 'programme'
 # itself stays required so the field is always in the mapping dict, but its
 # resolved *value* can now come from time_band when the programme column
 # wasn't found or is blank on a given row.
-RATINGS_OPTIONAL_MAPPING_FIELDS = ('medium', 'source', 'time_band')
+RATINGS_OPTIONAL_MAPPING_FIELDS = ('medium', 'source', 'time_band', 'date', 'day')
 
 
 class NamedBytesIO(io.BytesIO):

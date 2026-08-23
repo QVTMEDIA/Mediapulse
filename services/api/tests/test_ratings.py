@@ -181,6 +181,22 @@ def test_upload_ratings_file_respects_default_medium(client):
     assert all(row['medium'] == 'Radio' for row in rows)
 
 
+def test_upload_ratings_file_derives_day_from_date(client):
+    content = (
+        b'Channel,Date,Programme,Rating\n'
+        b'TVC,2026-08-17,Prime Time,1.2\n'
+        b'AIT,2026-08-18,News,2.5\n'
+    )
+    response = _upload_ratings(client, content=content, filename='dated-ratings.csv')
+    assert response.status_code == 201
+    body = response.json()
+    assert body['rows'] == 2
+    assert body['invalidRows'] == 0
+
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    assert {row['day'] for row in rows} == {'MON', 'TUE'}
+
+
 def test_upload_ratings_file_drops_out_of_range_rating_and_flags_it(client):
     content = (
         b'Channel,Day,Programme,Rating\n'

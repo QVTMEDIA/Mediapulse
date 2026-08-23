@@ -69,6 +69,7 @@ export default function ReportsSection({ project }: { project: Project | null })
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [reportErrors, setReportErrors] = useState<string[]>([]);
 
   const [compareBrandA, setCompareBrandA] = useState('');
   const [compareBrandB, setCompareBrandB] = useState('');
@@ -81,11 +82,12 @@ export default function ReportsSection({ project }: { project: Project | null })
   const refresh = useCallback(async (projectId: string) => {
     setLoading(true);
     setLoadError(null);
+    setReportErrors([]);
     try {
       const latestRun = await getLatestRun(projectId);
       setRun(latestRun);
       if (latestRun) {
-        const [shares, stations, programmes, dayparts, efficiency, trendPoints] = await Promise.all([
+        const results = await Promise.allSettled([
           listBrandShares(projectId, latestRun.runId),
           listStationShares(projectId, latestRun.runId),
           listProgrammeShares(projectId, latestRun.runId),
@@ -93,12 +95,21 @@ export default function ReportsSection({ project }: { project: Project | null })
           listSpotEfficiency(projectId, latestRun.runId),
           listTrend(projectId, latestRun.runId),
         ]);
-        setBrandShares(shares);
-        setStationShares(stations);
-        setProgrammeShares(programmes);
-        setDaypartShares(dayparts);
-        setSpotEfficiency(efficiency);
-        setTrend(trendPoints);
+        const [shares, stations, programmes, dayparts, efficiency, trendPoints] = results;
+        const errors: string[] = [];
+        if (shares.status === 'fulfilled') setBrandShares(shares.value);
+        else errors.push(`Brand shares: ${shares.reason instanceof Error ? shares.reason.message : 'Could not load'}`);
+        if (stations.status === 'fulfilled') setStationShares(stations.value);
+        else errors.push(`Stations: ${stations.reason instanceof Error ? stations.reason.message : 'Could not load'}`);
+        if (programmes.status === 'fulfilled') setProgrammeShares(programmes.value);
+        else errors.push(`Programmes: ${programmes.reason instanceof Error ? programmes.reason.message : 'Could not load'}`);
+        if (dayparts.status === 'fulfilled') setDaypartShares(dayparts.value);
+        else errors.push(`Dayparts: ${dayparts.reason instanceof Error ? dayparts.reason.message : 'Could not load'}`);
+        if (efficiency.status === 'fulfilled') setSpotEfficiency(efficiency.value);
+        else errors.push(`Spot efficiency: ${efficiency.reason instanceof Error ? efficiency.reason.message : 'Could not load'}`);
+        if (trendPoints.status === 'fulfilled') setTrend(trendPoints.value);
+        else errors.push(`Trend: ${trendPoints.reason instanceof Error ? trendPoints.reason.message : 'Could not load'}`);
+        setReportErrors(errors);
       } else {
         setBrandShares([]);
         setStationShares([]);
@@ -116,6 +127,7 @@ export default function ReportsSection({ project }: { project: Project | null })
       setDaypartShares([]);
       setSpotEfficiency([]);
       setTrend([]);
+      setReportErrors([]);
     } finally {
       setLoading(false);
     }
@@ -132,6 +144,7 @@ export default function ReportsSection({ project }: { project: Project | null })
       setDaypartShares([]);
       setSpotEfficiency([]);
       setTrend([]);
+      setReportErrors([]);
     }
   }, [project, refresh]);
 
@@ -212,6 +225,7 @@ export default function ReportsSection({ project }: { project: Project | null })
   return (
     <>
       {loadError && <p className="inline-error">{loadError}</p>}
+      {reportErrors.map((error) => <p className="inline-error" key={error}>{error}</p>)}
 
       {!loading && !run && !loadError && (
         <div className="panel placeholder-panel">

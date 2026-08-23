@@ -252,6 +252,7 @@ def parse_ratings_file(
             station=row['Channel / Station'],
             day=row['Day'],
             programme=row['Programme / Time Band'],
+            time_band=str(row['Time Band'] or '').strip(),
             rating=float(row['Rating (%)']) if pd.notna(row['Rating (%)']) else None,
         )
         for _, row in ratings.iterrows()

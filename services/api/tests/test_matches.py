@@ -141,6 +141,31 @@ def test_matches_dated_ratings_to_media_rows(client, project, brand):
     assert matches[0]['matchStatus'] == 'exact'
 
 
+def test_matches_time_bands_on_media_and_ratings_rows(client, project, brand):
+    ratings = (
+        b'Channel,Day,Programme,Time Band,Rating\n'
+        b'TVC,Monday,Prime Time,19:00-20:00,1.2\n'
+    )
+    files = {'file': ('ratings.csv', io.BytesIO(ratings), 'text/csv')}
+    dataset = client.post('/api/ratings-datasets/upload', files=files).json()
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
+
+    media = (
+        b'Channel,Programme,Time Band,Day,Spots\n'
+        b'TVC,Prime Time,19:00-20:00,Monday,3\n'
+    )
+    files = {'file': ('report.csv', io.BytesIO(media), 'text/csv')}
+    client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={'brand_id': brand['brandId']},
+    )
+
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    assert len(matches) == 1
+    assert matches[0]['matchStatus'] == 'exact'
+
+
 def test_matches_are_computed_once_and_then_persisted(client, project, brand):
     _upload(client, project['projectId'], brand['brandId'])
     _attach_ratings(client, project['projectId'])

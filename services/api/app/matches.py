@@ -45,7 +45,7 @@ def compute_matches(media_activity_records, rating_records) -> List[ComputedMatc
     for activity in media_activity_records:
         # media_activity.programme already holds the combined "Programme /
         # Time Band" text (see app/parsing.py) — no separate time_band field.
-        key = make_match_key(activity.medium, activity.station, activity.day, activity.programme)
+        key = make_match_key(activity.medium, activity.station, activity.day, activity.programme, activity.time_band)
         rating = ratings_by_key.get(key)
         if rating is not None:
             exact_results.append(ComputedMatch(activity.id, 'exact', rating.id, None, key))

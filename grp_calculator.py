@@ -863,6 +863,7 @@ def build_ratings_lookup(ratings_raw, mapping, default_medium='TV'):
         'Channel / Station': safe_col(ratings_raw, mapping['channel']),
         'Day': day_series,
         'Programme / Time Band': resolve_effective_programme(ratings_raw, mapping),
+        'Time Band': safe_col(ratings_raw, mapping.get('time_band', '-- none --'), ''),
         'Rating (%)': rating_values,
         'Source / Period': safe_col(ratings_raw, mapping.get('source')),
     })

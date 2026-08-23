@@ -181,6 +181,19 @@ def test_upload_ratings_file_respects_default_medium(client):
     assert all(row['medium'] == 'Radio' for row in rows)
 
 
+def test_upload_ratings_file_preserves_time_band(client):
+    content = (
+        b'Channel,Day,Programme,Time Band,Rating\n'
+        b'TVC,Monday,Prime Time,19:00-20:00,1.2\n'
+    )
+    response = _upload_ratings(client, content=content, filename='time-band-ratings.csv')
+    assert response.status_code == 201
+    dataset_id = response.json()['ratingsDatasetId']
+
+    rows = client.get(f"/api/ratings-datasets/{dataset_id}/rows").json()
+    assert rows[0]['timeBand'] == '19:00-20:00'
+
+
 def test_upload_ratings_file_derives_day_from_date(client):
     content = (
         b'Channel,Date,Programme,Rating\n'

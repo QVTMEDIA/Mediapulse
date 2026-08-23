@@ -166,32 +166,6 @@ def test_matches_time_bands_on_media_and_ratings_rows(client, project, brand):
     assert matches[0]['matchStatus'] == 'exact'
 
 
-def test_fuzzy_matching_prioritizes_programme_over_station_and_day(client, project, brand):
-    ratings = (
-        b'Channel,Day,Programme,Rating\n'
-        b'TVC,Monday,News Bulletin,1.2\n'
-        b'AIT,Tuesday,Prime Time,2.5\n'
-    )
-    files = {'file': ('ratings.csv', io.BytesIO(ratings), 'text/csv')}
-    dataset = client.post('/api/ratings-datasets/upload', files=files).json()
-    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
-
-    media = (
-        b'Channel,Programme,Day,Spots\n'
-        b'TVC,Prime Time,Monday,3\n'
-    )
-    files = {'file': ('report.csv', io.BytesIO(media), 'text/csv')}
-    client.post(
-        f"/api/projects/{project['projectId']}/uploads",
-        files=files,
-        data={'brand_id': brand['brandId']},
-    )
-
-    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
-    assert len(matches) == 1
-    assert matches[0]['matchStatus'] == 'suggested'
-
-
 def test_matches_are_computed_once_and_then_persisted(client, project, brand):
     _upload(client, project['projectId'], brand['brandId'])
     _attach_ratings(client, project['projectId'])

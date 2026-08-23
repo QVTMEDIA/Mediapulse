@@ -761,16 +761,8 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         channel_norm = normalize_text(row.get('Channel / Station', ''))
         day_norm = normalize_day(row.get('Day', ''))
         programme = row.get('Programme / Time Band', '')
-        programme_norm = normalize_text(programme)
 
         candidate_sets = [
-            (
-                'Same medium and programme',
-                ratings_index[
-                    ratings_index['_MediumNorm'].eq(medium_norm)
-                    & ratings_index['_ProgrammeNorm'].eq(programme_norm)
-                ],
-            ),
             (
                 'Same medium, channel, and day',
                 ratings_index[

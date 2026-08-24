@@ -185,6 +185,19 @@ create table project_ratings_datasets (
   project_id uuid not null references projects(id) on delete cascade,
   ratings_dataset_id uuid not null references ratings_datasets(id) on delete restrict,
   attached_at timestamptz not null default now(),
+  -- Lower wins. Two-plus attached datasets can genuinely overlap (a
+  -- corrected re-upload of the same week, a second provider covering the
+  -- same stations) -- when they share an exact match key, the matching
+  -- engine (services/api/app/matches.py's compute_matches, "first
+  -- occurrence wins on a duplicate key") takes whichever attached dataset's
+  -- row it sees first, which without this column was arbitrary (no ORDER
+  -- BY on the pooling query). list_project_rating_rows now orders by this
+  -- column so "first occurrence" means "highest-priority dataset", not
+  -- "whatever order Postgres happened to return rows in". Defaults every
+  -- new attachment to the bottom of the project's current list (see
+  -- attach_to_project) so attaching one more secondary/backup source never
+  -- silently outranks a dataset the project already relies on.
+  priority integer not null default 0,
   primary key (project_id, ratings_dataset_id)
 );
 

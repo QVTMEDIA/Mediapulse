@@ -326,6 +326,20 @@ export function detachRatingsDataset(projectId: string, ratingsDatasetId: string
   return request<void>(`/api/projects/${projectId}/ratings-datasets/${ratingsDatasetId}/attach`, { method: 'DELETE' });
 }
 
+// orderedRatingsDatasetIds must be exactly the project's current attached
+// set, in the new priority order (index 0 = highest precedence) — decides
+// which attached dataset's row wins when two share an exact match key.
+// Returns the project's attached datasets in their new order.
+export function reorderProjectRatingsDatasets(
+  projectId: string,
+  orderedRatingsDatasetIds: string[],
+): Promise<RatingsDataset[]> {
+  return request<RatingsDataset[]>(`/api/projects/${projectId}/ratings-datasets/priority`, {
+    method: 'PUT',
+    body: JSON.stringify({ orderedRatingsDatasetIds }),
+  });
+}
+
 export function listRatingRows(ratingsDatasetId: string): Promise<RatingRow[]> {
   return request<RatingRow[]>(`/api/ratings-datasets/${ratingsDatasetId}/rows`);
 }

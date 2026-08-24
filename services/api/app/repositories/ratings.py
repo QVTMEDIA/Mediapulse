@@ -39,6 +39,7 @@ class RatingRowRecord:
     week: Optional[int]
     month: Optional[int]
     project_attached_at: Optional[datetime] = None
+    priority: Optional[int] = None  # project_ratings_datasets.priority (lower wins); only set on project-scoped listings
 
 
 @dataclass
@@ -56,6 +57,19 @@ class RatingsDatasetRecord:
     uploaded_at: datetime
 
 
+@dataclass
+class ProjectRatingsDatasetRecord(RatingsDatasetRecord):
+    """A dataset as attached to one particular project -- adds `priority`
+    (lower wins; see project_ratings_datasets in db/schema.sql), meaningless
+    outside a project's attachment. Subclasses RatingsDatasetRecord rather
+    than wrapping it so every existing caller of list_project_datasets that
+    only reads the base fields (e.g. routers/validation.py) keeps working
+    untouched -- only routers/ratings.py's project-scoped listing route and
+    the new reorder endpoint need the extra field."""
+
+    priority: int = 0
+
+
 class RatingsRepository(Protocol):
     def list_datasets(self, *, search: str = '', market: Optional[str] = None) -> List[RatingsDatasetRecord]: ...
 
@@ -69,9 +83,19 @@ class RatingsRepository(Protocol):
 
     def detach_from_project(self, project_id: str, ratings_dataset_id: str) -> bool: ...
 
-    def list_project_datasets(self, project_id: str) -> List[RatingsDatasetRecord]: ...
+    def list_project_datasets(self, project_id: str) -> List[ProjectRatingsDatasetRecord]: ...
 
     def list_project_rating_rows(self, project_id: str) -> List[RatingRowRecord]: ...
+
+    def reorder_project_datasets(self, project_id: str, ordered_dataset_ids: List[str]) -> bool:
+        """Sets priority = position in `ordered_dataset_ids` (0 = highest)
+        for every dataset attached to this project. Returns False (no
+        change made) if the given ids don't exactly match the currently-
+        attached set -- callers turn that into a 422, since a partial or
+        stale list would silently leave some attached dataset's priority
+        untouched rather than reflecting the order the caller actually
+        asked for."""
+        ...
 
 
 def _dataset_row_to_record(row: dict) -> RatingsDatasetRecord:
@@ -90,6 +114,11 @@ def _dataset_row_to_record(row: dict) -> RatingsDatasetRecord:
     )
 
 
+def _project_dataset_row_to_record(row: dict) -> ProjectRatingsDatasetRecord:
+    base = _dataset_row_to_record(row)
+    return ProjectRatingsDatasetRecord(priority=row['priority'], **vars(base))
+
+
 def _rating_row_to_record(row: dict) -> RatingRowRecord:
     return RatingRowRecord(
         id=str(row['id']),
@@ -105,6 +134,7 @@ def _rating_row_to_record(row: dict) -> RatingRowRecord:
         week=row['week'],
         month=row['month'],
         project_attached_at=row.get('project_attached_at'),
+        priority=row.get('priority'),
     )
 
 
@@ -185,13 +215,19 @@ class PostgresRatingsRepository:
         if self.get_dataset(ratings_dataset_id) is None:
             return False
         with get_connection() as conn:
+            # New attachment goes to the bottom of this project's current
+            # priority order (lowest precedence) -- see the column comment
+            # in db/schema.sql for why that's the safe default.
             conn.execute(
                 '''
-                INSERT INTO project_ratings_datasets (project_id, ratings_dataset_id)
-                VALUES (%s, %s)
+                INSERT INTO project_ratings_datasets (project_id, ratings_dataset_id, priority)
+                VALUES (
+                    %s, %s,
+                    COALESCE((SELECT MAX(priority) + 1 FROM project_ratings_datasets WHERE project_id = %s), 0)
+                )
                 ON CONFLICT DO NOTHING
                 ''',
-                [project_id, ratings_dataset_id],
+                [project_id, ratings_dataset_id, project_id],
             )
         return True
 
@@ -214,27 +250,59 @@ class PostgresRatingsRepository:
         with get_connection() as conn:
             rows = conn.execute(
                 '''
-                SELECT rd.* FROM ratings_datasets rd
+                SELECT rd.*, prd.priority FROM ratings_datasets rd
                 JOIN project_ratings_datasets prd ON prd.ratings_dataset_id = rd.id
                 WHERE prd.project_id = %s
-                ORDER BY prd.attached_at DESC
+                ORDER BY prd.priority ASC, prd.attached_at DESC
                 ''',
                 [project_id],
             ).fetchall()
-        return [_dataset_row_to_record(row) for row in rows]
+        return [_project_dataset_row_to_record(row) for row in rows]
 
     def list_project_rating_rows(self, project_id):
+        # Ordered by dataset priority first (lowest = highest precedence,
+        # user-controlled via reorder_project_datasets), then by the
+        # pre-existing attached_at/dataset_id/id tie-break for determinism
+        # between datasets that are still tied on priority (e.g. two
+        # datasets attached in the same request, before anyone has
+        # reordered them). compute_matches's "first occurrence wins on a
+        # duplicate key" pooling logic (`_rating_order_key`) mirrors this
+        # exact ordering in Python, since rating_records can also come from
+        # InMemoryRatingsRepository, which has no ORDER BY to rely on.
         with get_connection() as conn:
             rows = conn.execute(
                 '''
-                SELECT r.*, prd.attached_at AS project_attached_at FROM ratings r
+                SELECT r.*, prd.attached_at AS project_attached_at, prd.priority FROM ratings r
                 JOIN project_ratings_datasets prd ON prd.ratings_dataset_id = r.ratings_dataset_id
                 WHERE prd.project_id = %s
-                ORDER BY prd.attached_at DESC, r.ratings_dataset_id, r.id
+                ORDER BY prd.priority ASC, prd.attached_at DESC, r.ratings_dataset_id, r.id
                 ''',
                 [project_id],
             ).fetchall()
         return [_rating_row_to_record(row) for row in rows]
+
+    def reorder_project_datasets(self, project_id, ordered_dataset_ids):
+        with get_connection() as conn:
+            attached = {
+                str(row['ratings_dataset_id'])
+                for row in conn.execute(
+                    'SELECT ratings_dataset_id FROM project_ratings_datasets WHERE project_id = %s', [project_id]
+                ).fetchall()
+            }
+            if attached != set(ordered_dataset_ids):
+                return False
+            with conn.cursor() as cur:
+                cur.executemany(
+                    '''
+                    UPDATE project_ratings_datasets SET priority = %s
+                    WHERE project_id = %s AND ratings_dataset_id = %s
+                    ''',
+                    [
+                        (priority, project_id, dataset_id)
+                        for priority, dataset_id in enumerate(ordered_dataset_ids)
+                    ],
+                )
+        return True
 
 
 class InMemoryRatingsRepository:
@@ -244,6 +312,9 @@ class InMemoryRatingsRepository:
         self._datasets: Dict[str, RatingsDatasetRecord] = {}
         self._rows: Dict[str, List[RatingRowRecord]] = {}
         self._attachments: Dict[str, Dict[str, datetime]] = {}  # project_id -> {ratings_dataset_id: attached_at}
+        # project_id -> {ratings_dataset_id: priority} -- lower wins, same
+        # meaning as project_ratings_datasets.priority in db/schema.sql.
+        self._priorities: Dict[str, Dict[str, int]] = {}
 
     def list_datasets(self, *, search='', market=None):
         needle = search.lower()
@@ -298,6 +369,12 @@ class InMemoryRatingsRepository:
         if ratings_dataset_id not in self._datasets:
             return False
         self._attachments.setdefault(project_id, {})[ratings_dataset_id] = datetime.now(timezone.utc)
+        priorities = self._priorities.setdefault(project_id, {})
+        if ratings_dataset_id not in priorities:
+            # New attachment goes to the bottom (lowest precedence) of this
+            # project's current priority order -- see attach_to_project's
+            # comment on the Postgres side for why.
+            priorities[ratings_dataset_id] = (max(priorities.values()) + 1) if priorities else 0
         return True
 
     def detach_from_project(self, project_id, ratings_dataset_id):
@@ -305,25 +382,50 @@ class InMemoryRatingsRepository:
         if ratings_dataset_id not in attached:
             return False
         del attached[ratings_dataset_id]
+        self._priorities.get(project_id, {}).pop(ratings_dataset_id, None)
         return True
 
-    def list_project_datasets(self, project_id):
+    def _ordered_dataset_ids(self, project_id):
+        # Priority first (lowest = highest precedence), then most-recently
+        # attached as the tie-break for datasets still at the same
+        # priority -- mirrors PostgresRatingsRepository's ORDER BY and
+        # app/matches.py's _rating_order_key.
         attached = self._attachments.get(project_id, {})
-        dataset_ids = sorted(attached, key=lambda dataset_id: attached[dataset_id], reverse=True)
-        records = [self._datasets[d_id] for d_id in dataset_ids if d_id in self._datasets]
+        priorities = self._priorities.get(project_id, {})
+        return sorted(attached, key=lambda d_id: (priorities.get(d_id, 0), -attached[d_id].timestamp()))
+
+    def list_project_datasets(self, project_id):
+        priorities = self._priorities.get(project_id, {})
+        dataset_ids = self._ordered_dataset_ids(project_id)
+        records = [
+            ProjectRatingsDatasetRecord(priority=priorities.get(d_id, 0), **vars(self._datasets[d_id]))
+            for d_id in dataset_ids
+            if d_id in self._datasets
+        ]
         return records
 
     def list_project_rating_rows(self, project_id):
         attached = self._attachments.get(project_id, {})
-        dataset_ids = sorted(attached, key=lambda dataset_id: attached[dataset_id], reverse=True)
+        priorities = self._priorities.get(project_id, {})
+        dataset_ids = self._ordered_dataset_ids(project_id)
         rows = []
         for dataset_id in dataset_ids:
             attached_at = attached[dataset_id]
+            priority = priorities.get(dataset_id, 0)
             rows.extend(
-                replace(row, project_attached_at=attached_at)
+                replace(row, project_attached_at=attached_at, priority=priority)
                 for row in sorted(self._rows.get(dataset_id, []), key=lambda r: r.id)
             )
         return rows
+
+    def reorder_project_datasets(self, project_id, ordered_dataset_ids):
+        attached = set(self._attachments.get(project_id, {}))
+        if attached != set(ordered_dataset_ids):
+            return False
+        self._priorities[project_id] = {
+            dataset_id: priority for priority, dataset_id in enumerate(ordered_dataset_ids)
+        }
+        return True
 
 
 _memory_repository = InMemoryRatingsRepository()

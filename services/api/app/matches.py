@@ -52,8 +52,19 @@ def _attached_timestamp(record) -> float:
     return attached_at.timestamp()
 
 
+def _rating_priority(record) -> int:
+    # project_ratings_datasets.priority (lower wins), user-orderable via
+    # PUT .../ratings-datasets/priority. Missing/None (a rating that isn't
+    # project-scoped, e.g. a bare RatingRowRecord from list_rows) sorts as
+    # if it were the top priority, same as a freshly-attached dataset
+    # before anyone has ever reordered anything.
+    priority = getattr(record, 'priority', None)
+    return priority if priority is not None else 0
+
+
 def _rating_order_key(record):
     return (
+        _rating_priority(record),
         -_attached_timestamp(record),
         str(getattr(record, 'ratings_dataset_id', '')),
         str(getattr(record, 'id', '')),
@@ -111,7 +122,7 @@ def compute_matches(media_activity_records, rating_records, *, include_suggestio
     ratings_by_slot: Dict[tuple, List[object]] = {}
     for rating in rating_records:
         key = make_exact_match_key(rating.medium, rating.station, rating.day, rating.programme, rating.time_band)
-        ratings_by_key.setdefault(key, rating)  # newest attached dataset wins on duplicate keys
+        ratings_by_key.setdefault(key, rating)  # highest-priority (then newest-attached) dataset wins on duplicate keys
         if is_time_band_range(rating.time_band):
             slot_key = (normalize_text(rating.medium), normalize_station(rating.station), normalize_day(rating.day))
             ratings_by_slot.setdefault(slot_key, []).append(rating)

@@ -344,6 +344,60 @@ def test_matches_computed_as_exact_suggested_and_unmatched(client, project, bran
     assert by_status['unmatched'][0]['matchedRatingId'] is None
 
 
+# Two ratings datasets that genuinely overlap: both cover TVC/Monday/Prime
+# Time (the same exact match key), with different rating values, so it's
+# possible to tell which dataset's row actually won.
+OVERLAPPING_CSV = b'Channel,Programme,Day,Spots\nTVC,Prime Time,Monday,3\n'
+
+
+def _create_dataset(client, provider, rating):
+    return client.post(
+        '/api/ratings-datasets',
+        json={'provider': provider, 'rows': [
+            {'medium': 'TV', 'station': 'TVC', 'day': 'Monday', 'programme': 'Prime Time', 'rating': rating},
+        ]},
+    ).json()
+
+
+def test_attach_order_decides_the_winner_on_an_overlapping_key_by_default(client, project, brand):
+    dataset_a = _create_dataset(client, 'Provider A', 1.1)
+    dataset_b = _create_dataset(client, 'Provider B', 2.2)
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset_a['ratingsDatasetId']}/attach")
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset_b['ratingsDatasetId']}/attach")
+
+    files = {'file': ('report.csv', io.BytesIO(OVERLAPPING_CSV), 'text/csv')}
+    client.post(f"/api/projects/{project['projectId']}/uploads", files=files, data={'brand_id': brand['brandId']})
+
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    assert matches[0]['matchStatus'] == 'exact'
+    winning_rating_id = matches[0]['matchedRatingId']
+
+    rows_a = client.get(f"/api/ratings-datasets/{dataset_a['ratingsDatasetId']}/rows").json()
+    assert winning_rating_id == rows_a[0]['ratingRowId']  # attached first == priority 0 == wins
+
+
+def test_reordering_before_first_computing_changes_the_winner(client, project, brand):
+    dataset_a = _create_dataset(client, 'Provider A', 1.1)
+    dataset_b = _create_dataset(client, 'Provider B', 2.2)
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset_a['ratingsDatasetId']}/attach")
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset_b['ratingsDatasetId']}/attach")
+
+    # flip B to the top before any matching has ever run for this project
+    client.put(
+        f"/api/projects/{project['projectId']}/ratings-datasets/priority",
+        json={'orderedRatingsDatasetIds': [dataset_b['ratingsDatasetId'], dataset_a['ratingsDatasetId']]},
+    )
+
+    files = {'file': ('report.csv', io.BytesIO(OVERLAPPING_CSV), 'text/csv')}
+    client.post(f"/api/projects/{project['projectId']}/uploads", files=files, data={'brand_id': brand['brandId']})
+
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    winning_rating_id = matches[0]['matchedRatingId']
+
+    rows_b = client.get(f"/api/ratings-datasets/{dataset_b['ratingsDatasetId']}/rows").json()
+    assert winning_rating_id == rows_b[0]['ratingRowId']  # reordered to priority 0 == now wins
+
+
 def test_match_job_completes_and_persists_results(client, project, brand):
     _upload(client, project['projectId'], brand['brandId'])
     _attach_ratings(client, project['projectId'])

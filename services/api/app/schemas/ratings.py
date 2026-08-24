@@ -85,3 +85,16 @@ class RatingsDatasetOut(CamelModel):
     # fresh auto-detection for a field on this upload. See
     # schemas/common.py's MappingWarningOut and parsing.py's MappingWarning.
     mapping_warnings: List[MappingWarningOut] = Field(default_factory=list)
+    # Only set on GET/PUT .../projects/{projectId}/ratings-datasets* routes
+    # (a dataset's priority is per-project-attachment, not a property of the
+    # dataset itself) -- null on every other route, including the global
+    # library listing. Lower wins when two attached datasets share an exact
+    # match key; see project_ratings_datasets.priority in db/schema.sql.
+    priority: Optional[int] = None
+
+
+class RatingsDatasetPriorityUpdate(CamelModel):
+    # Every currently-attached dataset id, in the new priority order
+    # (index 0 = highest precedence). Must be exactly the attached set --
+    # see routers/ratings.py's reorder_project_ratings_datasets.
+    ordered_ratings_dataset_ids: List[str]

@@ -519,24 +519,51 @@ def test_export_matches_returns_csv_with_activity_and_rating_details(client, pro
     rows = list(csv.reader(io.StringIO(response.text)))
     header, body = rows[0], rows[1:]
     assert header == [
-        'Brand', 'Medium', 'Station', 'Day', 'Programme / Time Band', 'Spots', 'Cost',
+        'Brand', 'Medium', 'Station', 'Day', 'Programme', 'Time Band', 'Spots', 'Cost',
         'Match Status', 'Match Confidence',
-        'Matched Rating Station', 'Matched Rating Day', 'Matched Rating Programme / Time Band', 'Matched Rating (%)',
-        'Corrected At',
+        'Matched Rating Station', 'Matched Rating Day', 'Matched Rating Programme', 'Matched Rating Time Band',
+        'Matched Rating (%)', 'Corrected At',
     ]
     assert len(body) == 3  # matches UPLOAD_CSV's 3 rows: exact, suggested, unmatched
 
-    by_status = {row[7]: row for row in body}
+    by_status = {row[8]: row for row in body}
     exact_row = by_status['exact']
     assert exact_row[1:5] == ['TV', 'TVC', 'Monday', 'Prime Time']  # Medium/Station/Day/Programme
-    assert exact_row[9] == 'TVC'  # Matched Rating Station
-    assert exact_row[12] == '1.2'  # Matched Rating (%)
+    assert exact_row[10] == 'TVC'  # Matched Rating Station
+    assert exact_row[14] == '1.2'  # Matched Rating (%)
 
     suggested_row = by_status['suggested']
-    assert suggested_row[9] == 'AIT'  # matched to the near-match rating, not the input station
+    assert suggested_row[10] == 'AIT'  # matched to the near-match rating, not the input station
 
     unmatched_row = by_status['unmatched']
-    assert unmatched_row[9] == ''  # no matched rating at all
+    assert unmatched_row[10] == ''  # no matched rating at all
+
+
+def test_export_matches_includes_time_band(client, project, brand):
+    dataset = client.post(
+        '/api/ratings-datasets',
+        json={'provider': 'Nielsen', 'rows': [{
+            'medium': 'TV', 'station': 'TVC', 'day': 'Monday',
+            'programme': 'Prime Time', 'timeBand': '19:00-20:00', 'rating': 1.2,
+        }]},
+    ).json()
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
+
+    media = b'Channel,Programme,Time Band,Day,Spots\nTVC,Prime Time,19:00-20:00,Monday,3\n'
+    files = {'file': ('report.csv', io.BytesIO(media), 'text/csv')}
+    client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={'brand_id': brand['brandId']},
+    )
+
+    response = client.get(f"/api/projects/{project['projectId']}/matches/export")
+    rows = list(csv.reader(io.StringIO(response.text)))
+    header, (row,) = rows[0], rows[1:]
+
+    assert row[header.index('Time Band')] == '19:00-20:00'
+    assert row[header.index('Match Status')] == 'exact'
+    assert row[header.index('Matched Rating Time Band')] == '19:00-20:00'
 
 
 def test_export_matches_rejects_missing_project(client):

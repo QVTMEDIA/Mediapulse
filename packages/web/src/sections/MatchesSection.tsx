@@ -21,9 +21,18 @@ function suggestedReportFileName(project: Project): string {
   return `${safe || 'mediapulse'}_match_report.csv`;
 }
 
+// Programme and Time Band are captured as separate fields (a vendor file
+// often has both — e.g. a named programme plus its own "TIME BELT" column)
+// but Time Band is blank far more often than not, so it's appended only
+// when present rather than always showing a bare " · " for rows without one.
+function describeSlot(programme: string, timeBand: string): string {
+  const label = programme || 'No programme';
+  return timeBand ? `${label} · ${timeBand}` : label;
+}
+
 function describeRatingOption(row: RatingRow) {
   const rating = row.rating === null ? 'no rating value' : row.rating;
-  return `${row.station} · ${row.day} · ${row.programme || 'No programme'} · ${rating}`;
+  return `${row.station} · ${row.day} · ${describeSlot(row.programme, row.timeBand)} · ${rating}`;
 }
 
 const STATUS_LABEL: Record<RatingMatch['matchStatus'], string> = {
@@ -42,7 +51,7 @@ const STATUS_CLASS: Record<RatingMatch['matchStatus'], string> = {
 
 function describeActivity(row?: MediaActivityRow) {
   if (!row) return 'Activity row no longer available';
-  const base = `${row.station} · ${row.day} · ${row.programme || 'No programme'} · ${row.spots} spot${row.spots === 1 ? '' : 's'}`;
+  const base = `${row.station} · ${row.day} · ${describeSlot(row.programme, row.timeBand)} · ${row.spots} spot${row.spots === 1 ? '' : 's'}`;
   // cost is null when the upload never had a Cost/Rate column mapped —
   // omit the clause entirely rather than showing a misleading "spend 0".
   return row.cost !== null ? `${base} · spend ${row.cost.toLocaleString()}` : base;
@@ -51,7 +60,7 @@ function describeActivity(row?: MediaActivityRow) {
 function describeRating(row?: RatingRow) {
   if (!row) return 'Rating no longer available';
   const rating = row.rating === null ? 'no rating value' : `rating ${row.rating}`;
-  return `${row.station} · ${row.day} · ${row.programme || 'No programme'} · ${rating}`;
+  return `${row.station} · ${row.day} · ${describeSlot(row.programme, row.timeBand)} · ${rating}`;
 }
 
 // A confirmed/manual match's matchedRatingId can be genuinely absent -- a

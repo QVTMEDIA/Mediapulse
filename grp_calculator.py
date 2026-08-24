@@ -261,7 +261,16 @@ GENERIC_PROGRAMME_VALUES = {'ROS', 'RUN OF SCHEDULE', 'RUN-OF-SCHEDULE'}
 
 
 def normalize_station_for_match(value):
-    text = normalize_text(value)
+    if pd.isna(value):
+        return ''
+    text_value = str(value).strip()
+    parts = [part.strip() for part in text_value.split(',') if part.strip()]
+    # Ratings vendors often export "State, Station Frequency, City" while
+    # spend files use "Station City". Drop the leading geography segment so
+    # "Abia, Magic 102.9 FM, Aba" normalizes with "MAGIC FM ABA".
+    if len(parts) >= 3:
+        text_value = ' '.join(parts[1:])
+    text = normalize_text(text_value)
     text = _STATION_FREQUENCY_PATTERN.sub(' ', text)
     text = _STATION_PUNCTUATION_PATTERN.sub(' ', text)
     tokens = {token for token in text.split() if token not in _STATION_NOISE_WORDS}
@@ -306,6 +315,20 @@ def time_band_contains(time_band, point_time):
     if end <= start:
         end += 24 * 60 * 60
     return start <= point_seconds < end or start <= point_seconds + 24 * 60 * 60 < end
+
+
+def compatible_time_slot(input_time, candidate_time_band):
+    input_has_time = non_empty_value(input_time)
+    candidate_has_time = non_empty_value(candidate_time_band)
+    if not input_has_time or not candidate_has_time:
+        return True
+    if is_time_band_range(candidate_time_band):
+        return time_band_contains(candidate_time_band, input_time)
+    input_seconds = clock_seconds(input_time)
+    candidate_seconds = clock_seconds(candidate_time_band)
+    if input_seconds is not None and candidate_seconds is not None:
+        return input_seconds == candidate_seconds
+    return normalize_text(input_time) == normalize_text(candidate_time_band)
 
 
 def station_programme_key(medium, channel, day, programme):
@@ -851,7 +874,7 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
 
     ratings_index = ratings.copy()
     ratings_index['_MediumNorm'] = normalized_series(ratings_index, 'Medium')
-    ratings_index['_ChannelNorm'] = normalized_series(ratings_index, 'Channel / Station')
+    ratings_index['_ChannelNorm'] = normalized_series(ratings_index, 'Channel / Station', normalize_station_for_match)
     ratings_index['_DayNorm'] = normalized_series(ratings_index, 'Day', normalize_day)
     ratings_index['_ProgrammeNorm'] = normalized_series(ratings_index, 'Programme / Time Band')
 
@@ -885,6 +908,7 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
                 ratings_index.at[index, 'Day'],
                 ratings_index.at[index, 'Rating (%)'],
                 ratings_index.at[index, 'Match Key'],
+                ratings_index.at[index, 'Time Band'] if 'Time Band' in ratings_index.columns else '',
             )
             for index in candidate_indexes
         ]
@@ -892,9 +916,10 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
     suggestions = []
     for media_index, row in unmatched.iterrows():
         medium_norm = normalize_text(row.get('Medium', ''))
-        channel_norm = normalize_text(row.get('Channel / Station', ''))
+        channel_norm = normalize_station_for_match(row.get('Channel / Station', ''))
         day_norm = normalize_day(row.get('Day', ''))
         programme = row.get('Programme / Time Band', '')
+        media_time = row.get('Daypart', row.get('Time Band', ''))
 
         candidate_groups = [
             ('Same medium, channel, and day', tuple(candidates_by_medium_channel_day.get((medium_norm, channel_norm, day_norm), []))),
@@ -938,7 +963,9 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         blended_candidates = []
         for rank, (_value, programme_score, index) in enumerate(extracted):
             candidate = candidate_rows[index]
-            channel_similarity = fuzz.token_set_ratio(channel_norm, normalize_text(candidate[2])) / 100
+            if not compatible_time_slot(media_time, candidate[6]):
+                continue
+            channel_similarity = fuzz.token_set_ratio(channel_norm, normalize_station_for_match(candidate[2])) / 100
             blended_score = (programme_score / 100) * channel_similarity
             if blended_score >= min_score:
                 blended_candidates.append((candidate, blended_score, rank))
@@ -948,7 +975,7 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         selected_candidates = []
         seen_candidates = set()
         for candidate, score, _rank in ranked_candidates:
-            duplicate_key = (candidate[2], candidate[3], candidate[1], candidate[4])
+            duplicate_key = (candidate[2], candidate[3], candidate[1], candidate[4], candidate[6])
             if duplicate_key in seen_candidates:
                 continue
             seen_candidates.add(duplicate_key)

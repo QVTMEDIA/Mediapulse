@@ -1,92 +1,22 @@
-"""Thin wrapper around grp_calculator's normalization, so match keys computed
-here agree with both the Streamlit calculator and db/schema.sql's
-normalize_match_text()/normalize_match_day() generated columns.
+"""Shared matching-key helpers for the API.
 
-This used to duplicate normalize_text/normalize_day rather than import them,
-back when services/api couldn't reach grp_calculator.py at all. Now that
-app/__init__.py adds the repo root to sys.path (needed anyway for real
-upload parsing in app/parsing.py), importing directly is strictly better —
-no drift risk. Keep this module as the one place API code asks for a match
-key, rather than importing grp_calculator ad hoc everywhere.
+The API delegates normalization to grp_calculator.py so Streamlit uploads,
+FastAPI uploads, match reports, and calculation tests all agree on station,
+day, and time-band behavior.
 """
 
-import re
-
-from grp_calculator import normalize_day, normalize_text
-
-
-_CLOCK_PATTERN = re.compile(r'^(\d{1,2}):?(\d{2})(?::?(\d{2}))?\s*(AM|PM)?$', re.IGNORECASE)
-_RANGE_PATTERN = re.compile(r'^(.+?)\s*(?:-|–|to)\s*(.+?)$')
-
-# Station names arrive from vendors/CSVs with inconsistent boilerplate: the
-# same station shows up as "Human Right Radio 101.1 FM, Abuja" in one file
-# and "Human Right FM Abuja" in another. normalize_text alone (case +
-# whitespace only) treats those as different exact-match keys. For station
-# comparison specifically we also drop punctuation, frequency numbers, band
-# words, and treat word order/repeats as insignificant. This is intentionally
-# NOT folded into normalize_text/make_match_key: those stay byte-for-byte in
-# sync with grp_calculator.py and db/schema.sql's normalize_match_text() for
-# duplicate-key detection and the Streamlit calculator, where this extra
-# aggressiveness isn't wanted (or needed). It also can't fix genuine spelling
-# differences (e.g. "Right" vs "Rights") -- those still need a manual
-# correction or a station alias, not text normalization.
-_STATION_FREQUENCY_PATTERN = re.compile(r'\b\d+(?:\.\d+)?\b')
-_STATION_PUNCTUATION_PATTERN = re.compile(r'[^A-Z0-9\s]')
-_STATION_NOISE_WORDS = {'RADIO', 'STATION', 'FM', 'AM', 'TV'}
+from grp_calculator import (
+    is_time_band_range,
+    normalize_day,
+    normalize_station_for_match,
+    normalize_text,
+    time_band_contains,
+)
 
 
 def normalize_station(value) -> str:
-    """Normalize a station/channel name for exact-match comparison.
-
-    Strips frequency numbers ("101.1") and punctuation, drops common
-    band/boilerplate words (RADIO, STATION, FM, AM, TV), and de-duplicates
-    and alphabetizes the remaining words so word order and repetition don't
-    matter. See module-level comment above for what this deliberately
-    doesn't handle.
-    """
-    text = normalize_text(value)
-    text = _STATION_FREQUENCY_PATTERN.sub(' ', text)
-    text = _STATION_PUNCTUATION_PATTERN.sub(' ', text)
-    tokens = {token for token in text.split() if token not in _STATION_NOISE_WORDS}
-    return ' '.join(sorted(tokens))
-
-
-def _clock_seconds(value):
-    match = _CLOCK_PATTERN.match(str(value or '').strip())
-    if not match:
-        return None
-    hour, minute, second, meridiem = match.groups()
-    hour = int(hour)
-    minute = int(minute)
-    second = int(second or 0)
-    if minute > 59 or second > 59:
-        return None
-    if meridiem:
-        if hour < 1 or hour > 12:
-            return None
-        hour = hour % 12 + (12 if meridiem.upper() == 'PM' else 0)
-    elif hour > 23:
-        return None
-    return hour * 3600 + minute * 60 + second
-
-
-def time_band_contains(time_band, point_time) -> bool:
-    """Return whether a media clock time falls in a rating time range."""
-    range_match = _RANGE_PATTERN.match(str(time_band or '').strip())
-    point_seconds = _clock_seconds(point_time)
-    if not range_match or point_seconds is None:
-        return False
-    start = _clock_seconds(range_match.group(1))
-    end = _clock_seconds(range_match.group(2))
-    if start is None or end is None:
-        return False
-    if end <= start:
-        end += 24 * 60 * 60
-    return start <= point_seconds < end or start <= point_seconds + 24 * 60 * 60 < end
-
-
-def is_time_band_range(value) -> bool:
-    return _RANGE_PATTERN.match(str(value or '').strip()) is not None
+    """Normalize a station/channel name for exact-match comparison."""
+    return normalize_station_for_match(value)
 
 
 def make_match_key(medium, station, day, programme='', time_band='') -> str:

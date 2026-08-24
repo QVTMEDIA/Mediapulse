@@ -165,6 +165,56 @@ def test_compute_matches_prefers_highest_scored_fuzzy_suggestion():
     assert result[0].match_confidence > 0.8
 
 
+def test_compute_matches_exact_with_rating_state_prefix_station_and_media_time():
+    activity = _media_activity(
+        medium='Radio',
+        station='MAGIC FM ABA',
+        day='Friday',
+        programme='ROS',
+        time_band='16:31:06',
+    )
+    rating = _rating_row(
+        'rating-magic',
+        medium='Radio',
+        station='Abia, Magic 102.9 FM, Aba',
+        day='Fri',
+        programme='ROS',
+        time_band='16:30:00-16:45:00',
+        rating=0.16,
+    )
+
+    result = compute_matches([activity], [rating])
+
+    assert len(result) == 1
+    assert result[0].match_status == 'exact'
+    assert result[0].matched_rating_id == 'rating-magic'
+
+
+def test_compute_matches_does_not_suggest_incompatible_time_band():
+    activity = _media_activity(
+        medium='Radio',
+        station='NIGERIA INFO LAGOS',
+        day='Monday',
+        programme='ROS',
+        time_band='02:33:22',
+    )
+    rating = _rating_row(
+        'rating-night',
+        medium='Radio',
+        station='Lagos, Nigeria Info 99.3 FM, Lagos',
+        day='Mon',
+        programme='ROS',
+        time_band='22:30:00-22:45:00',
+        rating=0.2,
+    )
+
+    result = compute_matches([activity], [rating])
+
+    assert len(result) == 1
+    assert result[0].match_status == 'unmatched'
+    assert result[0].matched_rating_id is None
+
+
 def test_auto_exact_matches_average_duplicate_rating_keys_for_calculation():
     old_attached = datetime(2026, 1, 1, tzinfo=timezone.utc)
     new_attached = datetime(2026, 1, 2, tzinfo=timezone.utc)

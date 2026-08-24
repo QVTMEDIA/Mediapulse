@@ -36,8 +36,8 @@ class ComputedMatch:
     match_key: str
 
 
-def _combine_programme(programme: str, time_band: str) -> str:
-    return ' '.join(part for part in [(programme or '').strip(), (time_band or '').strip()] if part)
+def _programme_for_suggestion(programme: str, time_band: str) -> str:
+    return (programme or '').strip() or (time_band or '').strip()
 
 
 def _attached_timestamp(record) -> float:
@@ -122,7 +122,8 @@ def _suggest_matches(unresolved, rating_records) -> Dict[str, tuple]:
         'Medium': [a.medium for a, _ in unique_unresolved],
         'Channel / Station': [a.station for a, _ in unique_unresolved],
         'Day': [a.day for a, _ in unique_unresolved],
-        'Programme / Time Band': [_combine_programme(a.programme, a.time_band) for a, _ in unique_unresolved],
+        'Programme / Time Band': [_programme_for_suggestion(a.programme, a.time_band) for a, _ in unique_unresolved],
+        'Time Band': [a.time_band for a, _ in unique_unresolved],
         'Match Key': [key for _, key in unique_unresolved],
         'Match Status': ['NO RATING MATCH'] * len(unique_unresolved),
     })
@@ -130,7 +131,8 @@ def _suggest_matches(unresolved, rating_records) -> Dict[str, tuple]:
         'Medium': [r.medium for r in rating_records],
         'Channel / Station': [r.station for r in rating_records],
         'Day': [r.day for r in rating_records],
-        'Programme / Time Band': [_combine_programme(r.programme, r.time_band) for r in rating_records],
+        'Programme / Time Band': [_programme_for_suggestion(r.programme, r.time_band) for r in rating_records],
+        'Time Band': [r.time_band for r in rating_records],
         'Rating (%)': [r.rating for r in rating_records],
         'Match Key': [
             make_match_key(r.medium, r.station, r.day, r.programme, r.time_band) for r in rating_records

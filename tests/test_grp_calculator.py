@@ -246,6 +246,47 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertAlmostEqual(media.loc[0, 'Matched Rating (%)'], 0.5)
         self.assertAlmostEqual(media.loc[0, 'GRP'], 0.5)
 
+    def test_station_normalization_drops_vendor_state_prefix(self):
+        self.assertEqual(
+            calc.normalize_station_for_match('Abia, Magic 102.9 FM, Aba'),
+            calc.normalize_station_for_match('MAGIC FM ABA'),
+        )
+        self.assertEqual(
+            calc.normalize_station_for_match('Oyo, Splash 105.5 FM, Ibadan'),
+            calc.normalize_station_for_match('SPLASH FM IBADAN'),
+        )
+
+    def test_unmatched_suggestions_skip_incompatible_time_bands(self):
+        ratings = pd.DataFrame({
+            'Medium': ['Radio'],
+            'Channel / Station': ['Lagos, Nigeria Info 99.3 FM, Lagos'],
+            'Day': ['Mon'],
+            'Programme / Time Band': ['ROS'],
+            'Time Band': ['22:30:00-22:45:00'],
+            'Rating (%)': [0.2],
+        })
+        ratings['Match Key'] = calc.make_key(
+            ratings['Medium'],
+            ratings['Channel / Station'],
+            ratings['Day'],
+            ratings['Programme / Time Band'],
+        )
+        media = pd.DataFrame({
+            'Brand': ['Brand A'],
+            'Source File': ['spend.xlsx'],
+            'Medium': ['Radio'],
+            'Channel / Station': ['NIGERIA INFO LAGOS'],
+            'Day': ['Monday'],
+            'Programme / Time Band': ['ROS'],
+            'Daypart': ['02:33:22'],
+            'Match Status': ['NO RATING MATCH'],
+            'Match Key': ['RADIO|NIGERIA INFO LAGOS|MON|ROS'],
+        })
+
+        suggestions = calc.build_unmatched_suggestions(media, ratings, min_score=0.1)
+
+        self.assertEqual(len(suggestions), 0)
+
     def test_project_info_frame_formats_metadata_for_export(self):
         project = {
             'project_id': 'MP-1234',

@@ -15,7 +15,7 @@ class MatchJob:
     project_id: str
     status: str = 'queued'
     error: Optional[str] = None
-    # 'recompute' only (see _run_recompute) — total stays 0 for 'ensure', a
+    # Recompute jobs only (see _run_recompute) — total stays 0 for 'ensure', a
     # single atomic repository call with no per-row loop up here to report
     # progress from. total is set once, up front; processed advances by one
     # per unmatched row visited (whether or not it ends up matched), so a
@@ -64,7 +64,7 @@ def _run_ensure(job_id, project_id, matches_repo, uploads_repo, ratings_repo):
         _set_status(job_id, 'failed', str(exc))
 
 
-def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo):
+def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo, *, include_suggestions: bool):
     _set_status(job_id, 'running')
     try:
         existing = matches_repo.list_matches(project_id)
@@ -74,7 +74,7 @@ def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo)
             media_activity = uploads_repo.list_media_activity(project_id)
             unmatched_activity = [a for a in media_activity if a.id in unmatched_by_activity_id]
             rating_rows = ratings_repo.list_project_rating_rows(project_id)
-            for result in compute_matches(unmatched_activity, rating_rows):
+            for result in compute_matches(unmatched_activity, rating_rows, include_suggestions=include_suggestions):
                 if result.match_status != 'unmatched':
                     existing_match = unmatched_by_activity_id[result.media_activity_id]
                     matches_repo.update_match(
@@ -90,8 +90,16 @@ def start_match_job(project_id, mode, matches_repo, uploads_repo, ratings_repo) 
     job = MatchJob(id=str(uuid.uuid4()), project_id=project_id)
     with _jobs_lock:
         _jobs[job.id] = job
-    runner = _run_recompute if mode == 'recompute' else _run_ensure
-    _executor.submit(runner, job.id, project_id, matches_repo, uploads_repo, ratings_repo)
+    if mode == 'recompute':
+        _executor.submit(
+            _run_recompute, job.id, project_id, matches_repo, uploads_repo, ratings_repo, include_suggestions=True
+        )
+    elif mode == 'recompute_exact':
+        _executor.submit(
+            _run_recompute, job.id, project_id, matches_repo, uploads_repo, ratings_repo, include_suggestions=False
+        )
+    else:
+        _executor.submit(_run_ensure, job.id, project_id, matches_repo, uploads_repo, ratings_repo)
     return job
 
 

@@ -215,6 +215,45 @@ def test_compute_matches_does_not_suggest_incompatible_time_band():
     assert result[0].matched_rating_id is None
 
 
+def test_compute_matches_exact_only_skips_fuzzy_suggestions(monkeypatch):
+    activity = _media_activity(programme='Morning Shw')
+    rating = _rating_row('rating-best', programme='Morning Show')
+
+    def fail_fuzzy_scan(*_args, **_kwargs):
+        raise AssertionError('exact-only recompute should not invoke fuzzy suggestions')
+
+    monkeypatch.setattr('app.matches.calc.build_unmatched_suggestions', fail_fuzzy_scan)
+    result = compute_matches([activity], [rating], include_suggestions=False)
+
+    assert len(result) == 1
+    assert result[0].match_status == 'unmatched'
+    assert result[0].matched_rating_id is None
+
+
+def test_compute_matches_skips_fuzzy_scan_for_uncovered_station(monkeypatch):
+    activity = _media_activity(
+        medium='Radio',
+        station='WAZOBIA FM LAGOS',
+        programme='ROS',
+    )
+    rating = _rating_row(
+        'rating-cool',
+        medium='Radio',
+        station='COOL FM LAGOS',
+        programme='ROS',
+    )
+
+    def fail_fuzzy_scan(*_args, **_kwargs):
+        raise AssertionError('uncovered stations should not invoke fuzzy suggestions')
+
+    monkeypatch.setattr('app.matches.calc.build_unmatched_suggestions', fail_fuzzy_scan)
+    result = compute_matches([activity], [rating])
+
+    assert len(result) == 1
+    assert result[0].match_status == 'unmatched'
+    assert result[0].matched_rating_id is None
+
+
 def test_auto_exact_matches_average_duplicate_rating_keys_for_calculation():
     old_attached = datetime(2026, 1, 1, tzinfo=timezone.utc)
     new_attached = datetime(2026, 1, 2, tzinfo=timezone.utc)
@@ -365,6 +404,31 @@ def test_recompute_job_reports_progress(client, project, brand):
     assert job['status'] == 'completed'
     assert job['total'] == len(before) == 3  # every previously-unmatched row gets visited
     assert job['processed'] == job['total']
+
+
+def test_exact_recompute_job_skips_fuzzy_suggestions(client, project, brand):
+    _upload(client, project['projectId'], brand['brandId'])
+    before = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    assert all(m['matchStatus'] == 'unmatched' for m in before)  # no ratings yet -- all 3 rows unmatched
+
+    _attach_ratings(client, project['projectId'])
+
+    response = client.post(f"/api/projects/{project['projectId']}/matches/jobs?mode=recompute_exact")
+    assert response.status_code == 202
+    job = response.json()
+
+    for _ in range(40):
+        if job['status'] in ('completed', 'failed'):
+            break
+        time.sleep(0.05)
+        job = client.get(f"/api/projects/{project['projectId']}/matches/jobs/{job['jobId']}").json()
+
+    assert job['status'] == 'completed'
+    assert job['total'] == len(before) == 3
+    assert job['processed'] == job['total']
+
+    statuses = sorted(m['matchStatus'] for m in client.get(f"/api/projects/{project['projectId']}/matches").json())
+    assert statuses == ['exact', 'unmatched', 'unmatched']
 
 
 def test_duplicate_unresolved_rows_do_not_crash_matching(client, project, brand):

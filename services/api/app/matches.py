@@ -36,6 +36,9 @@ class ComputedMatch:
     match_key: str
 
 
+STATION_SUGGESTION_THRESHOLD = 0.78
+
+
 def _programme_for_suggestion(programme: str, time_band: str) -> str:
     return (programme or '').strip() or (time_band or '').strip()
 
@@ -57,7 +60,49 @@ def _rating_order_key(record):
     )
 
 
-def compute_matches(media_activity_records, rating_records) -> List[ComputedMatch]:
+def _unmatched_results(unresolved) -> List[ComputedMatch]:
+    return [ComputedMatch(activity.id, 'unmatched', None, None, key) for activity, key in unresolved]
+
+
+def _rating_station_index(rating_records) -> Dict[str, tuple[str, ...]]:
+    stations_by_medium: Dict[str, set[str]] = {}
+    for rating in rating_records:
+        medium = normalize_text(getattr(rating, 'medium', ''))
+        station = normalize_station(getattr(rating, 'station', ''))
+        if medium and station:
+            stations_by_medium.setdefault(medium, set()).add(station)
+    return {medium: tuple(stations) for medium, stations in stations_by_medium.items()}
+
+
+def _has_station_candidate(medium: str, station: str, stations_by_medium: Dict[str, tuple[str, ...]]) -> bool:
+    if not medium or not station:
+        return False
+    candidate_stations = stations_by_medium.get(medium, ())
+    if station in candidate_stations:
+        return True
+    return any(
+        calc.fuzz.token_set_ratio(station, candidate_station) / 100 >= STATION_SUGGESTION_THRESHOLD
+        for candidate_station in candidate_stations
+    )
+
+
+def _filter_station_covered_unresolved(unresolved, rating_records):
+    stations_by_medium = _rating_station_index(rating_records)
+    station_coverage_cache: Dict[tuple[str, str], bool] = {}
+    covered = []
+    for activity, key in unresolved:
+        coverage_key = (
+            normalize_text(getattr(activity, 'medium', '')),
+            normalize_station(getattr(activity, 'station', '')),
+        )
+        if coverage_key not in station_coverage_cache:
+            station_coverage_cache[coverage_key] = _has_station_candidate(*coverage_key, stations_by_medium)
+        if station_coverage_cache[coverage_key]:
+            covered.append((activity, key))
+    return covered
+
+
+def compute_matches(media_activity_records, rating_records, *, include_suggestions: bool = True) -> List[ComputedMatch]:
     if not media_activity_records:
         return []
 
@@ -95,7 +140,11 @@ def compute_matches(media_activity_records, rating_records) -> List[ComputedMatc
     if not unresolved:
         return exact_results
 
-    best_suggestion_by_key = _suggest_matches(unresolved, rating_records)
+    if not include_suggestions:
+        return exact_results + _unmatched_results(unresolved)
+
+    suggestion_unresolved = _filter_station_covered_unresolved(unresolved, rating_records)
+    best_suggestion_by_key = _suggest_matches(suggestion_unresolved, rating_records) if suggestion_unresolved else {}
 
     suggested_results = []
     for activity, key in unresolved:

@@ -266,7 +266,9 @@ export function listMatches(projectId: string): Promise<RatingMatch[]> {
   return request<RatingMatch[]>(`/api/projects/${projectId}/matches`);
 }
 
-export function startMatchJob(projectId: string, mode: 'ensure' | 'recompute' = 'ensure'): Promise<MatchJob> {
+export type MatchJobMode = 'ensure' | 'recompute' | 'recompute_exact';
+
+export function startMatchJob(projectId: string, mode: MatchJobMode = 'ensure'): Promise<MatchJob> {
   return request<MatchJob>(`/api/projects/${projectId}/matches/jobs?mode=${mode}`, { method: 'POST' });
 }
 

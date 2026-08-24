@@ -11,6 +11,7 @@ import {
   listRatingRows,
   startMatchJob,
 } from '../api/client';
+import type { MatchJobMode } from '../api/client';
 import type { MediaActivityRow, Project, RatingMatch, RatingRow } from '../api/contracts';
 import { LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 
@@ -83,7 +84,7 @@ export default function MatchesSection({ project }: { project: Project | null })
   const [loadError, setLoadError] = useState<string | null>(null);
   const [correctingId, setCorrectingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [isRecomputing, setIsRecomputing] = useState(false);
+  const [recomputeMode, setRecomputeMode] = useState<MatchJobMode | null>(null);
   // total stays 0 until the backend job actually starts running (see
   // match_jobs.py's MatchJob) -- null distinguishes "no progress info yet"
   // from "0 of 0", so the bar renders indeterminate for that brief window
@@ -155,13 +156,13 @@ export default function MatchesSection({ project }: { project: Project | null })
     }
   }
 
-  async function handleRecompute() {
+  async function handleRecompute(mode: MatchJobMode) {
     if (!project) return;
-    setIsRecomputing(true);
+    setRecomputeMode(mode);
     setActionError(null);
     setRecomputeProgress(null);
     try {
-      const job = await startMatchJob(project.projectId, 'recompute');
+      const job = await startMatchJob(project.projectId, mode);
       let jobResult = job;
       while (jobResult.status === 'queued' || jobResult.status === 'running') {
         // total is 0 for the brief window before the job actually starts
@@ -177,7 +178,7 @@ export default function MatchesSection({ project }: { project: Project | null })
     } catch (error) {
       setActionError(error instanceof ApiError ? error.message : 'Could not recompute matches.');
     } finally {
-      setIsRecomputing(false);
+      setRecomputeMode(null);
       setRecomputeProgress(null);
     }
   }
@@ -220,6 +221,10 @@ export default function MatchesSection({ project }: { project: Project | null })
   const limitedSuggested = useLimitedRows(suggested);
   const limitedUnmatched = useLimitedRows(unmatched);
   const limitedResolved = useLimitedRows(resolved);
+  const isRecomputing = recomputeMode !== null;
+  const recomputeStatusLabel = recomputeProgress
+    ? `Recomputing… ${recomputeProgress.processed}/${recomputeProgress.total}`
+    : 'Recomputing…';
 
   return (
     <>
@@ -336,19 +341,26 @@ export default function MatchesSection({ project }: { project: Project | null })
               <h2>Unmatched</h2>
               <p>No rating found for these spots — assign one, or retry after attaching new ratings</p>
             </div>
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={isRecomputing || unmatched.length === 0}
-              title="Re-attempt matching for unmatched rows against the project's current ratings"
-              onClick={handleRecompute}
-            >
-              {isRecomputing
-                ? recomputeProgress
-                  ? `Recomputing… ${recomputeProgress.processed}/${recomputeProgress.total}`
-                  : 'Recomputing…'
-                : 'Recompute'}
-            </button>
+            <div className="form-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={isRecomputing || unmatched.length === 0}
+                title="Quickly retry exact station, day, and time-band matches against the current ratings"
+                onClick={() => handleRecompute('recompute_exact')}
+              >
+                {recomputeMode === 'recompute_exact' ? recomputeStatusLabel : 'Fast recompute'}
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={isRecomputing || unmatched.length === 0}
+                title="Run the slower fuzzy suggestion scan for still-unmatched rows"
+                onClick={() => handleRecompute('recompute')}
+              >
+                {recomputeMode === 'recompute' ? recomputeStatusLabel : 'Full scan'}
+              </button>
+            </div>
           </div>
           {isRecomputing && (
             <div

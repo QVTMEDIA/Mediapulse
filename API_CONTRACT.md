@@ -173,7 +173,9 @@ Implemented so far: everything above except `correctedBy`. Real accounts exist n
 
 **`POST /api/projects/{projectId}/matches/recompute`** — not in this contract's original route list, added to close that gap: re-attempts exact + fuzzy matching for rows currently `unmatched` only. `exact`, `suggested`, and `manual` rows are already-decided and are never touched. Returns the project's full current match list, same shape as `GET /matches`.
 
-**`POST /matches/jobs` + `GET /matches/jobs/{jobId}` (`MatchJobOut`) gained `total`/`processed` integer fields** — not in this contract's original schema. Real progress for `mode=recompute` jobs only: `total` is set once, up front, to the number of currently-`unmatched` rows being retried; `processed` advances by one per row visited (whether or not it ends up matched), so a polling client can render `processed / total` as a real percentage instead of an indeterminate spinner — the actual bottleneck on a slow/cold-started backend is the per-row persistence loop this now instruments. `mode=ensure` jobs (a single atomic repository call with no per-row loop up in `app/match_jobs.py` to report from) always report `0`/`0`.
+**`POST /matches/jobs` + `GET /matches/jobs/{jobId}` (`MatchJobOut`) gained `total`/`processed` integer fields** — not in this contract's original schema. Real progress for recompute jobs only: `total` is set once, up front, to the number of currently-`unmatched` rows being retried; `processed` advances by one per row visited (whether or not it ends up matched), so a polling client can render `processed / total` as a real percentage instead of an indeterminate spinner — the actual bottleneck on a slow/cold-started backend is the per-row persistence loop this now instruments. `mode=ensure` jobs (a single atomic repository call with no per-row loop up in `app/match_jobs.py` to report from) always report `0`/`0`.
+
+`mode=recompute_exact` is a faster job variant for retrying currently-`unmatched` rows against exact station/day/time-band keys only. It deliberately skips fuzzy suggestions; use `mode=recompute` when a slower fuzzy review pass is needed.
 
 **`POST /matches/{ratingMatchId}/correct` validates `matchedRatingId`** when one is given: it must be a real rating row attached to the project, or the call fails with `422`. (An earlier version accepted anything and let a bad id fail silently into "unmatched" at calculate time — closed once the frontend gained a manual rating picker, where a bad selection needs to be rejected at the moment it's made, not discovered later.)
 
@@ -356,7 +358,7 @@ POST   /api/projects/{projectId}/uploads/{uploadId}/map
 GET    /api/projects/{projectId}/media-activity
 
 GET    /api/projects/{projectId}/matches
-POST   /api/projects/{projectId}/matches/jobs?mode=ensure|recompute
+POST   /api/projects/{projectId}/matches/jobs?mode=ensure|recompute|recompute_exact
 GET    /api/projects/{projectId}/matches/jobs/{jobId}
 POST   /api/projects/{projectId}/matches/{ratingMatchId}/correct
 POST   /api/projects/{projectId}/matches/recompute

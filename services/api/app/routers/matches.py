@@ -46,8 +46,8 @@ def start_job(
 ):
     if projects_repo.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail='Project not found')
-    if mode not in ('ensure', 'recompute'):
-        raise HTTPException(status_code=422, detail='mode must be ensure or recompute')
+    if mode not in ('ensure', 'recompute', 'recompute_exact'):
+        raise HTTPException(status_code=422, detail='mode must be ensure, recompute, or recompute_exact')
     job = start_match_job(project_id, mode, matches_repo, uploads_repo, ratings_repo)
     return _job_to_out(job)
 

@@ -287,9 +287,7 @@ export interface MatchJob {
   projectId: string;
   status: 'queued' | 'running' | 'completed' | 'failed';
   error: string | null;
-  // Real progress for mode='recompute' jobs only — 'ensure' jobs always
-  // report 0/0 (a single atomic backend call, no per-row loop to report
-  // progress from).
+  // Real progress for recompute jobs only; ensure jobs always report 0/0.
   total: number;
   processed: number;
 }

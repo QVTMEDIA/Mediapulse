@@ -23,6 +23,17 @@ The current deployed MVP is Streamlit. A Vite/React frontend is available under 
 - Export results to Excel with run and validation summary sheets.
 - If a brand column is missing, uses the uploaded filename as the brand name.
 
+## Upload and processing rules
+
+- Accepted uploads are `.xlsx`, `.xls`, and `.csv`; PDFs, screenshots, ZIP files, and macro workbooks are not supported.
+- Keep each uploaded file under 10 MB. Excel workbooks must stay under 120 MB after expansion.
+- Keep each selected sheet under 100,000 data rows, 100 columns, and 2,000,000 cells.
+- Keep workbooks to 12 sheets or fewer, and remove unused or hidden tabs before upload.
+- Use flat data: one header row and one airing, spot, or programme row per record.
+- Remove grand totals, subtotal blocks, notes, merged title rows, pivot tables, charts, and formatting-heavy tabs before upload.
+- Split large reports by month, brand, medium, campaign, or market before upload.
+- Run calculations, fuzzy unmatched suggestions, and Excel exports only after sheet/header/mapping choices look correct.
+
 ## Run locally
 
 Run the Streamlit MVP:

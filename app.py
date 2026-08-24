@@ -680,6 +680,43 @@ def require_stage_action(key, signature, button_label, waiting_message):
     return False
 
 
+def render_upload_rules():
+    rows = [
+        {
+            'Area': 'Accepted files',
+            'Rule': '.xlsx, .xls, or .csv only',
+            'Action': 'Do not upload PDFs, screenshots, ZIP files, or macro workbooks.',
+        },
+        {
+            'Area': 'File size',
+            'Rule': f'{calc.MAX_UPLOAD_SIZE_MB} MB per uploaded file',
+            'Action': 'Split large reports by month, brand, medium, campaign, or market before upload.',
+        },
+        {
+            'Area': 'Excel workbook',
+            'Rule': f'Max {calc.MAX_EXCEL_SHEETS} sheets and {calc.MAX_EXCEL_EXPANDED_SIZE_MB} MB expanded size',
+            'Action': 'Remove unused sheets, hidden sheets, charts, pivot tables, formulas, and formatting-heavy tabs.',
+        },
+        {
+            'Area': 'Selected sheet',
+            'Rule': f'Max {calc.MAX_UPLOAD_ROWS:,} data rows, {calc.MAX_UPLOAD_COLUMNS:,} columns, {calc.MAX_UPLOAD_CELLS:,} cells',
+            'Action': 'Use one flat table with one header row and one airing, spot, or programme row per record.',
+        },
+        {
+            'Area': 'Report cleanup',
+            'Rule': 'No grand totals or subtotal sections inside the data area',
+            'Action': 'Keep only calculation rows; remove notes, merged titles, and summary rows before upload.',
+        },
+        {
+            'Area': 'Heavy actions',
+            'Rule': 'Calculations, fuzzy suggestions, and Excel exports run only when requested',
+            'Action': 'Check sheet/header/mapping choices first, then run these actions once the setup looks right.',
+        },
+    ]
+    with st.expander('Upload and processing rules', expanded=True):
+        st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
+
+
 def render_upload_preflight(uploaded_files, key):
     rows = []
     valid = True
@@ -1149,6 +1186,8 @@ with workflow_help_cols[0]:
     st.caption('Composite example: a single weekly report with Channel, WD, Program, Spots, Rch %, and Grps.')
 with workflow_help_cols[1]:
     st.caption('Separate example: one ratings file plus one or more brand activity files matched by station, day, programme, and time when available.')
+
+render_upload_rules()
 
 if workflow_mode == 'Composite Report':
     st.header('1. Composite Report')

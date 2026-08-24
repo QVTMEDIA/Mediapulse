@@ -76,6 +76,7 @@ Shared across projects via the Ratings Library — not owned by a single project
 - `uploadedAt`
 - `status` (`Ready` | `Needs Review`)
 - `issues` — optional, up to 100 entries: `{ rowNumber, reason, medium, station, day, programme, rating }` for rows dropped during file-upload parsing and never stored. Not in this contract's original field list. Only ever present on the response to `POST /ratings-datasets/upload`; every other route that returns a `RatingsDataset` leaves it unset, since a dropped row is never persisted anywhere to look up again — `invalidRows` above is the only trace of it elsewhere.
+- `mappingWarnings` — array (`[]` when there's nothing to report) of `MappingWarning`: `{ field, templateColumn, detectedColumn }`. Not in this contract's original field list. Populated only on the response to `POST /ratings-datasets/upload` (same rule as `issues`), whenever a saved mapping template (`source_label`) pinned a field to a column that disagrees with what fresh auto-detection would have picked for this specific file — a real, previously-silent failure mode: a template saved from an older/coarser file gets reused against a newer file that has a genuinely better-matching column sitting right next to the stale one, the stale template still wins (parsing succeeds, nothing errors), and the only symptom is every row later coming back unmatched. `[]` both when no template was used and when the template's column agrees with detection — never populated when the template's column is simply missing from this file (that's the pre-existing, correct fallback-to-auto-detect path, not a disagreement).
 
 `DELETE /projects/{projectId}/ratings-datasets/{ratingsDatasetId}/attach` detaches the dataset from that one project — the shared dataset (and every other project's attachment to it) is untouched, and so is anything already matched or calculated against it, since `RatingMatch`/`GrpCalculationRow` reference the actual `RatingRow`s directly, not the attachment. Any authenticated user can detach, same as attach — no owner/admin requirement, unlike deleting an upload or brand.
 
@@ -113,6 +114,7 @@ Shared across projects via the Ratings Library — not owned by a single project
 - `mappedRows`
 - `issueRows`
 - `uploadedAt`
+- `mappingWarnings` — same shape and same "stale mapping template" meaning as `RatingsDataset.mappingWarnings` above. Populated only on the response to `POST /uploads` (this upload's own parse); `GET /uploads` (listing past uploads) always returns `[]`, since it isn't persisted anywhere to look up again.
 
 `DELETE /uploads/{uploadId}` (owner/admin) removes the upload and all its `MediaActivityRow`s. Returns `409` if any of those rows were ever part of a calculated run — an upload that's never been calculated can always be deleted.
 

@@ -17,6 +17,8 @@ from ..repositories.uploads import (
     UploadsRepository,
     get_uploads_repository,
 )
+from ..parsing import MappingWarning
+from ..schemas.common import MappingWarningOut
 from ..schemas.uploads import MediaActivityRowOut, UploadBatchOut
 
 router = APIRouter(prefix='/api/projects/{project_id}', tags=['uploads'], dependencies=[Depends(get_current_user)])
@@ -24,7 +26,7 @@ router = APIRouter(prefix='/api/projects/{project_id}', tags=['uploads'], depend
 SUPPORTED_UPLOAD_KINDS = ('brand_report', 'composite_report')
 
 
-def _upload_to_out(record: UploadRecord) -> UploadBatchOut:
+def _upload_to_out(record: UploadRecord, mapping_warnings: 'list[MappingWarning] | None' = None) -> UploadBatchOut:
     return UploadBatchOut(
         upload_id=record.id,
         project_id=record.project_id,
@@ -34,6 +36,10 @@ def _upload_to_out(record: UploadRecord) -> UploadBatchOut:
         mapped_rows=record.mapped_rows,
         issue_rows=record.issue_rows,
         uploaded_at=record.uploaded_at,
+        mapping_warnings=[
+            MappingWarningOut(field=w.field, template_column=w.template_column, detected_column=w.detected_column)
+            for w in (mapping_warnings or [])
+        ],
     )
 
 
@@ -89,7 +95,11 @@ async def create_upload(
     per field if the template's column is missing from this particular
     file); the first successful upload for a not-yet-seen source_label (or
     any upload with save_as_template=true) saves the mapping actually used
-    as a template, so later uploads from the same source map automatically."""
+    as a template, so later uploads from the same source map automatically.
+    The response's mappingWarnings names any field where the template's
+    column disagreed with what fresh auto-detection would have picked for
+    this file — see parsing.py's MappingWarning for why that's worth
+    surfacing rather than silently trusting the template."""
     if projects_repo.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail='Project not found')
     if kind not in SUPPORTED_UPLOAD_KINDS:
@@ -117,6 +127,7 @@ async def create_upload(
             upload_brand_id = brand_id
             issue_rows = parsed.issue_rows
             mapping_used = parsed.mapping
+            mapping_warnings = parsed.mapping_warnings
         else:
             composite = parse_composite_report(data, file_name, default_medium, mapping_override)
             brand_ids_by_name: "OrderedDict[str, str]" = OrderedDict()
@@ -137,6 +148,7 @@ async def create_upload(
             upload_brand_id = None
             issue_rows = composite.issue_rows
             mapping_used = composite.mapping
+            mapping_warnings = composite.mapping_warnings
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -148,7 +160,7 @@ async def create_upload(
     upload_record, _activity_records = repo.create_upload_with_activity(
         project_id, upload_brand_id, file_name, kind, inserts, issue_rows=issue_rows
     )
-    return _upload_to_out(upload_record)
+    return _upload_to_out(upload_record, mapping_warnings)
 
 
 @router.delete('/uploads/{upload_id}', status_code=204)

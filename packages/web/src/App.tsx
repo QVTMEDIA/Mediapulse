@@ -33,7 +33,8 @@ import {
   setAuthToken,
   uploadMediaReport,
 } from './api/client';
-import type { AuthSession, Brand, Project, UploadKind, User } from './api/contracts';
+import type { AuthSession, Brand, MappingWarning, Project, UploadKind, User } from './api/contracts';
+import { describeMappingWarning } from './mappingWarnings';
 import ActivitySection from './sections/ActivitySection';
 import ExportsSection from './sections/ExportsSection';
 import MatchesSection from './sections/MatchesSection';
@@ -214,6 +215,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [uploadMappingWarnings, setUploadMappingWarnings] = useState<MappingWarning[]>([]);
 
   const refreshProjects = useCallback(async (search: string) => {
     setProjectsLoading(true);
@@ -354,6 +356,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
     setIsUploading(true);
     setUploadError(null);
     setUploadSuccess(null);
+    setUploadMappingWarnings([]);
     try {
       const result = await uploadMediaReport(activeProject.projectId, {
         kind: uploadKind,
@@ -368,6 +371,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
           (result.issueRows ? `, ${result.issueRows} skipped with issues.` : '.') +
           ' Click Calculate to include it in a run.',
       );
+      setUploadMappingWarnings(result.mappingWarnings);
       setUploadFile(null);
       setFileInputKey((key) => key + 1);
       if (uploadSourceLabel.trim()) {
@@ -677,6 +681,16 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
                 </div>
                 {uploadError && <p className="inline-error">{uploadError}</p>}
                 {uploadSuccess && <p className="empty-state">{uploadSuccess}</p>}
+                {uploadMappingWarnings.length > 0 && (
+                  <div className="inline-warning">
+                    <strong>Mapping template may be stale:</strong>
+                    <ul>
+                      {uploadMappingWarnings.map((warning) => (
+                        <li key={warning.field}>{describeMappingWarning(warning)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </form>
             )}
 

@@ -292,3 +292,56 @@ def test_upload_ratings_file_accepts_media_types_list(client):
     response = _upload_ratings(client, media_types='TV,Radio,Cable TV')
     assert response.status_code == 201
     assert response.json()['mediaTypes'] == ['TV', 'Radio', 'Cable TV']
+
+
+# Real shape from a real incident: a vendor file with two time-related
+# columns -- a coarse "Time Belt" (AM/PM) and a precise "Timeband" (an
+# actual time range) -- where a saved mapping template from an older,
+# coarser file pins Time Band to "Time Belt" even though this file's own
+# "Timeband" column is what fresh auto-detection would pick
+# (SYNONYMS['time_band'] checks 'timeband' before 'time belt'). Every row
+# still "maps successfully" -- the only symptom is every spot later coming
+# back unmatched, with nothing pointing back at the mapping as the cause.
+TIME_BAND_RATINGS_CSV = (
+    b'Channel,Day,Programme,Time Belt,Timeband,Rating\n'
+    b'TVC,Monday,Prime Time,PM,19:00-20:00,1.2\n'
+)
+
+
+def test_upload_ratings_file_warns_when_stale_template_disagrees_with_auto_detection(client):
+    client.post(
+        '/api/mapping-templates',
+        json={'sourceLabel': 'Agency A', 'fieldMapping': {
+            'channel': 'Channel', 'programme': 'Programme', 'rating': 'Rating', 'time_band': 'Time Belt',
+        }},
+    )
+    response = _upload_ratings(client, content=TIME_BAND_RATINGS_CSV, source_label='Agency A')
+    assert response.status_code == 201
+    body = response.json()
+
+    # The stale template still wins for parsing -- consistent with the
+    # existing fallback behavior -- but the disagreement is now visible.
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    assert rows[0]['timeBand'] == 'PM'
+
+    assert body['mappingWarnings'] == [{
+        'field': 'time_band', 'templateColumn': 'Time Belt', 'detectedColumn': 'Timeband',
+    }]
+
+
+def test_upload_ratings_file_reports_no_mapping_warning_when_template_agrees_with_auto_detection(client):
+    client.post(
+        '/api/mapping-templates',
+        json={'sourceLabel': 'Agency A', 'fieldMapping': {
+            'channel': 'Channel', 'programme': 'Programme', 'rating': 'Rating', 'time_band': 'Timeband',
+        }},
+    )
+    response = _upload_ratings(client, content=TIME_BAND_RATINGS_CSV, source_label='Agency A')
+    assert response.status_code == 201
+    assert response.json()['mappingWarnings'] == []
+
+
+def test_upload_ratings_file_without_source_label_reports_no_mapping_warnings(client):
+    response = _upload_ratings(client, content=TIME_BAND_RATINGS_CSV)
+    assert response.status_code == 201
+    assert response.json()['mappingWarnings'] == []

@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from pydantic import Field, field_validator
 
-from .common import CamelModel
+from .common import CamelModel, MappingWarningOut
 
 MEDIA_TYPE_OPTIONS = ('TV', 'Radio', 'Cable TV')
 
@@ -80,3 +80,8 @@ class RatingsDatasetOut(CamelModel):
     # rows doesn't balloon the upload response — invalidRows above still
     # carries the true total either way.
     issues: Optional[List[RatingsRowIssueOut]] = None
+    # Only ever populated on the response to POST /ratings-datasets/upload,
+    # same as issues above — a saved mapping template disagreeing with
+    # fresh auto-detection for a field on this upload. See
+    # schemas/common.py's MappingWarningOut and parsing.py's MappingWarning.
+    mapping_warnings: List[MappingWarningOut] = Field(default_factory=list)

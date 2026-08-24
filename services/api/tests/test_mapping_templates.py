@@ -141,3 +141,69 @@ def test_upload_without_source_label_does_not_touch_templates(client, project, b
         f"/api/projects/{project['projectId']}/uploads", files=files, data={'brand_id': brand['brandId']}
     )
     assert client.get('/api/mapping-templates').json() == []
+
+
+def test_upload_falls_back_to_auto_detect_case_reports_no_mapping_warning(client, project, brand):
+    # Same fixture as test_upload_falls_back_to_auto_detect_when_template_column_is_missing:
+    # the template's column isn't in this file at all, so auto-detect fills the gap on its
+    # own -- that's the normal, expected reason overrides exist, not a disagreement to flag.
+    client.post(
+        '/api/mapping-templates',
+        json={'sourceLabel': 'Agency A', 'fieldMapping': {'channel': 'This Column Does Not Exist'}},
+    )
+    response = _upload_with_source(client, project['projectId'], brand['brandId'], 'Agency A')
+    assert response.status_code == 201
+    assert response.json()['mappingWarnings'] == []
+
+
+# Real shape from a real incident: a vendor file with two time-related
+# columns -- a coarse "Time Belt" (AM/PM) and a precise "Timeband" (an
+# actual time range) -- where a template saved from an older, coarser file
+# pins Time Band to "Time Belt" even though this file's own "Timeband"
+# column is what auto-detection would pick (SYNONYMS['time_band'] checks
+# 'timeband' before 'time belt'). Every row still "maps successfully" --
+# the only symptom is every spot later coming back unmatched, with nothing
+# pointing back at the mapping as the cause.
+TIME_BAND_UPLOAD_CSV = (
+    b'Channel,Programme,Day,Spots,Time Belt,Timeband\n'
+    b'TVC,Prime Time,Monday,3,PM,19:00-20:00\n'
+)
+
+
+def _upload_time_band_csv(client, project_id, brand_id, source_label):
+    files = {'file': ('report.csv', io.BytesIO(TIME_BAND_UPLOAD_CSV), 'text/csv')}
+    data = {'brand_id': brand_id, 'source_label': source_label}
+    return client.post(f'/api/projects/{project_id}/uploads', files=files, data=data)
+
+
+def test_upload_warns_when_stale_template_disagrees_with_auto_detection(client, project, brand):
+    client.post(
+        '/api/mapping-templates',
+        json={'sourceLabel': 'Agency A', 'fieldMapping': {
+            'channel': 'Channel', 'programme': 'Programme', 'time_band': 'Time Belt',
+        }},
+    )
+    response = _upload_time_band_csv(client, project['projectId'], brand['brandId'], 'Agency A')
+    assert response.status_code == 201
+    body = response.json()
+
+    # The stale template still wins for parsing -- consistent with the
+    # existing fallback behavior -- but the disagreement is now visible.
+    activity = client.get(f"/api/projects/{project['projectId']}/media-activity").json()
+    assert activity[0]['timeBand'] == 'PM'
+
+    assert body['mappingWarnings'] == [{
+        'field': 'time_band', 'templateColumn': 'Time Belt', 'detectedColumn': 'Timeband',
+    }]
+
+
+def test_upload_reports_no_mapping_warning_when_template_agrees_with_auto_detection(client, project, brand):
+    client.post(
+        '/api/mapping-templates',
+        json={'sourceLabel': 'Agency A', 'fieldMapping': {
+            'channel': 'Channel', 'programme': 'Programme', 'time_band': 'Timeband',
+        }},
+    )
+    response = _upload_time_band_csv(client, project['projectId'], brand['brandId'], 'Agency A')
+    assert response.status_code == 201
+    assert response.json()['mappingWarnings'] == []

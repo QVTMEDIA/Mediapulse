@@ -9,7 +9,8 @@ import {
   listRatingsLibrary,
   uploadRatingsFile,
 } from '../api/client';
-import type { Project, RatingRow, RatingsDataset, RatingsRowIssue } from '../api/contracts';
+import type { MappingWarning, Project, RatingRow, RatingsDataset, RatingsRowIssue } from '../api/contracts';
+import { describeMappingWarning } from '../mappingWarnings';
 import { LimitedRows, LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 
 // Mirrors services/api/app/repositories/ratings.py's _row_is_invalid() and
@@ -150,6 +151,10 @@ export default function RatingsSection({ project }: { project: Project | null })
   // on the next upload attempt so stale detail doesn't linger.
   const [uploadIssues, setUploadIssues] = useState<RatingsRowIssue[]>([]);
   const [uploadIssuesTotal, setUploadIssuesTotal] = useState(0);
+  // A saved mapping template disagreeing with fresh auto-detection for a
+  // field on this upload — see api/contracts.ts's MappingWarning. Clears
+  // on the next upload attempt, same as uploadIssues above.
+  const [uploadMappingWarnings, setUploadMappingWarnings] = useState<MappingWarning[]>([]);
 
   const [attachSelection, setAttachSelection] = useState('');
   const [isAttaching, setIsAttaching] = useState(false);
@@ -248,6 +253,7 @@ export default function RatingsSection({ project }: { project: Project | null })
     setUploadSuccess(null);
     setUploadIssues([]);
     setUploadIssuesTotal(0);
+    setUploadMappingWarnings([]);
     try {
       const dataset = await uploadRatingsFile({
         provider,
@@ -265,6 +271,7 @@ export default function RatingsSection({ project }: { project: Project | null })
       );
       setUploadIssues(dataset.issues ?? []);
       setUploadIssuesTotal(dataset.invalidRows);
+      setUploadMappingWarnings(dataset.mappingWarnings);
       setFile(null);
       setFileInputKey((key) => key + 1);
       if (sourceLabel.trim()) {
@@ -404,6 +411,16 @@ export default function RatingsSection({ project }: { project: Project | null })
             </div>
             {uploadError && <p className="inline-error">{uploadError}</p>}
             {uploadSuccess && <p className="empty-state">{uploadSuccess}</p>}
+            {uploadMappingWarnings.length > 0 && (
+              <div className="inline-warning">
+                <strong>Mapping template may be stale:</strong>
+                <ul>
+                  {uploadMappingWarnings.map((warning) => (
+                    <li key={warning.field}>{describeMappingWarning(warning)}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </form>
         )}
 

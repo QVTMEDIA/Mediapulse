@@ -44,21 +44,54 @@ class NamedBytesIO(io.BytesIO):
         self.name = name
 
 
-def _resolve_mapping(columns, expected_fields, overrides: Optional[Dict[str, str]] = None) -> dict:
+@dataclass
+class MappingWarning:
+    """A saved mapping template pinned `field` to `template_column`, but this
+    file's own columns would have auto-detected `detected_column` instead --
+    a real, previously-silent trap: a template saved from one file's shape
+    (e.g. a vendor's older export with only a coarse "TIME BELT" AM/PM
+    column) gets reused against a newer file that actually has a better
+    match (e.g. a precise "TIMEBAND" clock-time column) sitting right next
+    to it, and the stale template wins with no indication anything was
+    overridden. Every row still parses "successfully" -- the failure only
+    shows up much later as spot after spot coming back unmatched, with
+    nothing on the upload response pointing back at the cause."""
+
+    field: str
+    template_column: str
+    detected_column: str
+
+
+def _resolve_mapping(columns, expected_fields, overrides: Optional[Dict[str, str]] = None):
     """Auto-detects a column per logical field, same as before, except a
     field present in `overrides` (a saved mapping template) skips detection
     and uses that column directly — as long as the column still exists in
     this particular file; a stale template pointing at a renamed/missing
-    column falls back to auto-detection for that field rather than erroring."""
+    column falls back to auto-detection for that field rather than erroring.
+
+    Also always runs detection alongside the override (cheap — it's a
+    synonym lookup over a short column list) so a field where the two
+    disagree comes back as a MappingWarning instead of disappearing
+    silently. No warning when detection finds nothing at all: a template
+    column with no synonym match in this file (a custom header the
+    synonym list was never going to recognize) is the normal, correct
+    reason overrides exist in the first place, not something to flag.
+
+    Returns (mapping, warnings) — warnings is always [] when overrides is
+    empty, since there's nothing to disagree with."""
     overrides = overrides or {}
     mapping = {}
+    warnings: List[MappingWarning] = []
     for field in expected_fields:
         override_column = overrides.get(field)
+        detected_column = calc.detect_column(columns, field)
         if override_column and override_column in columns:
             mapping[field] = override_column
+            if detected_column and detected_column != override_column:
+                warnings.append(MappingWarning(field=field, template_column=override_column, detected_column=detected_column))
         else:
-            mapping[field] = calc.detect_column(columns, field) or '-- none --'
-    return mapping
+            mapping[field] = detected_column or '-- none --'
+    return mapping, warnings
 
 
 @dataclass
@@ -81,6 +114,7 @@ class ParseResult:
     mapping: dict
     mapped_rows: int
     issue_rows: int
+    mapping_warnings: List[MappingWarning]
 
 
 def parse_brand_report(
@@ -98,7 +132,7 @@ def parse_brand_report(
     header_row = calc.infer_header_row(preview, expected_fields)
     raw = calc.read_tabular(uploaded, header_row=header_row)
 
-    mapping = _resolve_mapping(raw.columns, expected_fields, mapping_override)
+    mapping, mapping_warnings = _resolve_mapping(raw.columns, expected_fields, mapping_override)
     report, issues = calc.build_brand_report(raw, mapping, file_name, default_medium)
 
     rows = [
@@ -116,7 +150,9 @@ def parse_brand_report(
         )
         for _, row in report.iterrows()
     ]
-    return ParseResult(rows=rows, mapping=mapping, mapped_rows=len(rows), issue_rows=len(issues))
+    return ParseResult(
+        rows=rows, mapping=mapping, mapped_rows=len(rows), issue_rows=len(issues), mapping_warnings=mapping_warnings
+    )
 
 
 @dataclass
@@ -139,6 +175,7 @@ class CompositeParseResult:
     mapping: dict
     mapped_rows: int
     issue_rows: int
+    mapping_warnings: List[MappingWarning]
 
 
 def parse_composite_report(
@@ -174,7 +211,7 @@ def parse_composite_report(
     header_row = calc.infer_header_row(preview, expected_fields)
     raw = calc.read_tabular(uploaded, header_row=header_row)
 
-    mapping = _resolve_mapping(raw.columns, expected_fields, mapping_override)
+    mapping, mapping_warnings = _resolve_mapping(raw.columns, expected_fields, mapping_override)
     report, issues = calc.build_brand_report(raw, mapping, file_name, default_medium)
 
     rows = [
@@ -193,7 +230,9 @@ def parse_composite_report(
         for _, row in report.iterrows()
         if str(row['Brand'] or '').strip()
     ]
-    return CompositeParseResult(rows=rows, mapping=mapping, mapped_rows=len(rows), issue_rows=len(issues))
+    return CompositeParseResult(
+        rows=rows, mapping=mapping, mapped_rows=len(rows), issue_rows=len(issues), mapping_warnings=mapping_warnings
+    )
 
 
 @dataclass
@@ -226,6 +265,7 @@ class RatingsParseResult:
     # never silently absorbed into a 0 via the usual invalid-row counting.
     dropped_invalid_rows: int
     issues: List[RatingsRowIssue]
+    mapping_warnings: List[MappingWarning]
 
 
 def parse_ratings_file(
@@ -243,7 +283,7 @@ def parse_ratings_file(
     header_row = calc.infer_header_row(preview, expected_fields)
     raw = calc.read_tabular(uploaded, header_row=header_row)
 
-    mapping = _resolve_mapping(raw.columns, expected_fields, mapping_override)
+    mapping, mapping_warnings = _resolve_mapping(raw.columns, expected_fields, mapping_override)
     ratings, invalid_ratings, _dup_keys, _lookup = calc.build_ratings_lookup(raw, mapping, default_medium)
 
     rows = [
@@ -269,7 +309,10 @@ def parse_ratings_file(
         )
         for _, row in invalid_ratings.iterrows()
     ]
-    return RatingsParseResult(rows=rows, mapping=mapping, dropped_invalid_rows=len(invalid_ratings), issues=issues)
+    return RatingsParseResult(
+        rows=rows, mapping=mapping, dropped_invalid_rows=len(invalid_ratings), issues=issues,
+        mapping_warnings=mapping_warnings,
+    )
 
 
 def _clean_cost(value) -> Optional[float]:

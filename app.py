@@ -28,6 +28,9 @@ FIELD_LABELS = {
     'rating': 'Rating (%)',
     'grp': 'GRP',
     'source': 'Source / Period',
+    'time_band': 'Time / Time Band',
+    'rate': 'Rate',
+    'cost': 'Cost',
 }
 PASSWORD_SECRET_EXAMPLE = 'APP_PASSWORD = "replace-with-a-strong-password"'
 PROJECT_STATUS_OPTIONS = ['Setup', 'Data Review', 'Complete']
@@ -981,7 +984,7 @@ workflow_help_cols = st.columns(2)
 with workflow_help_cols[0]:
     st.caption('Composite example: a single weekly report with Channel, WD, Program, Spots, Rch %, and Grps.')
 with workflow_help_cols[1]:
-    st.caption('Separate example: one ratings file plus one or more brand activity files matched by channel, day, and programme.')
+    st.caption('Separate example: one ratings file plus one or more brand activity files matched by station, day, programme, and time when available.')
 
 if workflow_mode == 'Composite Report':
     st.header('1. Composite Report')
@@ -1079,21 +1082,21 @@ try:
     ratings_raw = load_tabular_with_controls(
         ratings_file,
         'ratings',
-        ['medium', 'channel', 'day', 'programme', 'rating', 'source'],
+        ['medium', 'channel', 'day', 'programme', 'rating', 'source', 'time_band'],
     )
 except Exception as e:
     st.error(f'Could not read ratings file:\n\n{calc.friendly_upload_error(e)}')
     st.stop()
 
 st.write('Map the ratings fields:')
-rmap = mapping_ui(ratings_raw, 'ratings', ['channel', 'day', 'programme', 'rating'], ['medium', 'source'])
+rmap = mapping_ui(ratings_raw, 'ratings', ['channel', 'day', 'programme', 'rating'], ['medium', 'source', 'time_band'])
 ratings_default_medium = default_medium_selector(rmap, 'ratings_default_medium')
 render_mapping_review(
     ratings_raw,
     rmap,
     'ratings_review',
     ['channel', 'day', 'programme', 'rating'],
-    ['medium', 'source'],
+    ['medium', 'source', 'time_band'],
     numeric_fields=['rating'],
     defaults=default_values_for_mapping(rmap, ratings_default_medium),
 )
@@ -1135,7 +1138,7 @@ for idx, uploaded in enumerate(brand_files):
         raw = load_tabular_with_controls(
             uploaded,
             f'brand_{idx}',
-            ['brand', 'medium', 'date', 'day', 'channel', 'programme', 'spots'],
+            ['brand', 'medium', 'date', 'day', 'channel', 'programme', 'spots', 'time_band', 'rate', 'cost'],
         )
     except Exception as e:
         st.error(f'Could not read {file_name}:\n\n{calc.friendly_upload_error(e)}')
@@ -1151,9 +1154,9 @@ for idx, uploaded in enumerate(brand_files):
         st.caption('Using the first report mapping for this compatible file.')
         with st.expander('Override mapping for this report'):
             if st.checkbox('Use a custom mapping for this report', key=f'brand_override_{idx}'):
-                bmap = mapping_ui(raw, f'brand_{idx}', ['channel', 'programme', 'spots'], ['brand', 'medium', 'date', 'day'])
+                bmap = mapping_ui(raw, f'brand_{idx}', ['channel', 'programme', 'spots'], ['brand', 'medium', 'date', 'day', 'time_band', 'rate', 'cost'])
     else:
-        bmap = mapping_ui(raw, f'brand_{idx}', ['channel', 'programme', 'spots'], ['brand', 'medium', 'date', 'day'])
+        bmap = mapping_ui(raw, f'brand_{idx}', ['channel', 'programme', 'spots'], ['brand', 'medium', 'date', 'day', 'time_band', 'rate', 'cost'])
 
     brand_default_medium = default_medium_selector(bmap, f'brand_{idx}_default_medium')
     render_mapping_review(
@@ -1161,8 +1164,8 @@ for idx, uploaded in enumerate(brand_files):
         bmap,
         f'brand_{idx}_review',
         ['channel', 'programme', 'spots'],
-        ['brand', 'medium', 'date', 'day'],
-        numeric_fields=['spots'],
+        ['brand', 'medium', 'date', 'day', 'time_band', 'rate', 'cost'],
+        numeric_fields=['spots', 'rate', 'cost'],
         defaults=default_values_for_mapping(bmap, brand_default_medium, file_name),
     )
 

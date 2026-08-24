@@ -200,6 +200,52 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(suggestions.columns.tolist(), calc.SUGGESTION_COLUMNS)
         self.assertEqual(len(suggestions), 0)
 
+    def test_program_column_is_not_detected_as_rating(self):
+        self.assertIsNone(calc.detect_column(['Channel', 'Program', 'Spots'], 'rating'))
+
+    def test_radio_spend_time_matches_rating_time_ranges(self):
+        spend_raw = pd.DataFrame({
+            'DATE': ['2025-10-05'],
+            'DAY': ['Sunday'],
+            'TIME': ['20:31:39'],
+            'TIME BELT': ['PM'],
+            'BRAND': ['IBUCAP'],
+            'STATION': ['BOND FM LAGOS'],
+            'PROGRAM': ['KOKO INU IWE IROYIN'],
+            'MEDIA': ['Radio'],
+            'SPOT': [1],
+            'RATE': [8300],
+        })
+        rating_raw = pd.DataFrame({
+            'Channel': ['Lagos, Bond 92.9 FM, Lagos'],
+            'WD': ['Sun'],
+            'Program': ['ROS'],
+            'Time band': ['20:30:00-20:45:00'],
+            'Spots': [1],
+            'Rch %': [0.5],
+        })
+        spend_fields = ['channel', 'programme', 'spots', 'brand', 'medium', 'date', 'day', 'rate', 'cost', 'time_band']
+        rating_fields = ['channel', 'programme', 'rating', 'medium', 'source', 'time_band', 'date', 'day']
+        spend_mapping = {field: calc.detect_column(spend_raw.columns, field) or '-- none --' for field in spend_fields}
+        rating_mapping = {field: calc.detect_column(rating_raw.columns, field) or '-- none --' for field in rating_fields}
+
+        self.assertEqual(spend_mapping['time_band'], 'TIME')
+        self.assertEqual(rating_mapping['rating'], 'Rch %')
+        self.assertEqual(rating_mapping['time_band'], 'Time band')
+
+        report, report_issues = calc.build_brand_report(spend_raw, spend_mapping, 'Data.xlsx')
+        ratings, invalid_ratings, _dup_keys, ratings_lookup = calc.build_ratings_lookup(
+            rating_raw, rating_mapping, default_medium='Radio'
+        )
+        media = calc.match_reports_to_ratings([report], ratings_lookup)
+
+        self.assertEqual(len(report_issues), 0)
+        self.assertEqual(len(invalid_ratings), 0)
+        self.assertEqual(len(ratings), 1)
+        self.assertEqual(media.loc[0, 'Match Status'], 'MATCHED')
+        self.assertAlmostEqual(media.loc[0, 'Matched Rating (%)'], 0.5)
+        self.assertAlmostEqual(media.loc[0, 'GRP'], 0.5)
+
     def test_project_info_frame_formats_metadata_for_export(self):
         project = {
             'project_id': 'MP-1234',

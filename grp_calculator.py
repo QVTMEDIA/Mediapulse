@@ -40,7 +40,7 @@ SYNONYMS = {
     # would silently steal the plain 'Day' column instead (confirmed by a
     # failing test). 'time band'/'time belt'/'time slot'/'slot' cover the
     # same real-world header names without that collision.
-    'time_band': ['time band', 'timeband', 'time belt', 'timebelt', 'time slot', 'slot'],
+    'time_band': ['time', 'time band', 'timeband', 'time belt', 'timebelt', 'time slot', 'slot'],
     'spots': ['spots', 'spot', 'no. of spots', 'no spots', 'number of spots', 'spot count', 'insertions', 'frequency', 'qty', 'quantity', 'runs', 'count'],
     'rating': ['rating (%)', 'rating', 'ratings', 'program rating', 'programme rating', 'rating %', 'rch %', 'rch%', 'reach %', 'reach%', 'tvr', 'tvrs', 'grp', 'grps'],
     'grp': ['grp', 'grps', 'gross rating points', 'gross rating point', 'row grp', 'total grp', 'total grps'],
@@ -222,9 +222,20 @@ def detect_column(columns, logical):
             return cols[canon(syn)]
     for c in columns:
         cc = canon(c)
-        if any(canon(syn) in cc or cc in canon(syn) for syn in SYNONYMS[logical]):
+        if any(column_matches_synonym(cc, canon(syn)) for syn in SYNONYMS[logical]):
             return c
     return None
+
+
+def column_matches_synonym(column_canon, synonym_canon):
+    if synonym_canon in column_canon:
+        return True
+    # Only allow reverse substring matching for tight singular/plural style
+    # cases such as SPOT <-> SPOTS. Otherwise PROGRAM can be mistaken for
+    # PROGRAM RATING when a ratings file is actually a spend sheet.
+    if abs(len(column_canon) - len(synonym_canon)) > 1:
+        return False
+    return column_canon.rstrip('S') == synonym_canon.rstrip('S')
 
 
 def normalize_text(v):
@@ -239,6 +250,95 @@ def text_similarity(left, right):
     if not left_norm or not right_norm:
         return 0.0
     return float(fuzz.ratio(left_norm, right_norm) / 100)
+
+
+_CLOCK_PATTERN = re.compile(r'^(\d{1,2}):?(\d{2})(?::?(\d{2}))?\s*(AM|PM)?$', re.IGNORECASE)
+_RANGE_PATTERN = re.compile(r'^(.+?)\s*(?:-|\u2013|to)\s*(.+?)$', re.IGNORECASE)
+_STATION_FREQUENCY_PATTERN = re.compile(r'\b\d+(?:\.\d+)?\b')
+_STATION_PUNCTUATION_PATTERN = re.compile(r'[^A-Z0-9\s]')
+_STATION_NOISE_WORDS = {'RADIO', 'STATION', 'FM', 'AM', 'TV'}
+GENERIC_PROGRAMME_VALUES = {'ROS', 'RUN OF SCHEDULE', 'RUN-OF-SCHEDULE'}
+
+
+def normalize_station_for_match(value):
+    text = normalize_text(value)
+    text = _STATION_FREQUENCY_PATTERN.sub(' ', text)
+    text = _STATION_PUNCTUATION_PATTERN.sub(' ', text)
+    tokens = {token for token in text.split() if token not in _STATION_NOISE_WORDS}
+    return ' '.join(sorted(tokens))
+
+
+def clock_seconds(value):
+    text = '' if pd.isna(value) else str(value).strip()
+    match = _CLOCK_PATTERN.match(text)
+    if not match:
+        return None
+    hour, minute, second, meridiem = match.groups()
+    hour = int(hour)
+    minute = int(minute)
+    second = int(second or 0)
+    if minute > 59 or second > 59:
+        return None
+    if meridiem:
+        if hour < 1 or hour > 12:
+            return None
+        hour = hour % 12 + (12 if meridiem.upper() == 'PM' else 0)
+    elif hour > 23:
+        return None
+    return hour * 3600 + minute * 60 + second
+
+
+def is_time_band_range(value):
+    text = '' if pd.isna(value) else str(value).strip()
+    return _RANGE_PATTERN.match(text) is not None
+
+
+def time_band_contains(time_band, point_time):
+    range_text = '' if pd.isna(time_band) else str(time_band).strip()
+    range_match = _RANGE_PATTERN.match(range_text)
+    point_seconds = clock_seconds(point_time)
+    if not range_match or point_seconds is None:
+        return False
+    start = clock_seconds(range_match.group(1))
+    end = clock_seconds(range_match.group(2))
+    if start is None or end is None:
+        return False
+    if end <= start:
+        end += 24 * 60 * 60
+    return start <= point_seconds < end or start <= point_seconds + 24 * 60 * 60 < end
+
+
+def station_programme_key(medium, channel, day, programme):
+    return '|'.join([
+        normalize_text(medium),
+        normalize_station_for_match(channel),
+        normalize_day(day),
+        normalize_text(programme),
+    ])
+
+
+def station_time_key(medium, channel, day, programme, time_band):
+    slot = time_band if non_empty_value(time_band) else programme
+    return station_programme_key(medium, channel, day, slot)
+
+
+def station_day_key(medium, channel, day):
+    return '|'.join([
+        normalize_text(medium),
+        normalize_station_for_match(channel),
+        normalize_day(day),
+    ])
+
+
+def is_generic_programme(value):
+    return normalize_text(value) in GENERIC_PROGRAMME_VALUES
+
+
+def non_empty_value(value):
+    if pd.isna(value):
+        return False
+    text = str(value).strip()
+    return bool(text and text.lower() not in ('nan', 'nat'))
 
 
 def suggestion_confidence(score):
@@ -929,6 +1029,7 @@ def build_ratings_lookup(ratings_raw, mapping, default_medium='TV'):
     key_counts = ratings.groupby('Match Key').size().rename('Rows').reset_index() if not ratings.empty else pd.DataFrame(columns=['Match Key', 'Rows'])
     dup_keys = key_counts[key_counts['Rows'] > 1].copy()
     ratings_lookup = ratings.groupby('Match Key', as_index=False)['Rating (%)'].mean() if not ratings.empty else pd.DataFrame(columns=['Match Key', 'Rating (%)'])
+    ratings_lookup.attrs['ratings_detail'] = ratings.copy()
     return ratings, invalid_ratings, dup_keys, ratings_lookup
 
 
@@ -1055,11 +1156,130 @@ def build_composite_report(raw, mapping, file_name, default_medium='TV'):
     return report, issues
 
 
+def average_lookup(pairs):
+    buckets = {}
+    for key, value in pairs:
+        if pd.isna(value):
+            continue
+        buckets.setdefault(key, []).append(float(value))
+    return {key: sum(values) / len(values) for key, values in buckets.items() if values}
+
+
+def detailed_rating_indexes(ratings):
+    exact_pairs = []
+    programme_pairs = []
+    generic_programme_pairs = []
+    range_candidates = {}
+    for _, row in ratings.iterrows():
+        rating_value = row.get('Rating (%)')
+        if pd.isna(rating_value):
+            continue
+        exact_key = station_time_key(
+            row.get('Medium', ''),
+            row.get('Channel / Station', ''),
+            row.get('Day', ''),
+            row.get('Programme / Time Band', ''),
+            row.get('Time Band', ''),
+        )
+        programme_key = station_programme_key(
+            row.get('Medium', ''),
+            row.get('Channel / Station', ''),
+            row.get('Day', ''),
+            row.get('Programme / Time Band', ''),
+        )
+        exact_pairs.append((exact_key, rating_value))
+        programme_pairs.append((programme_key, rating_value))
+        if is_generic_programme(row.get('Programme / Time Band', '')):
+            generic_programme_pairs.append((
+                station_day_key(row.get('Medium', ''), row.get('Channel / Station', ''), row.get('Day', '')),
+                rating_value,
+            ))
+        time_band = row.get('Time Band', '')
+        if is_time_band_range(time_band):
+            slot_key = (
+                normalize_text(row.get('Medium', '')),
+                normalize_station_for_match(row.get('Channel / Station', '')),
+                normalize_day(row.get('Day', '')),
+                normalize_text(row.get('Programme / Time Band', '')),
+            )
+            range_candidates.setdefault(slot_key, []).append((time_band, float(rating_value)))
+            if is_generic_programme(row.get('Programme / Time Band', '')):
+                wildcard_slot_key = slot_key[:3] + ('',)
+                range_candidates.setdefault(wildcard_slot_key, []).append((time_band, float(rating_value)))
+    return average_lookup(exact_pairs), average_lookup(programme_pairs), average_lookup(generic_programme_pairs), range_candidates
+
+
+def detailed_rating_for_row(row, exact_lookup, programme_lookup, generic_programme_lookup, range_candidates, fallback_lookup):
+    time_value = row.get('Daypart', '')
+    exact_key = station_time_key(
+        row.get('Medium', ''),
+        row.get('Channel / Station', ''),
+        row.get('Day', ''),
+        row.get('Programme / Time Band', ''),
+        time_value,
+    )
+    if exact_key in exact_lookup:
+        return exact_lookup[exact_key]
+
+    range_key = (
+        normalize_text(row.get('Medium', '')),
+        normalize_station_for_match(row.get('Channel / Station', '')),
+        normalize_day(row.get('Day', '')),
+        normalize_text(row.get('Programme / Time Band', '')),
+    )
+    containing_values = [
+        rating
+        for candidate_time_band, rating in range_candidates.get(range_key, [])
+        if time_band_contains(candidate_time_band, time_value)
+    ]
+    if not containing_values:
+        wildcard_range_key = range_key[:3] + ('',)
+        containing_values = [
+            rating
+            for candidate_time_band, rating in range_candidates.get(wildcard_range_key, [])
+            if time_band_contains(candidate_time_band, time_value)
+        ]
+    if containing_values:
+        return sum(containing_values) / len(containing_values)
+
+    programme_key = station_programme_key(
+        row.get('Medium', ''),
+        row.get('Channel / Station', ''),
+        row.get('Day', ''),
+        row.get('Programme / Time Band', ''),
+    )
+    if programme_key in programme_lookup:
+        return programme_lookup[programme_key]
+
+    generic_key = station_day_key(
+        row.get('Medium', ''),
+        row.get('Channel / Station', ''),
+        row.get('Day', ''),
+    )
+    if generic_key in generic_programme_lookup:
+        return generic_programme_lookup[generic_key]
+
+    return fallback_lookup.get(row.get('Match Key'))
+
+
 def match_reports_to_ratings(report_frames, ratings_lookup):
     media = pd.concat(report_frames, ignore_index=True)
-    media = media.merge(ratings_lookup, how='left', on='Match Key')
-    media.rename(columns={'Rating (%)': 'Matched Rating (%)'}, inplace=True)
+    ratings_detail = ratings_lookup.attrs.get('ratings_detail')
+    if isinstance(ratings_detail, pd.DataFrame) and not ratings_detail.empty:
+        exact_lookup, programme_lookup, generic_programme_lookup, range_candidates = detailed_rating_indexes(ratings_detail)
+        fallback_lookup = dict(zip(ratings_lookup['Match Key'], ratings_lookup['Rating (%)']))
+        media['Matched Rating (%)'] = media.apply(
+            lambda row: detailed_rating_for_row(
+                row, exact_lookup, programme_lookup, generic_programme_lookup, range_candidates, fallback_lookup
+            ),
+            axis=1,
+        )
+    else:
+        media = media.merge(ratings_lookup, how='left', on='Match Key')
+        media.rename(columns={'Rating (%)': 'Matched Rating (%)'}, inplace=True)
+    media['Matched Rating (%)'] = pd.to_numeric(media['Matched Rating (%)'], errors='coerce')
     media['GRP'] = media['Spots'] * media['Matched Rating (%)']
+    media['GRP Source'] = media['Matched Rating (%)'].notna().map({True: 'Spots x Rating', False: ''})
     media['Match Status'] = media['Matched Rating (%)'].notna().map({True: 'MATCHED', False: 'NO RATING MATCH'})
     media['_MediumCanon'] = media['Medium'].map(normalize_medium_type)
     return media

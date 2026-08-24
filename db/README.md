@@ -21,7 +21,7 @@ It implements the data model described in `PRODUCT_ROADMAP.md` and backs the ent
 | `users` | Real multi-user auth account: email, PBKDF2-hashed password (`password_hash`), global role. `services/api`'s `/api/auth/*` reads/writes this table now (see `services/api/README.md`); `app.py` (the Streamlit reference product) is untouched and still gates on the single shared `GRP_APP_PASSWORD` instead. |
 | `projects` | One row per campaign/category workspace — the metadata already stored in SQLite today. |
 | `ratings_datasets` / `ratings` | The shared **Ratings Library**: a dataset is uploaded once and reused across projects via `project_ratings_datasets`. |
-| `project_ratings_datasets` | Join table — which ratings datasets a project currently uses. |
+| `project_ratings_datasets` | Join table — which ratings datasets a project currently uses. `priority` (lower wins) resolves a key collision when two attached datasets both have a row for the same match key — user-orderable via `PUT /api/projects/{projectId}/ratings-datasets/priority`, defaults to attach order so existing behavior doesn't change until a user reorders. |
 | `brands` | Brands within a project (from brand/composite report uploads). |
 | `mapping_templates` | Saved column-mapping per report source, reused on future uploads from the same source. |
 | `uploads` | One row per uploaded file, with mapping outcome counts. |

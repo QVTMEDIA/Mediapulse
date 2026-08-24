@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { AlertTriangle, Database } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, Database } from 'lucide-react';
 import {
   ApiError,
   attachRatingsDataset,
@@ -7,6 +7,7 @@ import {
   listProjectRatingsDatasets,
   listRatingRows,
   listRatingsLibrary,
+  reorderProjectRatingsDatasets,
   uploadRatingsFile,
 } from '../api/client';
 import type { MappingWarning, Project, RatingRow, RatingsDataset, RatingsRowIssue } from '../api/contracts';
@@ -90,14 +91,30 @@ function RatingsDatasetRow({
   dataset,
   isActive,
   onSelect,
+  rank,
+  onMoveUp,
+  onMoveDown,
+  reordering,
 }: {
   dataset: RatingsDataset;
   isActive: boolean;
   onSelect: () => void;
+  // Priority rank (1 = highest precedence) and move handlers -- only
+  // passed when 2+ datasets are attached, since precedence is meaningless
+  // with just one. onMoveUp/onMoveDown are undefined at the respective
+  // end of the list (nothing to swap with), which also disables the button.
+  rank?: number;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
+  reordering?: boolean;
 }) {
   return (
     <div
-      className={isActive ? 'dataset-row active' : 'dataset-row'}
+      className={[
+        'dataset-row',
+        rank !== undefined && 'dataset-row-with-priority',
+        isActive && 'active',
+      ].filter(Boolean).join(' ')}
       role="button"
       tabIndex={0}
       aria-pressed={isActive}
@@ -109,7 +126,38 @@ function RatingsDatasetRow({
         }
       }}
     >
-      <div>
+      {rank !== undefined && (
+        <div className="dataset-priority" title="Priority: wins over lower-ranked datasets on a shared match key">
+          <div className="dataset-priority-buttons">
+            <button
+              type="button"
+              className="icon-button"
+              disabled={!onMoveUp || reordering}
+              aria-label="Move up (higher precedence)"
+              onClick={(event) => {
+                event.stopPropagation();
+                onMoveUp?.();
+              }}
+            >
+              <ChevronUp size={14} aria-hidden />
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              disabled={!onMoveDown || reordering}
+              aria-label="Move down (lower precedence)"
+              onClick={(event) => {
+                event.stopPropagation();
+                onMoveDown?.();
+              }}
+            >
+              <ChevronDown size={14} aria-hidden />
+            </button>
+          </div>
+          <span>#{rank}</span>
+        </div>
+      )}
+      <div className="dataset-row-title">
         <strong>{dataset.provider || 'Untitled dataset'}</strong>
         <span>{[dataset.period, dataset.audience].filter(Boolean).join(' | ') || 'No period or audience set'}</span>
       </div>
@@ -160,6 +208,8 @@ export default function RatingsSection({ project }: { project: Project | null })
   const [attachSelection, setAttachSelection] = useState('');
   const [isAttaching, setIsAttaching] = useState(false);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [isReordering, setIsReordering] = useState(false);
+  const [reorderError, setReorderError] = useState<string | null>(null);
 
   // The actual ratings data, not just the summary counts — selecting a
   // dataset loads and shows its rows in a table, defaulting to the first
@@ -302,6 +352,30 @@ export default function RatingsSection({ project }: { project: Project | null })
       setAttachError(error instanceof ApiError ? error.message : 'Could not attach that dataset.');
     } finally {
       setIsAttaching(false);
+    }
+  }
+
+  // attached is already ordered by priority (ascending -- see
+  // listProjectRatingsDatasets's docstring), so a plain adjacent swap is
+  // exactly "move this dataset one rank up/down".
+  async function handleMoveDataset(index: number, direction: -1 | 1) {
+    if (!project) return;
+    const target = index + direction;
+    if (target < 0 || target >= attached.length) return;
+    const reordered = [...attached];
+    [reordered[index], reordered[target]] = [reordered[target], reordered[index]];
+    setIsReordering(true);
+    setReorderError(null);
+    try {
+      const updated = await reorderProjectRatingsDatasets(
+        project.projectId,
+        reordered.map((dataset) => dataset.ratingsDatasetId),
+      );
+      setAttached(updated);
+    } catch (error) {
+      setReorderError(error instanceof ApiError ? error.message : 'Could not reorder ratings sources.');
+    } finally {
+      setIsReordering(false);
     }
   }
 
@@ -514,20 +588,34 @@ export default function RatingsSection({ project }: { project: Project | null })
           </div>
         )}
         {attachError && <p className="inline-error">{attachError}</p>}
+        {reorderError && <p className="inline-error">{reorderError}</p>}
         {loadError && <p className="inline-error">{loadError}</p>}
+        {attached.length > 1 && (
+          <p className="field-hint">
+            Multiple ratings sources are attached. If two of them cover the same station/day/time, the
+            higher-ranked one (#1 at top) wins — use the arrows to reorder.
+          </p>
+        )}
 
         <div className="dataset-list">
           {!loading && attached.length === 0 && !loadError && (
             <p className="empty-state">No ratings attached yet. Upload a file or attach one from the library above.</p>
           )}
-          {limitedAttached.visibleRows.map((dataset) => (
-            <RatingsDatasetRow
-              dataset={dataset}
-              key={dataset.ratingsDatasetId}
-              isActive={dataset.ratingsDatasetId === selectedDatasetId}
-              onSelect={() => setSelectedDatasetId(dataset.ratingsDatasetId)}
-            />
-          ))}
+          {limitedAttached.visibleRows.map((dataset) => {
+            const index = attached.findIndex((d) => d.ratingsDatasetId === dataset.ratingsDatasetId);
+            return (
+              <RatingsDatasetRow
+                dataset={dataset}
+                key={dataset.ratingsDatasetId}
+                isActive={dataset.ratingsDatasetId === selectedDatasetId}
+                onSelect={() => setSelectedDatasetId(dataset.ratingsDatasetId)}
+                rank={attached.length > 1 ? index + 1 : undefined}
+                reordering={isReordering}
+                onMoveUp={index > 0 ? () => handleMoveDataset(index, -1) : undefined}
+                onMoveDown={index < attached.length - 1 ? () => handleMoveDataset(index, 1) : undefined}
+              />
+            );
+          })}
           <LimitedRowsControls {...limitedAttached} total={attached.length} />
         </div>
       </div>

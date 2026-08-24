@@ -14,7 +14,13 @@ from ..repositories.ratings import (
 )
 from ..parsing import MappingWarning, RatingsRowIssue
 from ..schemas.common import MappingWarningOut
-from ..schemas.ratings import RatingRowOut, RatingsDatasetCreate, RatingsDatasetOut, RatingsRowIssueOut
+from ..schemas.ratings import (
+    RatingRowOut,
+    RatingsDatasetCreate,
+    RatingsDatasetOut,
+    RatingsDatasetPriorityUpdate,
+    RatingsRowIssueOut,
+)
 
 router = APIRouter(prefix='/api', tags=['ratings-library'], dependencies=[Depends(get_current_user)])
 
@@ -56,6 +62,9 @@ def _dataset_to_out(
             MappingWarningOut(field=w.field, template_column=w.template_column, detected_column=w.detected_column)
             for w in (mapping_warnings or [])
         ],
+        # None for a plain RatingsDatasetRecord (global library routes) --
+        # only ProjectRatingsDatasetRecord (project-scoped routes) has this.
+        priority=getattr(record, 'priority', None),
     )
 
 
@@ -204,4 +213,34 @@ def list_project_ratings_datasets(
     project_id: str,
     repo: RatingsRepository = Depends(get_ratings_repository),
 ):
+    """Ordered by priority (highest precedence first) -- see
+    project_ratings_datasets.priority in db/schema.sql -- so this listing
+    doubles as the source order for the reorder UI below, not just display."""
+    return [_dataset_to_out(record) for record in repo.list_project_datasets(project_id)]
+
+
+@router.put('/projects/{project_id}/ratings-datasets/priority', response_model=list[RatingsDatasetOut])
+def reorder_project_ratings_datasets(
+    project_id: str,
+    payload: RatingsDatasetPriorityUpdate,
+    repo: RatingsRepository = Depends(get_ratings_repository),
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+):
+    """Not in this contract's original route list, added so a user can
+    control which attached ratings dataset wins when two of them share an
+    exact match key (previously arbitrary -- see the column comment in
+    db/schema.sql). `orderedRatingsDatasetIds` must be exactly the
+    project's current attached set, in the new priority order (index 0 =
+    highest precedence) -- a partial or stale list 422s rather than
+    silently leaving some attached dataset's priority untouched. Returns
+    the project's attached datasets in their new order, same shape as
+    GET .../ratings-datasets, so the frontend doesn't need a second round
+    trip to redraw the list."""
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    if not repo.reorder_project_datasets(project_id, payload.ordered_ratings_dataset_ids):
+        raise HTTPException(
+            status_code=422,
+            detail='orderedRatingsDatasetIds must be exactly the set of ratings datasets currently attached to this project.',
+        )
     return [_dataset_to_out(record) for record in repo.list_project_datasets(project_id)]

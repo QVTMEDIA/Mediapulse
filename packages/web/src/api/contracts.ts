@@ -61,6 +61,11 @@ export interface RatingsDataset {
   // field on this upload — only ever populated on the response to POST
   // /ratings-datasets/upload, same as issues above. See MappingWarning.
   mappingWarnings: MappingWarning[];
+  // Per-project-attachment precedence — lower wins when two datasets
+  // attached to the same project share an exact match key. Only set on
+  // GET/PUT .../projects/{projectId}/ratings-datasets* routes; null on the
+  // global (non-project-scoped) library listing, where it's meaningless.
+  priority: number | null;
 }
 
 export interface RatingsRowIssue {
@@ -395,6 +400,7 @@ export const sampleWorkspace: MediapulseWorkspace = {
       uploadedAt: '2026-08-19 14:12:00',
       status: 'Ready',
       mappingWarnings: [],
+      priority: null,
     },
     {
       ratingsDatasetId: 'RAT-APR-2026',
@@ -409,6 +415,7 @@ export const sampleWorkspace: MediapulseWorkspace = {
       uploadedAt: '2026-08-18 11:45:00',
       status: 'Needs Review',
       mappingWarnings: [],
+      priority: null,
     },
   ],
   uploads: [

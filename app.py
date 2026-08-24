@@ -41,6 +41,7 @@ PROJECT_STORE_LOADED_STATE_KEY = 'project_store_loaded'
 PROJECT_STORE_ERROR_STATE_KEY = 'project_store_error'
 PROJECT_MANIFEST_FILE_NAME = 'mediapulse_projects_manifest.json'
 DEFAULT_PROJECT_DB_PATH = Path('.streamlit') / 'mediapulse_projects.db'
+UI_MAX_TABLE_ROWS = 500
 
 
 def configured_password():
@@ -651,6 +652,10 @@ def uploaded_files_signature(uploaded_files):
     return tuple(uploaded_file_signature(uploaded) for uploaded in uploaded_files)
 
 
+def safe_widget_key(value):
+    return re.sub(r'[^a-zA-Z0-9_]+', '_', str(value)).strip('_') or 'value'
+
+
 def mapping_signature(mapping):
     return tuple(sorted((field, str(column)) for field, column in mapping.items()))
 
@@ -729,6 +734,13 @@ def render_upload_preflight(uploaded_files, key):
         'Continue to interpretation',
         'Files passed preflight. Continue when you are ready to inspect sheets, choose headers, and map columns.',
     )
+
+
+def render_limited_dataframe(df, *, width='stretch', height=None, hide_index=False, max_rows=UI_MAX_TABLE_ROWS):
+    visible = df.head(max_rows)
+    if len(df) > max_rows:
+        st.caption(f'Showing first {max_rows:,} of {len(df):,} rows to keep the browser responsive. Export for the full table.')
+    st.dataframe(visible, width=width, height=height, hide_index=hide_index)
 
 
 def load_tabular_with_controls(uploaded, key, expected_fields, expanded=False):
@@ -879,6 +891,65 @@ def render_validation_metrics(items):
         col.metric(label, value, help=help_text)
 
 
+def build_results_export(
+    media,
+    summary_df,
+    category_grps,
+    validation_summary,
+    audit_cols,
+    ratings,
+    invalid_ratings,
+    report_issues,
+    dup_keys,
+    suspicious_mediums,
+    unmatched,
+    project_info,
+    row_label,
+    matched_label,
+    unmatched_label,
+    progress_label,
+):
+    unmatched_suggestions = calc.build_unmatched_suggestions(media, ratings)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        if project_info:
+            calc.excel_safe_df(calc.project_info_frame(project_info)).to_excel(writer, sheet_name='Project Info', index=False)
+        run_summary = calc.build_run_summary(
+            media,
+            summary_df,
+            category_grps,
+            ratings=ratings,
+            invalid_ratings=invalid_ratings,
+            report_issues=report_issues,
+            dup_keys=dup_keys,
+            suspicious_mediums=suspicious_mediums,
+            generated_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            row_label=row_label,
+            matched_label=matched_label,
+            unmatched_label=unmatched_label,
+            progress_label=progress_label,
+        )
+        calc.excel_safe_df(run_summary).to_excel(writer, sheet_name='Run Summary', index=False)
+        calc.excel_safe_df(validation_summary).to_excel(writer, sheet_name='Validation Summary', index=False)
+        calc.excel_safe_df(summary_df).to_excel(writer, sheet_name='Brand GRP Summary', index=False)
+        if ratings is not None and len(ratings):
+            calc.excel_safe_df(ratings).to_excel(writer, sheet_name='Ratings Used', index=False)
+        export_cols = audit_cols + (['Match Key'] if 'Match Key' in media.columns else [])
+        calc.excel_safe_df(media[export_cols]).to_excel(writer, sheet_name='Spot Level GRP', index=False)
+        if len(invalid_ratings):
+            calc.excel_safe_df(invalid_ratings).to_excel(writer, sheet_name='Invalid Ratings', index=False)
+        if len(report_issues):
+            calc.excel_safe_df(report_issues).to_excel(writer, sheet_name='Report Input Issues', index=False)
+        if unmatched:
+            calc.excel_safe_df(media.loc[media['Match Status'].eq('NO RATING MATCH'), export_cols]).to_excel(writer, sheet_name='Unmatched Rows', index=False)
+        if len(unmatched_suggestions):
+            calc.excel_safe_df(unmatched_suggestions).to_excel(writer, sheet_name='Unmatched Suggestions', index=False)
+        if suspicious_mediums:
+            calc.excel_safe_df(pd.DataFrame({'Medium': suspicious_mediums})).to_excel(writer, sheet_name='Suspicious Media', index=False)
+    output.seek(0)
+    return output.getvalue()
+
+
 def render_results(
     media,
     ratings=None,
@@ -925,7 +996,6 @@ def render_results(
         dup_keys=dup_keys,
         suspicious_mediums=suspicious_mediums,
     )
-    unmatched_suggestions = calc.build_unmatched_suggestions(media, ratings)
 
     audit_cols = [
         'Brand', 'Medium', 'Date', 'Day', 'Channel / Station', 'Programme / Time Band',
@@ -988,71 +1058,68 @@ def render_results(
             haystack = audit_view.astype(str).agg(' '.join, axis=1)
             audit_view = audit_view[haystack.str.contains(needle, case=False, na=False, regex=True)]
 
-        st.caption(f'Showing {len(audit_view):,} of {len(media):,} rows.')
-        st.dataframe(audit_view, width='stretch', height=420)
+        st.caption(f'Showing {len(audit_view):,} of {len(media):,} rows after filters.')
+        render_limited_dataframe(audit_view, width='stretch', height=420)
 
     with validation_tab:
         st.subheader('Rows Needing Review')
-        st.dataframe(validation_summary, width='stretch', hide_index=True)
+        render_limited_dataframe(validation_summary, width='stretch', hide_index=True)
         if len(dup_keys):
             with st.expander('Duplicate rating keys', expanded=True):
-                st.dataframe(dup_keys, width='stretch')
+                render_limited_dataframe(dup_keys, width='stretch')
         if len(invalid_ratings):
             with st.expander('Invalid ratings dropped from lookup', expanded=True):
-                st.dataframe(invalid_ratings, width='stretch')
+                render_limited_dataframe(invalid_ratings, width='stretch')
         if len(report_issues):
             with st.expander('Report rows excluded from calculations', expanded=True):
-                st.dataframe(report_issues, width='stretch')
+                render_limited_dataframe(report_issues, width='stretch')
         if suspicious_mediums:
             with st.expander('Suspicious medium values', expanded=True):
-                st.dataframe(pd.DataFrame({'Medium': suspicious_mediums}), width='stretch')
+                render_limited_dataframe(pd.DataFrame({'Medium': suspicious_mediums}), width='stretch')
         if unmatched:
             with st.expander('Unmatched rows', expanded=True):
-                st.dataframe(media.loc[media['Match Status'].eq('NO RATING MATCH'), audit_cols], width='stretch')
-        if len(unmatched_suggestions):
-            with st.expander('Suggested rating matches for unmatched rows', expanded=True):
-                st.dataframe(unmatched_suggestions, width='stretch')
+                render_limited_dataframe(media.loc[media['Match Status'].eq('NO RATING MATCH'), audit_cols], width='stretch')
+            st.caption('Suggested matches are generated only on request, because large unmatched sets can be expensive.')
+            if st.button('Generate unmatched suggestions', key=f'suggestions_{safe_widget_key(export_file_name)}'):
+                with st.spinner('Generating suggestions...'):
+                    unmatched_suggestions = calc.build_unmatched_suggestions(media, ratings)
+                if len(unmatched_suggestions):
+                    with st.expander('Suggested rating matches for unmatched rows', expanded=True):
+                        render_limited_dataframe(unmatched_suggestions, width='stretch')
+                else:
+                    st.info('No fuzzy suggestions found for the current unmatched rows.')
         if not any([len(dup_keys), len(invalid_ratings), len(report_issues), len(suspicious_mediums), unmatched]):
             st.success('No validation issues found in this run.')
 
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        if project_info:
-            calc.excel_safe_df(calc.project_info_frame(project_info)).to_excel(writer, sheet_name='Project Info', index=False)
-        run_summary = calc.build_run_summary(
-            media,
-            summary_df,
-            category_grps,
-            ratings=ratings,
-            invalid_ratings=invalid_ratings,
-            report_issues=report_issues,
-            dup_keys=dup_keys,
-            suspicious_mediums=suspicious_mediums,
-            generated_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            row_label=row_label,
-            matched_label=matched_label,
-            unmatched_label=unmatched_label,
-            progress_label=progress_label,
+    st.subheader('Export')
+    st.caption('The full Excel workbook is prepared only when requested to avoid keeping a large workbook in memory on every rerun.')
+    if st.button('Prepare Excel export', key=f'export_{safe_widget_key(export_file_name)}'):
+        with st.spinner('Preparing Excel workbook...'):
+            export_bytes = build_results_export(
+                media,
+                summary_df,
+                category_grps,
+                validation_summary,
+                audit_cols,
+                ratings,
+                invalid_ratings,
+                report_issues,
+                dup_keys,
+                suspicious_mediums,
+                unmatched,
+                project_info,
+                row_label,
+                matched_label,
+                unmatched_label,
+                progress_label,
+            )
+        st.download_button(
+            'Download Mediapulse Results (Excel)',
+            data=export_bytes,
+            file_name=export_file_name,
+            mime=calc.TEMPLATE_MIME,
+            on_click='ignore',
         )
-        calc.excel_safe_df(run_summary).to_excel(writer, sheet_name='Run Summary', index=False)
-        calc.excel_safe_df(validation_summary).to_excel(writer, sheet_name='Validation Summary', index=False)
-        calc.excel_safe_df(summary_df).to_excel(writer, sheet_name='Brand GRP Summary', index=False)
-        if ratings is not None and len(ratings):
-            calc.excel_safe_df(ratings).to_excel(writer, sheet_name='Ratings Used', index=False)
-        export_cols = audit_cols + (['Match Key'] if 'Match Key' in media.columns else [])
-        calc.excel_safe_df(media[export_cols]).to_excel(writer, sheet_name='Spot Level GRP', index=False)
-        if len(invalid_ratings):
-            calc.excel_safe_df(invalid_ratings).to_excel(writer, sheet_name='Invalid Ratings', index=False)
-        if len(report_issues):
-            calc.excel_safe_df(report_issues).to_excel(writer, sheet_name='Report Input Issues', index=False)
-        if unmatched:
-            calc.excel_safe_df(media.loc[media['Match Status'].eq('NO RATING MATCH'), export_cols]).to_excel(writer, sheet_name='Unmatched Rows', index=False)
-        if len(unmatched_suggestions):
-            calc.excel_safe_df(unmatched_suggestions).to_excel(writer, sheet_name='Unmatched Suggestions', index=False)
-        if suspicious_mediums:
-            calc.excel_safe_df(pd.DataFrame({'Medium': suspicious_mediums})).to_excel(writer, sheet_name='Suspicious Media', index=False)
-    output.seek(0)
-    st.download_button('Download Mediapulse Results (Excel)', data=output, file_name=export_file_name, mime=calc.TEMPLATE_MIME)
 
 
 require_password_gate()

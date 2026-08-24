@@ -956,6 +956,21 @@ h3.subsection {
   border-radius: 8px;
 }
 
+.inline-warning {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  color: #8a5a00;
+  font-size: 13px;
+  background: #fff8ed;
+  border: 1px solid #f2c98f;
+  border-radius: 8px;
+}
+
+.inline-warning ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
 .empty-state {
   padding: 24px 14px;
   color: var(--muted);

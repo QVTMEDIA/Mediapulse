@@ -57,6 +57,10 @@ export interface RatingsDataset {
   // /ratings-datasets/upload; every other route leaves it undefined, since
   // dropped rows aren't persisted anywhere to look up again later.
   issues?: RatingsRowIssue[];
+  // A saved mapping template disagreed with fresh auto-detection for a
+  // field on this upload — only ever populated on the response to POST
+  // /ratings-datasets/upload, same as issues above. See MappingWarning.
+  mappingWarnings: MappingWarning[];
 }
 
 export interface RatingsRowIssue {
@@ -67,6 +71,20 @@ export interface RatingsRowIssue {
   day: string;
   programme: string;
   rating: number | null;
+}
+
+// A saved mapping template pinned `field` to `templateColumn`, but this
+// file's own columns would have auto-detected `detectedColumn` instead —
+// a real, previously-silent trap: a template saved from an older file's
+// shape gets reused against a newer file that actually has a better match
+// sitting right next to it, and the stale template wins with no
+// indication anything was overridden. Every row still parses
+// "successfully" — the failure only shows up much later as spot after
+// spot coming back unmatched.
+export interface MappingWarning {
+  field: string;
+  templateColumn: string;
+  detectedColumn: string;
 }
 
 export interface Brand {
@@ -87,6 +105,10 @@ export interface UploadBatch {
   mappedRows: number;
   issueRows: number;
   uploadedAt: string;
+  // Only ever populated on the response to POST .../uploads (this
+  // upload's own parse) — GET .../uploads (listing past uploads) always
+  // leaves this empty. See MappingWarning.
+  mappingWarnings: MappingWarning[];
 }
 
 export interface GrpRunSummary {
@@ -361,6 +383,7 @@ export const sampleWorkspace: MediapulseWorkspace = {
       duplicateKeys: 0,
       uploadedAt: '2026-08-19 14:12:00',
       status: 'Ready',
+      mappingWarnings: [],
     },
     {
       ratingsDatasetId: 'RAT-APR-2026',
@@ -374,6 +397,7 @@ export const sampleWorkspace: MediapulseWorkspace = {
       duplicateKeys: 2,
       uploadedAt: '2026-08-18 11:45:00',
       status: 'Needs Review',
+      mappingWarnings: [],
     },
   ],
   uploads: [
@@ -386,6 +410,7 @@ export const sampleWorkspace: MediapulseWorkspace = {
       mappedRows: 202,
       issueRows: 1,
       uploadedAt: '2026-08-19 15:05:00',
+      mappingWarnings: [],
     },
     {
       uploadId: 'UP-002',
@@ -396,6 +421,7 @@ export const sampleWorkspace: MediapulseWorkspace = {
       mappedRows: 202,
       issueRows: 0,
       uploadedAt: '2026-08-19 15:18:00',
+      mappingWarnings: [],
     },
   ],
   latestRun: {

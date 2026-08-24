@@ -12,7 +12,8 @@ from ..repositories.ratings import (
     RatingsRepository,
     get_ratings_repository,
 )
-from ..parsing import RatingsRowIssue
+from ..parsing import MappingWarning, RatingsRowIssue
+from ..schemas.common import MappingWarningOut
 from ..schemas.ratings import RatingRowOut, RatingsDatasetCreate, RatingsDatasetOut, RatingsRowIssueOut
 
 router = APIRouter(prefix='/api', tags=['ratings-library'], dependencies=[Depends(get_current_user)])
@@ -23,7 +24,11 @@ router = APIRouter(prefix='/api', tags=['ratings-library'], dependencies=[Depend
 MAX_REPORTED_ISSUES = 100
 
 
-def _dataset_to_out(record: RatingsDatasetRecord, issues: Optional[List[RatingsRowIssue]] = None) -> RatingsDatasetOut:
+def _dataset_to_out(
+    record: RatingsDatasetRecord,
+    issues: Optional[List[RatingsRowIssue]] = None,
+    mapping_warnings: Optional[List[MappingWarning]] = None,
+) -> RatingsDatasetOut:
     return RatingsDatasetOut(
         ratings_dataset_id=record.id,
         provider=record.provider,
@@ -47,6 +52,10 @@ def _dataset_to_out(record: RatingsDatasetRecord, issues: Optional[List[RatingsR
             if issues
             else None
         ),
+        mapping_warnings=[
+            MappingWarningOut(field=w.field, template_column=w.template_column, detected_column=w.detected_column)
+            for w in (mapping_warnings or [])
+        ],
     )
 
 
@@ -94,6 +103,11 @@ async def upload_ratings_dataset(
     default_medium: str = Form('TV'),
     source_label: Optional[str] = Form(None),
     save_as_template: bool = Form(False),
+    # See routers/uploads.py's identical parameter for the full rationale:
+    # skips applying a saved template to this one upload without touching
+    # what's stored — save_as_template is still the only thing that
+    # overwrites it.
+    ignore_saved_template: bool = Form(False),
     file: UploadFile = File(...),
     repo: RatingsRepository = Depends(get_ratings_repository),
     templates_repo: MappingTemplatesRepository = Depends(get_mapping_templates_repository),
@@ -103,11 +117,15 @@ async def upload_ratings_dataset(
     Streamlit ratings flow uses) via app/parsing.py, rather than requiring
     rows as a JSON array like POST /ratings-datasets does. source_label works
     the same way as on the media-report upload endpoints: a saved
-    mapping_template for that label is applied instead of auto-detection,
-    and a not-yet-seen label (or save_as_template=true) saves the mapping
-    actually used — see routers/uploads.py for the shared rationale."""
+    mapping_template for that label is applied instead of auto-detection
+    (unless ignore_saved_template skips it for this one upload), and a
+    not-yet-seen label (or save_as_template=true) saves the mapping
+    actually used — see routers/uploads.py for the shared rationale. The
+    response's mappingWarnings names any field where the template's column
+    disagreed with fresh auto-detection for this file (also shared with
+    routers/uploads.py — see parsing.py's MappingWarning)."""
     existing_template = templates_repo.get_by_source_label(source_label) if source_label else None
-    mapping_override = existing_template.field_mapping if existing_template else None
+    mapping_override = existing_template.field_mapping if existing_template and not ignore_saved_template else None
 
     data = await file.read()
     file_name = file.filename or 'uploaded_file'
@@ -130,7 +148,11 @@ async def upload_ratings_dataset(
     elif source_label:
         templates_repo.touch_used(source_label)
 
-    return _dataset_to_out(repo.create_dataset(payload, extra_invalid_rows=parsed.dropped_invalid_rows), issues=parsed.issues)
+    return _dataset_to_out(
+        repo.create_dataset(payload, extra_invalid_rows=parsed.dropped_invalid_rows),
+        issues=parsed.issues,
+        mapping_warnings=parsed.mapping_warnings,
+    )
 
 
 @router.get('/ratings-datasets/{ratings_dataset_id}/rows', response_model=list[RatingRowOut])

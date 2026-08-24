@@ -9,7 +9,8 @@ import {
   listRatingsLibrary,
   uploadRatingsFile,
 } from '../api/client';
-import type { Project, RatingRow, RatingsDataset, RatingsRowIssue } from '../api/contracts';
+import type { MappingWarning, Project, RatingRow, RatingsDataset, RatingsRowIssue } from '../api/contracts';
+import { describeMappingWarning } from '../mappingWarnings';
 import { LimitedRows, LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 
 // Mirrors services/api/app/repositories/ratings.py's _row_is_invalid() and
@@ -139,6 +140,7 @@ export default function RatingsSection({ project }: { project: Project | null })
   const [defaultMedium, setDefaultMedium] = useState('TV');
   const [sourceLabel, setSourceLabel] = useState('');
   const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+  const [ignoreSavedTemplate, setIgnoreSavedTemplate] = useState(false);
   const [knownSourceLabels, setKnownSourceLabels] = useState<string[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
@@ -150,6 +152,10 @@ export default function RatingsSection({ project }: { project: Project | null })
   // on the next upload attempt so stale detail doesn't linger.
   const [uploadIssues, setUploadIssues] = useState<RatingsRowIssue[]>([]);
   const [uploadIssuesTotal, setUploadIssuesTotal] = useState(0);
+  // A saved mapping template disagreeing with fresh auto-detection for a
+  // field on this upload — see api/contracts.ts's MappingWarning. Clears
+  // on the next upload attempt, same as uploadIssues above.
+  const [uploadMappingWarnings, setUploadMappingWarnings] = useState<MappingWarning[]>([]);
 
   const [attachSelection, setAttachSelection] = useState('');
   const [isAttaching, setIsAttaching] = useState(false);
@@ -248,6 +254,7 @@ export default function RatingsSection({ project }: { project: Project | null })
     setUploadSuccess(null);
     setUploadIssues([]);
     setUploadIssuesTotal(0);
+    setUploadMappingWarnings([]);
     try {
       const dataset = await uploadRatingsFile({
         provider,
@@ -256,6 +263,7 @@ export default function RatingsSection({ project }: { project: Project | null })
         file,
         sourceLabel: sourceLabel.trim() || undefined,
         saveAsTemplate,
+        ignoreSavedTemplate,
       });
       await attachRatingsDataset(project.projectId, dataset.ratingsDatasetId);
       setUploadSuccess(
@@ -265,6 +273,7 @@ export default function RatingsSection({ project }: { project: Project | null })
       );
       setUploadIssues(dataset.issues ?? []);
       setUploadIssuesTotal(dataset.invalidRows);
+      setUploadMappingWarnings(dataset.mappingWarnings);
       setFile(null);
       setFileInputKey((key) => key + 1);
       if (sourceLabel.trim()) {
@@ -385,6 +394,25 @@ export default function RatingsSection({ project }: { project: Project | null })
                 ? 'A saved mapping exists for this label — it will be applied automatically.'
                 : 'A new label saves the mapping this file actually uses, so later uploads from the same source map automatically.'}
             </p>
+            {knownSourceLabels.includes(sourceLabel.trim()) && (
+              <>
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={ignoreSavedTemplate}
+                    onChange={(event) => setIgnoreSavedTemplate(event.target.checked)}
+                  />
+                  Ignore the saved mapping for this upload — use fresh auto-detection instead
+                </label>
+                <p className="field-hint">
+                  {ignoreSavedTemplate
+                    ? saveAsTemplate
+                      ? 'This upload will detect columns fresh and overwrite the saved mapping with what it finds — use this to fix a stale template.'
+                      : "This upload will detect columns fresh, but the saved mapping stays as-is for next time. Check \"Remember this column mapping\" too if the saved one is actually wrong."
+                    : ''}
+                </p>
+              </>
+            )}
             <label>
               File (.xlsx, .xls, or .csv — Channel, Day, Programme, Rating columns)
               <input
@@ -404,6 +432,16 @@ export default function RatingsSection({ project }: { project: Project | null })
             </div>
             {uploadError && <p className="inline-error">{uploadError}</p>}
             {uploadSuccess && <p className="empty-state">{uploadSuccess}</p>}
+            {uploadMappingWarnings.length > 0 && (
+              <div className="inline-warning">
+                <strong>Mapping template may be stale:</strong>
+                <ul>
+                  {uploadMappingWarnings.map((warning) => (
+                    <li key={warning.field}>{describeMappingWarning(warning)}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </form>
         )}
 

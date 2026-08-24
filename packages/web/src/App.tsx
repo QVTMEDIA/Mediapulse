@@ -33,7 +33,8 @@ import {
   setAuthToken,
   uploadMediaReport,
 } from './api/client';
-import type { AuthSession, Brand, Project, UploadKind, User } from './api/contracts';
+import type { AuthSession, Brand, MappingWarning, Project, UploadKind, User } from './api/contracts';
+import { describeMappingWarning } from './mappingWarnings';
 import ActivitySection from './sections/ActivitySection';
 import ExportsSection from './sections/ExportsSection';
 import MatchesSection from './sections/MatchesSection';
@@ -209,11 +210,13 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
   const [uploadDefaultMedium, setUploadDefaultMedium] = useState('TV');
   const [uploadSourceLabel, setUploadSourceLabel] = useState('');
   const [uploadSaveAsTemplate, setUploadSaveAsTemplate] = useState(false);
+  const [uploadIgnoreSavedTemplate, setUploadIgnoreSavedTemplate] = useState(false);
   const [knownSourceLabels, setKnownSourceLabels] = useState<string[]>([]);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [uploadMappingWarnings, setUploadMappingWarnings] = useState<MappingWarning[]>([]);
 
   const refreshProjects = useCallback(async (search: string) => {
     setProjectsLoading(true);
@@ -354,6 +357,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
     setIsUploading(true);
     setUploadError(null);
     setUploadSuccess(null);
+    setUploadMappingWarnings([]);
     try {
       const result = await uploadMediaReport(activeProject.projectId, {
         kind: uploadKind,
@@ -362,12 +366,14 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
         file: uploadFile,
         sourceLabel: uploadSourceLabel.trim() || undefined,
         saveAsTemplate: uploadSaveAsTemplate,
+        ignoreSavedTemplate: uploadIgnoreSavedTemplate,
       });
       setUploadSuccess(
         `Uploaded ${result.fileName}: ${result.mappedRows} row${result.mappedRows === 1 ? '' : 's'} mapped` +
           (result.issueRows ? `, ${result.issueRows} skipped with issues.` : '.') +
           ' Click Calculate to include it in a run.',
       );
+      setUploadMappingWarnings(result.mappingWarnings);
       setUploadFile(null);
       setFileInputKey((key) => key + 1);
       if (uploadSourceLabel.trim()) {
@@ -652,6 +658,25 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
                     ? 'A saved mapping exists for this label — it will be applied automatically.'
                     : 'A new label saves the mapping this file actually uses, so later uploads from the same source map automatically.'}
                 </p>
+                {knownSourceLabels.includes(uploadSourceLabel.trim()) && (
+                  <>
+                    <label className="checkbox-field">
+                      <input
+                        type="checkbox"
+                        checked={uploadIgnoreSavedTemplate}
+                        onChange={(event) => setUploadIgnoreSavedTemplate(event.target.checked)}
+                      />
+                      Ignore the saved mapping for this upload — use fresh auto-detection instead
+                    </label>
+                    <p className="field-hint">
+                      {uploadIgnoreSavedTemplate
+                        ? uploadSaveAsTemplate
+                          ? 'This upload will detect columns fresh and overwrite the saved mapping with what it finds — use this to fix a stale template.'
+                          : "This upload will detect columns fresh, but the saved mapping stays as-is for next time. Check \"Remember this column mapping\" too if the saved one is actually wrong."
+                        : ''}
+                    </p>
+                  </>
+                )}
 
                 <label>
                   File
@@ -677,6 +702,16 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
                 </div>
                 {uploadError && <p className="inline-error">{uploadError}</p>}
                 {uploadSuccess && <p className="empty-state">{uploadSuccess}</p>}
+                {uploadMappingWarnings.length > 0 && (
+                  <div className="inline-warning">
+                    <strong>Mapping template may be stale:</strong>
+                    <ul>
+                      {uploadMappingWarnings.map((warning) => (
+                        <li key={warning.field}>{describeMappingWarning(warning)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </form>
             )}
 

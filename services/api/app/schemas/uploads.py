@@ -1,7 +1,9 @@
 from datetime import date, datetime
-from typing import Optional
+from typing import List, Optional
 
-from .common import CamelModel
+from pydantic import Field
+
+from .common import CamelModel, MappingWarningOut
 
 
 class UploadBatchOut(CamelModel):
@@ -15,6 +17,11 @@ class UploadBatchOut(CamelModel):
     mapped_rows: int
     issue_rows: int
     uploaded_at: datetime
+    # Only ever populated on the response to POST .../uploads (this upload's
+    # own parse) — GET .../uploads (listing past uploads) always leaves this
+    # empty, since it isn't persisted anywhere to look up again later, same
+    # reasoning as RatingsDatasetOut.issues.
+    mapping_warnings: List[MappingWarningOut] = Field(default_factory=list)
 
 
 class MediaActivityRowOut(CamelModel):

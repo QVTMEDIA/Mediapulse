@@ -90,6 +90,74 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(suggestions.loc[0, 'Confidence'], 'High')
         self.assertEqual(suggestions.loc[0, 'Suggestion Basis'], 'Same medium, channel, and day')
 
+    def test_unrelated_station_with_matching_generic_programme_gets_no_suggestion(self):
+        # Regression for a real false positive: two completely unrelated
+        # stations ("Cool FM Lagos" vs a rating on "Human Rights FM Abuja")
+        # scored 91-100% "High confidence" purely because both happened to
+        # share the generic Programme value "ROS" (Run of Schedule -- no
+        # specific programme). The "same medium and day" tier doesn't
+        # require the channel to match at all, so with no station signal
+        # blended into the score, a coincidental programme-text match was
+        # enough to fabricate a confident-looking suggestion.
+        ratings = pd.DataFrame({
+            'Medium': ['Radio'],
+            'Channel / Station': ['Human Rights FM Abuja'],
+            'Day': ['Mon'],
+            'Programme / Time Band': ['ROS'],
+            'Rating (%)': [0.0],
+        })
+        ratings['Match Key'] = calc.make_key(
+            ratings['Medium'], ratings['Channel / Station'], ratings['Day'], ratings['Programme / Time Band']
+        )
+        media = pd.DataFrame({
+            'Brand': ['Brand A'],
+            'Source File': ['spend.xlsx'],
+            'Medium': ['Radio'],
+            'Channel / Station': ['Cool FM Lagos'],
+            'Day': ['Monday'],
+            'Programme / Time Band': ['ROS'],
+            'Match Status': ['NO RATING MATCH'],
+            'Match Key': ['RADIO|COOL FM LAGOS|MON|ROS'],
+        })
+
+        suggestions = calc.build_unmatched_suggestions(media, ratings)
+
+        self.assertEqual(len(suggestions), 0)
+
+    def test_unmatched_suggestion_still_scores_high_for_a_real_station_near_match(self):
+        # "AIT Lagos" is a real near-match for a rating on plain "AIT" --
+        # station-similarity blending must not punish a station name that's
+        # a superset of the rating's (extra city/state words), only one
+        # that shares nothing with it. Mirrors the fixture in
+        # services/api/tests/test_matches.py.
+        ratings = pd.DataFrame({
+            'Medium': ['TV'],
+            'Channel / Station': ['AIT'],
+            'Day': ['Tue'],
+            'Programme / Time Band': ['News'],
+            'Rating (%)': [2.1],
+        })
+        ratings['Match Key'] = calc.make_key(
+            ratings['Medium'], ratings['Channel / Station'], ratings['Day'], ratings['Programme / Time Band']
+        )
+        media = pd.DataFrame({
+            'Brand': ['Brand A'],
+            'Source File': ['spend.xlsx'],
+            'Medium': ['TV'],
+            'Channel / Station': ['AIT Lagos'],
+            'Day': ['Tuesday'],
+            'Programme / Time Band': ['News'],
+            'Match Status': ['NO RATING MATCH'],
+            'Match Key': ['TV|AIT LAGOS|TUE|NEWS'],
+        })
+
+        suggestions = calc.build_unmatched_suggestions(media, ratings)
+
+        self.assertEqual(len(suggestions), 1)
+        self.assertAlmostEqual(suggestions.loc[0, 'Similarity Score'], 1.0)
+        self.assertEqual(suggestions.loc[0, 'Confidence'], 'High')
+        self.assertEqual(suggestions.loc[0, 'Suggestion Basis'], 'Same medium and day')
+
     def test_unmatched_suggestions_are_empty_without_ratings(self):
         media = pd.DataFrame({
             'Match Status': ['NO RATING MATCH'],

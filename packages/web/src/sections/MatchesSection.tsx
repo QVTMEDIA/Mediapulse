@@ -47,6 +47,18 @@ function describeRating(row?: RatingRow) {
   return `${row.station} · ${row.day} · ${row.programme || 'No programme'} · ${rating}`;
 }
 
+// A confirmed/manual match's matchedRatingId can be genuinely absent -- a
+// human explicitly confirmed "no rating applies here" (see MatchCorrection's
+// docstring) -- which reads very differently from describeRating's "no
+// longer available" (a rating id is set, but that row can't be found
+// anymore, e.g. its dataset was detached). Keeping the two messages
+// distinct instead of collapsing both into "no longer available" is the
+// whole point of showing the matched rating detail on confirmed rows at all.
+function describeMatchedRating(match: RatingMatch, ratingsById: Map<string, RatingRow>) {
+  if (!match.matchedRatingId) return 'Confirmed as unmatched — no rating assigned';
+  return describeRating(ratingsById.get(match.matchedRatingId));
+}
+
 export default function MatchesSection({ project }: { project: Project | null }) {
   const [matches, setMatches] = useState<RatingMatch[]>([]);
   const [activityById, setActivityById] = useState<Map<string, MediaActivityRow>>(new Map());
@@ -324,14 +336,18 @@ export default function MatchesSection({ project }: { project: Project | null })
           </div>
           <div className="match-list">
             {!loading && resolved.length === 0 && <p className="empty-state">No confirmed matches yet.</p>}
-            {limitedResolved.visibleRows.map((match) => (
-              <div className="match-row" key={match.ratingMatchId}>
-                <div className="match-row-main">
-                  <span className={STATUS_CLASS[match.matchStatus]}>{STATUS_LABEL[match.matchStatus]}</span>
+            {limitedResolved.visibleRows.map((match) => {
+              const activity = activityById.get(match.mediaActivityId);
+              return (
+                <div className="match-row" key={match.ratingMatchId}>
+                  <div className="match-row-main">
+                    <span className={STATUS_CLASS[match.matchStatus]}>{STATUS_LABEL[match.matchStatus]}</span>
+                  </div>
+                  <p className="match-input">Activity: {describeActivity(activity)}</p>
+                  <p className="match-suggestion">Rating: {describeMatchedRating(match, ratingsById)}</p>
                 </div>
-                <p className="match-input">{describeActivity(activityById.get(match.mediaActivityId))}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <LimitedRowsControls {...limitedResolved} total={resolved.length} />
         </div>}

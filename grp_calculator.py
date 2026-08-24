@@ -821,13 +821,31 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         )
         if not extracted:
             continue
-        ranked_candidates = sorted(
-            (
-                candidate_rows[index],
-                score / 100,
-            )
-            for _value, score, index in extracted
-        )
+
+        # Programme-text similarity alone can't tell "AIT Lagos" (a
+        # legitimate near-match for a rating on "AIT") apart from "Cool FM
+        # Lagos" landing on a rating for "Human Rights FM Abuja" purely
+        # because both happen to share a generic Programme value like "ROS"
+        # -- in the "Same medium and day" tier, station isn't part of the
+        # lookup key at all, so nothing else ties the suggestion back to a
+        # plausible station. Blending in station-name similarity
+        # (token_set_ratio, so a station's extra city/state words -- "AIT
+        # Lagos" vs "AIT" -- don't tank a real near-match the way a plain
+        # ratio would) fixes that: a station with nothing in common with
+        # the input now drags the score down instead of inheriting a
+        # confidence it never earned from the programme text alone. This is
+        # a no-op for the "same channel" tiers above, where every candidate
+        # already shares the input's normalized channel and so scores 1.0.
+        blended_candidates = []
+        for _value, programme_score, index in extracted:
+            candidate = candidate_rows[index]
+            channel_similarity = fuzz.token_set_ratio(channel_norm, normalize_text(candidate[2])) / 100
+            blended_score = (programme_score / 100) * channel_similarity
+            if blended_score >= min_score:
+                blended_candidates.append((candidate, blended_score))
+        if not blended_candidates:
+            continue
+        ranked_candidates = sorted(blended_candidates, key=lambda item: item[1], reverse=True)
         selected_candidates = []
         seen_candidates = set()
         for candidate, score in ranked_candidates:

@@ -24,6 +24,14 @@ class GrpRunSummaryOut(CamelModel):
     generated_at: datetime
 
 
+class CalculationJobOut(CamelModel):
+    job_id: str
+    project_id: str
+    status: str  # 'queued' | 'running' | 'completed' | 'failed'
+    error: Optional[str] = None
+    run: Optional[GrpRunSummaryOut] = None
+
+
 class GrpCalculationRowOut(CamelModel):
     grp_calculation_id: str
     run_id: str

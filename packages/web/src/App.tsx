@@ -21,16 +21,17 @@ import AuthScreen from './AuthScreen';
 import {
   ApiError,
   archiveProject,
-  calculateProject,
   createBrand,
   createProject,
   getAuthToken,
+  getCalculationJob,
   getCurrentUser,
   listBrands,
   listMappingTemplates,
   listProjects,
   onAuthTokenRejected,
   setAuthToken,
+  startCalculationJob,
   uploadMediaReport,
 } from './api/client';
 import type { AuthSession, Brand, MappingWarning, Project, UploadKind, User } from './api/contracts';
@@ -315,7 +316,18 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
     setIsCalculating(true);
     setCalculateError(null);
     try {
-      await calculateProject(activeProject.projectId);
+      const job = await startCalculationJob(activeProject.projectId);
+      let jobResult = job;
+      while (jobResult.status === 'queued' || jobResult.status === 'running') {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        jobResult = await getCalculationJob(activeProject.projectId, job.jobId);
+      }
+      if (jobResult.status === 'failed') {
+        throw new ApiError(500, jobResult.error ?? 'Calculation failed.');
+      }
+      if (!jobResult.run) {
+        throw new ApiError(500, 'Calculation completed without a run.');
+      }
       setProjectDataVersion((current) => current + 1);
     } catch (error) {
       setCalculateError(error instanceof ApiError ? error.message : 'Could not calculate GRPs.');

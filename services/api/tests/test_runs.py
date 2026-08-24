@@ -1,4 +1,5 @@
 import io
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -102,6 +103,42 @@ def test_calculate_computes_matches_implicitly_without_prior_get(client, project
     response = client.post(f"/api/projects/{project['projectId']}/calculate")
     assert response.status_code == 201
     assert response.json()['matchedRows'] == 2
+
+
+def test_calculate_job_completes_and_returns_run(client, project):
+    brand = _brand(client, project['projectId'], 'Brand A')
+    _upload(client, project['projectId'], brand['brandId'], BRAND_A_CSV)
+    _attach_ratings(client, project['projectId'], BRAND_A_RATINGS)
+
+    response = client.post(f"/api/projects/{project['projectId']}/calculate/jobs")
+    assert response.status_code == 202
+    job = response.json()
+    assert job['status'] in ('queued', 'running', 'completed')
+    assert job['run'] is None or job['run']['projectId'] == project['projectId']
+
+    for _ in range(40):
+        if job['status'] in ('completed', 'failed'):
+            break
+        time.sleep(0.05)
+        job = client.get(f"/api/projects/{project['projectId']}/calculate/jobs/{job['jobId']}").json()
+
+    assert job['status'] == 'completed'
+    assert job['run']['matchedRows'] == 2
+    assert job['run']['unmatchedRows'] == 0
+    assert job['run']['totalGrps'] == pytest.approx(8.6)
+
+    latest = client.get(f"/api/projects/{project['projectId']}/runs/latest").json()
+    assert latest['runId'] == job['run']['runId']
+
+
+def test_calculate_job_rejects_missing_project(client):
+    response = client.post('/api/projects/does-not-exist/calculate/jobs')
+    assert response.status_code == 404
+
+
+def test_calculate_job_poll_rejects_missing_job(client, project):
+    response = client.get(f"/api/projects/{project['projectId']}/calculate/jobs/does-not-exist")
+    assert response.status_code == 404
 
 
 def test_calculate_with_no_ratings_leaves_everything_unmatched(client, project):

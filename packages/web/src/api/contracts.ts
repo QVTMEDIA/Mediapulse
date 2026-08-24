@@ -129,6 +129,14 @@ export interface GrpRunSummary {
   generatedAt: string;
 }
 
+export interface CalculationJob {
+  jobId: string;
+  projectId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  error: string | null;
+  run: GrpRunSummary | null;
+}
+
 export interface BrandShare {
   runId: string;
   brandId: string;

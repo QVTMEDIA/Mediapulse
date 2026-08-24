@@ -206,6 +206,16 @@ Persisted by `POST /calculate` (one row per matched `media_activity` row — unm
 - `isCurrent` (the run `GET .../runs/latest` returns — the newest run unless a version-history restore pinned it back to an older one)
 - `generatedAt`
 
+### CalculationJob
+
+`POST /api/projects/{projectId}/calculate/jobs` starts the same calculation as `POST /calculate`, but in a background job so the browser is not tied to one long-running request. `GET /api/projects/{projectId}/calculate/jobs/{jobId}` returns the current job state; `run` is populated with a `GrpRunSummary` when the job completes. The Vite/React frontend uses this route for the main Calculate button.
+
+- `jobId`
+- `projectId`
+- `status` (`queued` | `running` | `completed` | `failed`)
+- `error`
+- `run`
+
 ### BrandShare
 
 Per-brand rollup for a run, backing the SOV chart and brand comparison screen.
@@ -365,6 +375,8 @@ POST   /api/projects/{projectId}/matches/recompute
 GET    /api/projects/{projectId}/matches/export
 
 POST   /api/projects/{projectId}/calculate
+POST   /api/projects/{projectId}/calculate/jobs
+GET    /api/projects/{projectId}/calculate/jobs/{jobId}
 GET    /api/projects/{projectId}/runs
 GET    /api/projects/{projectId}/runs/latest
 GET    /api/projects/{projectId}/runs/{runId}/brand-shares

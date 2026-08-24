@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_user
 from ..calculations import compute_run
+from ..calculation_jobs import get_calculation_job, start_calculation_job
 from ..repositories.brands import BrandsRepository, get_brands_repository
 from ..repositories.calculations import CalculationsRepository, get_calculations_repository
 from ..repositories.matches import MatchesRepository, get_matches_repository
@@ -10,6 +11,7 @@ from ..repositories.ratings import RatingsRepository, get_ratings_repository
 from ..repositories.uploads import UploadsRepository, get_uploads_repository
 from ..schemas.calculations import (
     BrandShareOut,
+    CalculationJobOut,
     DaypartShareOut,
     GrpCalculationRowOut,
     GrpRunSummaryOut,
@@ -48,6 +50,16 @@ def _run_to_out(record) -> GrpRunSummaryOut:
     )
 
 
+def _job_to_out(job) -> CalculationJobOut:
+    return CalculationJobOut(
+        job_id=job.id,
+        project_id=job.project_id,
+        status=job.status,
+        error=job.error,
+        run=_run_to_out(job.run) if job.run else None,
+    )
+
+
 @router.post('/calculate', response_model=GrpRunSummaryOut, status_code=201)
 def calculate(
     project_id: str,
@@ -75,6 +87,35 @@ def calculate(
     result = compute_run(media_activity, match_by_activity_id, rating_by_id)
     run_record = calculations_repo.create_run(project_id, result)
     return _run_to_out(run_record)
+
+
+@router.post('/calculate/jobs', response_model=CalculationJobOut, status_code=202)
+def start_calculate_job(
+    project_id: str,
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+    uploads_repo: UploadsRepository = Depends(get_uploads_repository),
+    ratings_repo: RatingsRepository = Depends(get_ratings_repository),
+    matches_repo: MatchesRepository = Depends(get_matches_repository),
+    calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
+):
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    job = start_calculation_job(project_id, uploads_repo, ratings_repo, matches_repo, calculations_repo)
+    return _job_to_out(job)
+
+
+@router.get('/calculate/jobs/{job_id}', response_model=CalculationJobOut)
+def get_calculate_job(
+    project_id: str,
+    job_id: str,
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+):
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    job = get_calculation_job(job_id)
+    if job is None or job.project_id != project_id:
+        raise HTTPException(status_code=404, detail='Calculation job not found for this project')
+    return _job_to_out(job)
 
 
 @router.get('/runs', response_model=list[GrpRunSummaryOut])

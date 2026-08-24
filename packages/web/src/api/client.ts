@@ -2,6 +2,7 @@ import type {
   AuthSession,
   Brand,
   BrandShare,
+  CalculationJob,
   DaypartShare,
   ExportJob,
   GrpCalculationRow,
@@ -193,6 +194,14 @@ export function listBrandShares(projectId: string, runId: string): Promise<Brand
 
 export function calculateProject(projectId: string): Promise<GrpRunSummary> {
   return request<GrpRunSummary>(`/api/projects/${projectId}/calculate`, { method: 'POST' });
+}
+
+export function startCalculationJob(projectId: string): Promise<CalculationJob> {
+  return request<CalculationJob>(`/api/projects/${projectId}/calculate/jobs`, { method: 'POST' });
+}
+
+export function getCalculationJob(projectId: string, jobId: string): Promise<CalculationJob> {
+  return request<CalculationJob>(`/api/projects/${projectId}/calculate/jobs/${jobId}`);
 }
 
 export function listBrands(projectId: string): Promise<Brand[]> {

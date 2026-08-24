@@ -122,10 +122,10 @@ def export_matches(
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow([
-        'Brand', 'Medium', 'Station', 'Day', 'Programme / Time Band', 'Spots', 'Cost',
+        'Brand', 'Medium', 'Station', 'Day', 'Programme', 'Time Band', 'Spots', 'Cost',
         'Match Status', 'Match Confidence',
-        'Matched Rating Station', 'Matched Rating Day', 'Matched Rating Programme / Time Band', 'Matched Rating (%)',
-        'Corrected At',
+        'Matched Rating Station', 'Matched Rating Day', 'Matched Rating Programme', 'Matched Rating Time Band',
+        'Matched Rating (%)', 'Corrected At',
     ])
     for match in records:
         activity = activity_by_id.get(match.media_activity_id)
@@ -136,6 +136,7 @@ def export_matches(
             activity.station if activity else '',
             activity.day if activity else '',
             activity.programme if activity else '',
+            activity.time_band if activity else '',
             activity.spots if activity else '',
             activity.cost if activity else None,
             match.match_status,
@@ -143,6 +144,7 @@ def export_matches(
             rating.station if rating else '',
             rating.day if rating else '',
             rating.programme if rating else '',
+            rating.time_band if rating else '',
             rating.rating if rating else None,
             match.corrected_at,
         ])

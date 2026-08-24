@@ -640,6 +640,97 @@ def header_row_selector(preview, suggested, key):
     )
 
 
+def uploaded_file_signature(uploaded):
+    return (
+        calc.uploaded_display_name(uploaded),
+        calc.upload_size(uploaded),
+    )
+
+
+def uploaded_files_signature(uploaded_files):
+    return tuple(uploaded_file_signature(uploaded) for uploaded in uploaded_files)
+
+
+def mapping_signature(mapping):
+    return tuple(sorted((field, str(column)) for field, column in mapping.items()))
+
+
+def reset_stage_if_inputs_changed(key, signature):
+    signature_key = f'{key}_signature'
+    ready_key = f'{key}_ready'
+    if st.session_state.get(signature_key) != signature:
+        st.session_state[signature_key] = signature
+        st.session_state[ready_key] = False
+    return ready_key
+
+
+def require_stage_action(key, signature, button_label, waiting_message):
+    ready_key = reset_stage_if_inputs_changed(key, signature)
+    if st.session_state.get(ready_key):
+        return True
+    st.info(waiting_message)
+    if st.button(button_label, key=f'{key}_button'):
+        st.session_state[ready_key] = True
+        return True
+    return False
+
+
+def render_upload_preflight(uploaded_files, key):
+    rows = []
+    valid = True
+    for uploaded in uploaded_files:
+        file_name = calc.uploaded_display_name(uploaded)
+        size_mb = calc.upload_size(uploaded) / (1024 * 1024)
+        try:
+            calc.validate_uploaded_file(uploaded)
+            sheets = calc.excel_workbook_profile(uploaded)
+            if sheets:
+                largest_sheet = max((sheet for sheet in sheets if sheet.get('cells')), key=lambda sheet: sheet['cells'], default=None)
+                rows.append({
+                    'File': file_name,
+                    'Size MB': round(size_mb, 2),
+                    'Sheets': len(sheets),
+                    'Largest Sheet': largest_sheet['name'] if largest_sheet else '',
+                    'Rows': largest_sheet['rows'] if largest_sheet else '',
+                    'Columns': largest_sheet['columns'] if largest_sheet else '',
+                    'Status': 'Ready',
+                })
+            else:
+                rows.append({
+                    'File': file_name,
+                    'Size MB': round(size_mb, 2),
+                    'Sheets': '',
+                    'Largest Sheet': '',
+                    'Rows': '',
+                    'Columns': '',
+                    'Status': 'Ready',
+                })
+        except Exception as exc:
+            valid = False
+            rows.append({
+                'File': file_name,
+                'Size MB': round(size_mb, 2),
+                'Sheets': '',
+                'Largest Sheet': '',
+                'Rows': '',
+                'Columns': '',
+                'Status': 'Blocked',
+            })
+            st.error(f'Could not validate {file_name}:\n\n{calc.friendly_upload_error(exc)}')
+
+    if rows:
+        with st.expander('Upload preflight', expanded=True):
+            st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
+    if not valid:
+        st.stop()
+    return require_stage_action(
+        key,
+        uploaded_files_signature(uploaded_files),
+        'Continue to interpretation',
+        'Files passed preflight. Continue when you are ready to inspect sheets, choose headers, and map columns.',
+    )
+
+
 def load_tabular_with_controls(uploaded, key, expected_fields, expanded=False):
     calc.validate_uploaded_file(uploaded)
     sheet_name = sheet_selector(uploaded, f'{key}_sheet')
@@ -1002,9 +1093,10 @@ if workflow_mode == 'Composite Report':
     )
     if not composite_files:
         st.stop()
+    if not render_upload_preflight(composite_files, 'composite_preflight'):
+        st.stop()
 
-    composite_reports = []
-    composite_issues = []
+    composite_inputs = []
     for idx, uploaded in enumerate(composite_files):
         file_name = calc.uploaded_display_name(uploaded)
         st.subheader(f'Composite {idx + 1}: {file_name}')
@@ -1047,6 +1139,26 @@ if workflow_mode == 'Composite Report':
             st.warning(f'Map either Rating or GRP for {file_name}.')
             continue
 
+        composite_inputs.append((raw, cmap, file_name, default_medium))
+
+    if not composite_inputs:
+        st.stop()
+
+    composite_signature = (
+        uploaded_files_signature(composite_files),
+        tuple((file_name, mapping_signature(cmap), default_medium) for _raw, cmap, file_name, default_medium in composite_inputs),
+    )
+    if not require_stage_action(
+        'composite_calculate',
+        composite_signature,
+        'Run composite calculation',
+        'Composite mapping is ready. Run calculation when you are ready to build the report.',
+    ):
+        st.stop()
+
+    composite_reports = []
+    composite_issues = []
+    for raw, cmap, file_name, default_medium in composite_inputs:
         report, issues = calc.build_composite_report(raw, cmap, file_name, default_medium)
         if len(issues):
             composite_issues.append(issues)
@@ -1083,6 +1195,8 @@ ratings_file = st.file_uploader('Upload programme ratings (.xlsx, .xls, or .csv)
 
 if not ratings_file:
     st.stop()
+if not render_upload_preflight([ratings_file], 'ratings_preflight'):
+    st.stop()
 
 try:
     ratings_raw = load_tabular_with_controls(
@@ -1110,6 +1224,15 @@ if any(rmap[x] == '-- none --' for x in ['channel', 'day', 'programme', 'rating'
     st.warning('Map all required ratings fields to continue.')
     st.stop()
 
+ratings_signature = (uploaded_file_signature(ratings_file), mapping_signature(rmap), ratings_default_medium)
+if not require_stage_action(
+    'ratings_build',
+    ratings_signature,
+    'Build ratings table',
+    'Ratings mapping is ready. Build the validated ratings table before moving to brand reports.',
+):
+    st.stop()
+
 ratings, invalid_ratings, dup_keys, ratings_lookup = calc.build_ratings_lookup(ratings_raw, rmap, ratings_default_medium)
 if ratings.empty:
     st.error('No valid ratings found. Ratings must be numeric values from 0 to 100.')
@@ -1131,11 +1254,12 @@ brand_files = st.file_uploader(
 )
 if not brand_files:
     st.stop()
+if not render_upload_preflight(brand_files, 'brand_preflight'):
+    st.stop()
 
 reuse_first_mapping = st.checkbox('Reuse the first compatible brand mapping for the remaining reports', value=True)
 
-all_reports = []
-report_issue_frames = []
+brand_inputs = []
 first_brand_mapping = None
 for idx, uploaded in enumerate(brand_files):
     file_name = calc.uploaded_display_name(uploaded)
@@ -1186,6 +1310,27 @@ for idx, uploaded in enumerate(brand_files):
     if first_brand_mapping is None:
         first_brand_mapping = bmap.copy()
 
+    brand_inputs.append((raw, bmap, file_name, brand_default_medium))
+
+if not brand_inputs:
+    st.stop()
+
+brand_signature = (
+    ratings_signature,
+    uploaded_files_signature(brand_files),
+    tuple((file_name, mapping_signature(bmap), default_medium) for _raw, bmap, file_name, default_medium in brand_inputs),
+)
+if not require_stage_action(
+    'brand_calculate',
+    brand_signature,
+    'Run matching and calculation',
+    'Brand mappings are ready. Run matching and calculation when you are ready to build the report.',
+):
+    st.stop()
+
+all_reports = []
+report_issue_frames = []
+for raw, bmap, file_name, brand_default_medium in brand_inputs:
     report, issues = calc.build_brand_report(raw, bmap, file_name, brand_default_medium)
     if len(issues):
         report_issue_frames.append(issues)

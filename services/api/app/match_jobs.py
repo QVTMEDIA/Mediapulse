@@ -15,6 +15,15 @@ class MatchJob:
     project_id: str
     status: str = 'queued'
     error: Optional[str] = None
+    # 'recompute' only (see _run_recompute) — total stays 0 for 'ensure', a
+    # single atomic repository call with no per-row loop up here to report
+    # progress from. total is set once, up front; processed advances by one
+    # per unmatched row visited (whether or not it ends up matched), so a
+    # polling client can render `processed / total` as a real percentage
+    # instead of an indeterminate spinner — the real bottleneck on a slow/
+    # cold-started backend is exactly this per-row persistence loop.
+    total: int = 0
+    processed: int = 0
 
 
 _jobs: dict[str, MatchJob] = {}
@@ -28,6 +37,20 @@ def _set_status(job_id: str, status: str, error: Optional[str] = None) -> None:
         if job:
             job.status = status
             job.error = error
+
+
+def _set_total(job_id: str, total: int) -> None:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job:
+            job.total = total
+
+
+def _increment_processed(job_id: str) -> None:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+        if job:
+            job.processed += 1
 
 
 def _run_ensure(job_id, project_id, matches_repo, uploads_repo, ratings_repo):
@@ -46,17 +69,18 @@ def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo)
     try:
         existing = matches_repo.list_matches(project_id)
         unmatched_by_activity_id = {m.media_activity_id: m for m in existing if m.match_status == 'unmatched'}
+        _set_total(job_id, len(unmatched_by_activity_id))
         if unmatched_by_activity_id:
             media_activity = uploads_repo.list_media_activity(project_id)
             unmatched_activity = [a for a in media_activity if a.id in unmatched_by_activity_id]
             rating_rows = ratings_repo.list_project_rating_rows(project_id)
             for result in compute_matches(unmatched_activity, rating_rows):
-                if result.match_status == 'unmatched':
-                    continue
-                existing_match = unmatched_by_activity_id[result.media_activity_id]
-                matches_repo.update_match(
-                    existing_match.id, result.matched_rating_id, result.match_status, result.match_confidence
-                )
+                if result.match_status != 'unmatched':
+                    existing_match = unmatched_by_activity_id[result.media_activity_id]
+                    matches_repo.update_match(
+                        existing_match.id, result.matched_rating_id, result.match_status, result.match_confidence
+                    )
+                _increment_processed(job_id)
         _set_status(job_id, 'completed')
     except Exception as exc:
         _set_status(job_id, 'failed', str(exc))

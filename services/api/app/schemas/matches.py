@@ -26,3 +26,9 @@ class MatchJobOut(CamelModel):
     project_id: str
     status: str  # 'queued' | 'running' | 'completed' | 'failed'
     error: Optional[str] = None
+    # Real progress for mode='recompute' jobs only — 'ensure' jobs (a single
+    # atomic repository call, no per-row loop to report from) always report
+    # 0/0. A polling client can render processed/total as a real percentage
+    # instead of an indeterminate spinner. See match_jobs.py's MatchJob.
+    total: int = 0
+    processed: int = 0

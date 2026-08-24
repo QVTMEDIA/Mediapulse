@@ -1,6 +1,8 @@
 import math
 import re
-from pathlib import Path
+import zipfile
+import xml.etree.ElementTree as ET
+from pathlib import Path, PurePosixPath
 
 import pandas as pd
 from rapidfuzz import process, fuzz
@@ -66,6 +68,10 @@ MAX_UPLOAD_SIZE_MB = 10
 MAX_UPLOAD_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 MAX_UPLOAD_ROWS = 100_000
 MAX_UPLOAD_COLUMNS = 100
+MAX_UPLOAD_CELLS = 2_000_000
+MAX_EXCEL_SHEETS = 12
+MAX_EXCEL_EXPANDED_SIZE_MB = 120
+MAX_EXCEL_EXPANDED_BYTES = MAX_EXCEL_EXPANDED_SIZE_MB * 1024 * 1024
 AUTH_SESSION_TIMEOUT_SECONDS = 8 * 60 * 60
 AUTH_MAX_FAILED_ATTEMPTS = 5
 AUTH_LOCKOUT_SECONDS = 5 * 60
@@ -489,6 +495,169 @@ def upload_size(uploaded):
     return int(size)
 
 
+def _local_xml_name(tag):
+    return str(tag).rsplit('}', 1)[-1]
+
+
+def _excel_column_number(cell_ref):
+    letters = re.match(r'\$?([A-Za-z]+)', str(cell_ref or ''))
+    if not letters:
+        return 1
+    value = 0
+    for letter in letters.group(1).upper():
+        value = value * 26 + (ord(letter) - ord('A') + 1)
+    return max(value, 1)
+
+
+def _excel_row_number(cell_ref):
+    digits = re.search(r'(\d+)', str(cell_ref or ''))
+    return max(int(digits.group(1)), 1) if digits else 1
+
+
+def _excel_dimension_shape(ref):
+    text = str(ref or '').replace('$', '').strip()
+    if not text:
+        return None, None
+    # Excel dimensions can be a single cell ("A1") or a range ("A1:H200").
+    # For disjoint ranges, use the last coordinate in the first range as the
+    # used-range boundary; pandas will enforce the exact shape after parsing.
+    first_range = text.split(' ', 1)[0]
+    parts = first_range.split(':', 1)
+    start = parts[0]
+    end = parts[-1]
+    rows = _excel_row_number(end) - _excel_row_number(start) + 1
+    columns = _excel_column_number(end) - _excel_column_number(start) + 1
+    return max(rows, 1), max(columns, 1)
+
+
+def _relationship_target(base_path, target):
+    target = str(target or '').strip()
+    if not target:
+        return ''
+    if target.startswith('/'):
+        return target.lstrip('/')
+    return str(PurePosixPath(base_path).parent / target)
+
+
+def _workbook_relationships(workbook_zip):
+    rels_path = 'xl/_rels/workbook.xml.rels'
+    if rels_path not in workbook_zip.namelist():
+        return {}
+    root = ET.fromstring(workbook_zip.read(rels_path))
+    relationships = {}
+    for rel in root:
+        if _local_xml_name(rel.tag) != 'Relationship':
+            continue
+        rel_id = rel.attrib.get('Id')
+        target = _relationship_target('xl/workbook.xml', rel.attrib.get('Target'))
+        if rel_id and target:
+            relationships[rel_id] = target
+    return relationships
+
+
+def _sheet_dimensions(workbook_zip, sheet_path):
+    try:
+        with workbook_zip.open(sheet_path) as sheet_file:
+            for _event, element in ET.iterparse(sheet_file, events=('start',)):
+                tag_name = _local_xml_name(element.tag)
+                if tag_name == 'dimension':
+                    return _excel_dimension_shape(element.attrib.get('ref', ''))
+                if tag_name == 'sheetData':
+                    break
+    except (KeyError, ET.ParseError, zipfile.BadZipFile):
+        return None, None
+    return None, None
+
+
+def _xlsx_workbook_profile(uploaded):
+    uploaded.seek(0)
+    try:
+        with zipfile.ZipFile(uploaded) as workbook_zip:
+            infos = workbook_zip.infolist()
+            expanded_bytes = sum(info.file_size for info in infos)
+            if expanded_bytes > MAX_EXCEL_EXPANDED_BYTES:
+                expanded_mb = expanded_bytes / (1024 * 1024)
+                raise ValueError(
+                    f'{uploaded_display_name(uploaded)} expands to about {expanded_mb:.1f} MB when opened. '
+                    f'The Excel expanded-workbook limit is {MAX_EXCEL_EXPANDED_SIZE_MB} MB.'
+                )
+            workbook_path = 'xl/workbook.xml'
+            if workbook_path not in workbook_zip.namelist():
+                raise ValueError(f'{uploaded_display_name(uploaded)} is not a valid .xlsx workbook.')
+            relationships = _workbook_relationships(workbook_zip)
+            root = ET.fromstring(workbook_zip.read(workbook_path))
+            sheets = []
+            for sheet in root.iter():
+                if _local_xml_name(sheet.tag) != 'sheet':
+                    continue
+                rel_id = sheet.attrib.get('{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id')
+                sheet_path = relationships.get(rel_id, '')
+                rows, columns = _sheet_dimensions(workbook_zip, sheet_path) if sheet_path else (None, None)
+                sheets.append({
+                    'name': sheet.attrib.get('name', f'Sheet {len(sheets) + 1}'),
+                    'path': sheet_path,
+                    'rows': rows,
+                    'columns': columns,
+                    'cells': rows * columns if rows and columns else None,
+                })
+            if len(sheets) > MAX_EXCEL_SHEETS:
+                raise ValueError(
+                    f'{uploaded_display_name(uploaded)} has {len(sheets):,} worksheets. '
+                    f'The limit is {MAX_EXCEL_SHEETS:,}; remove unused sheets before uploading.'
+                )
+            return sheets
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f'{uploaded_display_name(uploaded)} could not be opened as a valid .xlsx workbook.') from exc
+    except ET.ParseError as exc:
+        raise ValueError(f'{uploaded_display_name(uploaded)} has unreadable workbook metadata.') from exc
+    finally:
+        uploaded.seek(0)
+
+
+def excel_workbook_profile(uploaded):
+    if not str(uploaded.name).lower().endswith('.xlsx'):
+        return []
+    return _xlsx_workbook_profile(uploaded)
+
+
+def _selected_excel_sheet_profile(uploaded, sheet_name=None):
+    profiles = excel_workbook_profile(uploaded)
+    if not profiles:
+        return None
+    if sheet_name is None:
+        return profiles[0]
+    for profile in profiles:
+        if profile['name'] == sheet_name:
+            return profile
+    raise ValueError(f'Worksheet "{sheet_name}" was not found in {uploaded_display_name(uploaded)}.')
+
+
+def validate_uploaded_sheet(uploaded, sheet_name=None):
+    profile = _selected_excel_sheet_profile(uploaded, sheet_name)
+    if profile is None:
+        return None
+    rows = profile.get('rows')
+    columns = profile.get('columns')
+    cells = profile.get('cells')
+    sheet_label = profile.get('name') or 'selected sheet'
+    if rows and rows > MAX_UPLOAD_ROWS + 1:
+        raise ValueError(
+            f'Worksheet "{sheet_label}" has about {rows:,} rows. '
+            f'The upload limit is {MAX_UPLOAD_ROWS:,} data rows.'
+        )
+    if columns and columns > MAX_UPLOAD_COLUMNS:
+        raise ValueError(
+            f'Worksheet "{sheet_label}" has about {columns:,} columns. '
+            f'The upload limit is {MAX_UPLOAD_COLUMNS:,} columns.'
+        )
+    if cells and cells > MAX_UPLOAD_CELLS:
+        raise ValueError(
+            f'Worksheet "{sheet_label}" has about {cells:,} used cells '
+            f'({rows:,} rows x {columns:,} columns). The safe processing limit is {MAX_UPLOAD_CELLS:,} cells.'
+        )
+    return profile
+
+
 def validate_uploaded_file(uploaded):
     file_name = uploaded_display_name(uploaded)
     suffix = Path(file_name).suffix.lower()
@@ -501,6 +670,8 @@ def validate_uploaded_file(uploaded):
     if size > MAX_UPLOAD_BYTES:
         size_mb = size / (1024 * 1024)
         raise ValueError(f'{file_name} is {size_mb:.1f} MB. The upload limit is {MAX_UPLOAD_SIZE_MB} MB.')
+    if suffix == '.xlsx':
+        excel_workbook_profile(uploaded)
     uploaded.seek(0)
 
 
@@ -508,7 +679,11 @@ def friendly_upload_error(error):
     message = str(error)
     hints = [
         f'Allowed files: {", ".join(ALLOWED_UPLOAD_SUFFIXES)}; .xlsm is blocked.',
-        f'Limits: {MAX_UPLOAD_SIZE_MB} MB, {MAX_UPLOAD_ROWS:,} rows, {MAX_UPLOAD_COLUMNS:,} columns.',
+        (
+            f'Limits: {MAX_UPLOAD_SIZE_MB} MB upload, {MAX_EXCEL_EXPANDED_SIZE_MB} MB expanded Excel, '
+            f'{MAX_UPLOAD_ROWS:,} rows, {MAX_UPLOAD_COLUMNS:,} columns, {MAX_UPLOAD_CELLS:,} cells per sheet.'
+        ),
+        'For very large reports, split by month, medium, or brand; CSV is safer than heavily formatted Excel.',
         'If the workbook has title rows, open Upload interpretation and select the real header row.',
         'Password-protected or corrupted workbooks cannot be read.',
     ]
@@ -519,6 +694,8 @@ def list_excel_sheets(uploaded):
     name = uploaded.name.lower()
     if not name.endswith(('.xlsx', '.xls')):
         return []
+    if name.endswith('.xlsx'):
+        return [profile['name'] for profile in excel_workbook_profile(uploaded)]
     uploaded.seek(0)
     try:
         return pd.ExcelFile(uploaded).sheet_names
@@ -566,6 +743,8 @@ def read_preview_table(uploaded, sheet_name=None, nrows=25):
     if name.endswith('.csv'):
         preview = pd.read_csv(uploaded, header=None, nrows=nrows)
     elif name.endswith(('.xlsx', '.xls')):
+        validate_uploaded_sheet(uploaded, sheet_name)
+        uploaded.seek(0)
         preview = pd.read_excel(uploaded, sheet_name=sheet_name or 0, header=None, nrows=nrows)
     else:
         raise ValueError('Unsupported file type')
@@ -597,6 +776,8 @@ def read_tabular(uploaded, sheet_name=None, header_row=0):
     if name.endswith('.csv'):
         df = pd.read_csv(uploaded, header=header_row, nrows=MAX_UPLOAD_ROWS + 1)
     elif name.endswith(('.xlsx', '.xls')):
+        validate_uploaded_sheet(uploaded, sheet_name)
+        uploaded.seek(0)
         df = pd.read_excel(uploaded, sheet_name=sheet_name or 0, header=header_row, nrows=MAX_UPLOAD_ROWS + 1)
     else:
         raise ValueError('Unsupported file type')

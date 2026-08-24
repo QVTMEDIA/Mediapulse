@@ -1,6 +1,8 @@
 import io
 import unittest
+import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -15,6 +17,57 @@ class NamedBytes(io.BytesIO):
     def __init__(self, payload, name):
         super().__init__(payload)
         self.name = name
+
+
+def minimal_xlsx(sheet_dimensions):
+    workbook_sheets = []
+    workbook_rels = []
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as workbook:
+        workbook.writestr('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types" />')
+        workbook.writestr(
+            '_rels/.rels',
+            (
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+                'Target="xl/workbook.xml" />'
+                '</Relationships>'
+            ),
+        )
+        for index, (sheet_name, dimension) in enumerate(sheet_dimensions, start=1):
+            workbook_sheets.append(f'<sheet name="{sheet_name}" sheetId="{index}" r:id="rId{index}" />')
+            workbook_rels.append(
+                f'<Relationship Id="rId{index}" '
+                'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                f'Target="worksheets/sheet{index}.xml" />'
+            )
+            workbook.writestr(
+                f'xl/worksheets/sheet{index}.xml',
+                (
+                    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                    f'<dimension ref="{dimension}" />'
+                    '<sheetData />'
+                    '</worksheet>'
+                ),
+            )
+        workbook.writestr(
+            'xl/workbook.xml',
+            (
+                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+                f'<sheets>{"".join(workbook_sheets)}</sheets>'
+                '</workbook>'
+            ),
+        )
+        workbook.writestr(
+            'xl/_rels/workbook.xml.rels',
+            (
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                f'{"".join(workbook_rels)}'
+                '</Relationships>'
+            ),
+        )
+    return buffer.getvalue()
 
 
 class GrpCalculatorTests(unittest.TestCase):
@@ -422,6 +475,39 @@ class GrpCalculatorTests(unittest.TestCase):
         uploaded = NamedBytes(b'not a real workbook', 'macro_report.xlsm')
         with self.assertRaisesRegex(ValueError, 'Macro-enabled'):
             calc.validate_uploaded_file(uploaded)
+
+    def test_xlsx_preflight_lists_sheet_names_and_dimensions(self):
+        uploaded = NamedBytes(minimal_xlsx([('Spend', 'A1:D12'), ('Ratings', 'A1:F40')]), 'media.xlsx')
+
+        calc.validate_uploaded_file(uploaded)
+        self.assertEqual(calc.list_excel_sheets(uploaded), ['Spend', 'Ratings'])
+
+        profile = calc.validate_uploaded_sheet(uploaded, 'Ratings')
+        self.assertEqual(profile['rows'], 40)
+        self.assertEqual(profile['columns'], 6)
+        self.assertEqual(profile['cells'], 240)
+
+    def test_xlsx_preflight_rejects_large_used_range_before_pandas(self):
+        uploaded = NamedBytes(minimal_xlsx([('Huge', 'A1:AZ100')]), 'huge.xlsx')
+        original_limit = calc.MAX_UPLOAD_CELLS
+        calc.MAX_UPLOAD_CELLS = 999
+        try:
+            with patch('grp_calculator.pd.read_excel') as read_excel:
+                with self.assertRaisesRegex(ValueError, 'safe processing limit'):
+                    calc.read_preview_table(uploaded, sheet_name='Huge')
+                read_excel.assert_not_called()
+        finally:
+            calc.MAX_UPLOAD_CELLS = original_limit
+
+    def test_xlsx_preflight_rejects_expanded_workbook_before_pandas(self):
+        uploaded = NamedBytes(minimal_xlsx([('Spend', 'A1:D12')]), 'expanded.xlsx')
+        original_limit = calc.MAX_EXCEL_EXPANDED_BYTES
+        calc.MAX_EXCEL_EXPANDED_BYTES = 100
+        try:
+            with self.assertRaisesRegex(ValueError, 'expanded-workbook limit'):
+                calc.validate_uploaded_file(uploaded)
+        finally:
+            calc.MAX_EXCEL_EXPANDED_BYTES = original_limit
 
     def test_derive_day_parses_iso_dates_without_dayfirst_ambiguity(self):
         # pandas' dayfirst=True (needed for DD/MM/YYYY-style input) silently

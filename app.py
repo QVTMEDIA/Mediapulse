@@ -643,6 +643,12 @@ def header_row_selector(preview, suggested, key):
 def load_tabular_with_controls(uploaded, key, expected_fields, expanded=False):
     calc.validate_uploaded_file(uploaded)
     sheet_name = sheet_selector(uploaded, f'{key}_sheet')
+    sheet_profile = calc.validate_uploaded_sheet(uploaded, sheet_name)
+    if sheet_profile and sheet_profile.get('rows') and sheet_profile.get('columns'):
+        st.caption(
+            f"Preflight passed: worksheet '{sheet_profile['name']}' has about "
+            f"{sheet_profile['rows']:,} rows x {sheet_profile['columns']:,} columns."
+        )
     preview = calc.read_preview_table(uploaded, sheet_name)
     if preview.empty:
         raise ValueError('The uploaded file does not contain any readable rows.')

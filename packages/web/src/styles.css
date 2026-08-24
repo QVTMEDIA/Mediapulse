@@ -204,6 +204,10 @@ button:disabled {
   justify-content: flex-end;
 }
 
+.match-export-bar {
+  margin-bottom: 16px;
+}
+
 .search-box {
   display: flex;
   align-items: center;

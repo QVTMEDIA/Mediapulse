@@ -1,3 +1,4 @@
+import csv
 import io
 import time
 
@@ -503,4 +504,41 @@ def test_recompute_is_a_noop_with_no_unmatched_rows(client, project, brand):
 
 def test_recompute_rejects_missing_project(client):
     response = client.post('/api/projects/does-not-exist/matches/recompute')
+    assert response.status_code == 404
+
+
+def test_export_matches_returns_csv_with_activity_and_rating_details(client, project, brand):
+    _upload(client, project['projectId'], brand['brandId'])
+    _attach_ratings(client, project['projectId'])
+
+    response = client.get(f"/api/projects/{project['projectId']}/matches/export")
+    assert response.status_code == 200
+    assert response.headers['content-type'].startswith('text/csv')
+    assert 'attachment' in response.headers['content-disposition']
+
+    rows = list(csv.reader(io.StringIO(response.text)))
+    header, body = rows[0], rows[1:]
+    assert header == [
+        'Brand', 'Medium', 'Station', 'Day', 'Programme / Time Band', 'Spots', 'Cost',
+        'Match Status', 'Match Confidence',
+        'Matched Rating Station', 'Matched Rating Day', 'Matched Rating Programme / Time Band', 'Matched Rating (%)',
+        'Corrected At',
+    ]
+    assert len(body) == 3  # matches UPLOAD_CSV's 3 rows: exact, suggested, unmatched
+
+    by_status = {row[7]: row for row in body}
+    exact_row = by_status['exact']
+    assert exact_row[1:5] == ['TV', 'TVC', 'Monday', 'Prime Time']  # Medium/Station/Day/Programme
+    assert exact_row[9] == 'TVC'  # Matched Rating Station
+    assert exact_row[12] == '1.2'  # Matched Rating (%)
+
+    suggested_row = by_status['suggested']
+    assert suggested_row[9] == 'AIT'  # matched to the near-match rating, not the input station
+
+    unmatched_row = by_status['unmatched']
+    assert unmatched_row[9] == ''  # no matched rating at all
+
+
+def test_export_matches_rejects_missing_project(client):
+    response = client.get('/api/projects/does-not-exist/matches/export')
     assert response.status_code == 404

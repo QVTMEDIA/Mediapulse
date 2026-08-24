@@ -385,13 +385,14 @@ export function createExport(projectId: string, runId?: string): Promise<ExportJ
   });
 }
 
-// The download route returns a raw .xlsx body, not JSON, and needs the
-// same bearer token as every other request — a plain <a href> can't attach
-// that header, so this fetches the bytes itself and hands the browser a
-// blob: URL to save, the standard workaround for an authenticated download.
-export async function downloadExport(job: ExportJob, suggestedFileName: string): Promise<void> {
+// A download route returns a raw file body, not JSON, and needs the same
+// bearer token as every other request — a plain <a href> can't attach that
+// header, so this fetches the bytes itself and hands the browser a blob:
+// URL to save, the standard workaround for an authenticated download.
+// Shared by every route that hands back a file rather than JSON.
+async function downloadFile(path: string, suggestedFileName: string): Promise<void> {
   const token = getAuthToken();
-  const response = await fetch(`${API_BASE_URL}${job.downloadUrl}`, {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!response.ok) {
@@ -406,4 +407,17 @@ export async function downloadExport(job: ExportJob, suggestedFileName: string):
   link.click();
   link.remove();
   URL.revokeObjectURL(blobUrl);
+}
+
+export function downloadExport(job: ExportJob, suggestedFileName: string): Promise<void> {
+  return downloadFile(job.downloadUrl, suggestedFileName);
+}
+
+// The Matches screen's own report: one flat CSV row per media-activity row,
+// its match status/confidence, and the rating it matched to — built fresh
+// on every call (GET .../matches/export), not a job like the Export Centre's
+// xlsx (there's no run-scoped snapshot to freeze; matching is live project
+// state, same reasoning as the Export Centre's "Unmatched Records" sheet).
+export function downloadMatchReport(projectId: string, suggestedFileName: string): Promise<void> {
+  return downloadFile(`/api/projects/${projectId}/matches/export`, suggestedFileName);
 }

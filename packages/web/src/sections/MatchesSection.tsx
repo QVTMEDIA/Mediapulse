@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Download } from 'lucide-react';
 import {
   ApiError,
   correctMatch,
+  downloadMatchReport,
   getMatchJob,
   listMatches,
   listMediaActivity,
@@ -13,6 +15,11 @@ import type { MediaActivityRow, Project, RatingMatch, RatingRow } from '../api/c
 import { LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 
 type MatchFilter = 'all' | 'matched' | 'suggested' | 'unmatched';
+
+function suggestedReportFileName(project: Project): string {
+  const safe = project.projectName.replace(/[^a-zA-Z0-9 _-]/g, '').trim().replace(/\s+/g, '_');
+  return `${safe || 'mediapulse'}_match_report.csv`;
+}
 
 function describeRatingOption(row: RatingRow) {
   const rating = row.rating === null ? 'no rating value' : row.rating;
@@ -70,6 +77,8 @@ export default function MatchesSection({ project }: { project: Project | null })
   const [isRecomputing, setIsRecomputing] = useState(false);
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({});
   const [matchFilter, setMatchFilter] = useState<MatchFilter>('all');
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const refresh = useCallback(async (projectId: string) => {
     setLoading(true);
@@ -152,6 +161,19 @@ export default function MatchesSection({ project }: { project: Project | null })
     }
   }
 
+  async function handleExportReport() {
+    if (!project) return;
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      await downloadMatchReport(project.projectId, suggestedReportFileName(project));
+    } catch (error) {
+      setExportError(error instanceof ApiError ? error.message : 'Could not download the match report.');
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
   if (!project) {
     return (
       <div className="panel placeholder-panel">
@@ -180,6 +202,20 @@ export default function MatchesSection({ project }: { project: Project | null })
 
   return (
     <>
+      <div className="toolbar match-export-bar">
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={isExporting || matches.length === 0}
+          title="Download a CSV of every media spend row alongside the rating it matched to"
+          onClick={handleExportReport}
+        >
+          <Download size={16} aria-hidden />
+          {isExporting ? 'Preparing…' : 'Download match report'}
+        </button>
+      </div>
+      {exportError && <p className="inline-error">{exportError}</p>}
+
       <section className="metric-grid" aria-label="Match summary">
         <div className="metric-panel">
           <span>Total Spots</span>

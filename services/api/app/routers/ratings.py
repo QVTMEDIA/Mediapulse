@@ -103,6 +103,11 @@ async def upload_ratings_dataset(
     default_medium: str = Form('TV'),
     source_label: Optional[str] = Form(None),
     save_as_template: bool = Form(False),
+    # See routers/uploads.py's identical parameter for the full rationale:
+    # skips applying a saved template to this one upload without touching
+    # what's stored — save_as_template is still the only thing that
+    # overwrites it.
+    ignore_saved_template: bool = Form(False),
     file: UploadFile = File(...),
     repo: RatingsRepository = Depends(get_ratings_repository),
     templates_repo: MappingTemplatesRepository = Depends(get_mapping_templates_repository),
@@ -112,14 +117,15 @@ async def upload_ratings_dataset(
     Streamlit ratings flow uses) via app/parsing.py, rather than requiring
     rows as a JSON array like POST /ratings-datasets does. source_label works
     the same way as on the media-report upload endpoints: a saved
-    mapping_template for that label is applied instead of auto-detection,
-    and a not-yet-seen label (or save_as_template=true) saves the mapping
+    mapping_template for that label is applied instead of auto-detection
+    (unless ignore_saved_template skips it for this one upload), and a
+    not-yet-seen label (or save_as_template=true) saves the mapping
     actually used — see routers/uploads.py for the shared rationale. The
     response's mappingWarnings names any field where the template's column
     disagreed with fresh auto-detection for this file (also shared with
     routers/uploads.py — see parsing.py's MappingWarning)."""
     existing_template = templates_repo.get_by_source_label(source_label) if source_label else None
-    mapping_override = existing_template.field_mapping if existing_template else None
+    mapping_override = existing_template.field_mapping if existing_template and not ignore_saved_template else None
 
     data = await file.read()
     file_name = file.filename or 'uploaded_file'

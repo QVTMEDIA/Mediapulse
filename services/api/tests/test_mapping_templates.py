@@ -207,3 +207,66 @@ def test_upload_reports_no_mapping_warning_when_template_agrees_with_auto_detect
     response = _upload_time_band_csv(client, project['projectId'], brand['brandId'], 'Agency A')
     assert response.status_code == 201
     assert response.json()['mappingWarnings'] == []
+
+
+def test_upload_ignore_saved_template_uses_fresh_auto_detection(client, project, brand):
+    # The actionable half of the warning above: ignore_saved_template skips
+    # *applying* the stale template for this one upload.
+    client.post(
+        '/api/mapping-templates',
+        json={'sourceLabel': 'Agency A', 'fieldMapping': {
+            'channel': 'Channel', 'programme': 'Programme', 'time_band': 'Time Belt',
+        }},
+    )
+    files = {'file': ('report.csv', io.BytesIO(TIME_BAND_UPLOAD_CSV), 'text/csv')}
+    response = client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={'brand_id': brand['brandId'], 'source_label': 'Agency A', 'ignore_saved_template': 'true'},
+    )
+    assert response.status_code == 201
+    assert response.json()['mappingWarnings'] == []  # nothing to disagree with once the template isn't applied
+
+    activity = client.get(f"/api/projects/{project['projectId']}/media-activity").json()
+    assert activity[0]['timeBand'] == '19:00-20:00'  # picked Timeband, not the stale Time Belt
+
+
+def test_upload_ignore_saved_template_alone_does_not_overwrite_the_stored_template(client, project, brand):
+    client.post(
+        '/api/mapping-templates',
+        json={'sourceLabel': 'Agency A', 'fieldMapping': {
+            'channel': 'Channel', 'programme': 'Programme', 'time_band': 'Time Belt',
+        }},
+    )
+    files = {'file': ('report.csv', io.BytesIO(TIME_BAND_UPLOAD_CSV), 'text/csv')}
+    client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={'brand_id': brand['brandId'], 'source_label': 'Agency A', 'ignore_saved_template': 'true'},
+    )
+
+    template = client.get('/api/mapping-templates/suggest', params={'sourceLabel': 'Agency A'}).json()
+    assert template['fieldMapping']['time_band'] == 'Time Belt'  # untouched — still stale for next time
+
+
+def test_upload_ignore_saved_template_with_save_as_template_fixes_it_in_place(client, project, brand):
+    # The one-shot repair workflow: both checkboxes together fix the stored
+    # template, not just this one upload.
+    client.post(
+        '/api/mapping-templates',
+        json={'sourceLabel': 'Agency A', 'fieldMapping': {
+            'channel': 'Channel', 'programme': 'Programme', 'time_band': 'Time Belt',
+        }},
+    )
+    files = {'file': ('report.csv', io.BytesIO(TIME_BAND_UPLOAD_CSV), 'text/csv')}
+    client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={
+            'brand_id': brand['brandId'], 'source_label': 'Agency A',
+            'ignore_saved_template': 'true', 'save_as_template': 'true',
+        },
+    )
+
+    template = client.get('/api/mapping-templates/suggest', params={'sourceLabel': 'Agency A'}).json()
+    assert template['fieldMapping']['time_band'] == 'Timeband'  # corrected

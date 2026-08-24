@@ -345,3 +345,24 @@ def test_upload_ratings_file_without_source_label_reports_no_mapping_warnings(cl
     response = _upload_ratings(client, content=TIME_BAND_RATINGS_CSV)
     assert response.status_code == 201
     assert response.json()['mappingWarnings'] == []
+
+
+def test_upload_ratings_file_ignore_saved_template_uses_fresh_auto_detection(client):
+    client.post(
+        '/api/mapping-templates',
+        json={'sourceLabel': 'Agency A', 'fieldMapping': {
+            'channel': 'Channel', 'programme': 'Programme', 'rating': 'Rating', 'time_band': 'Time Belt',
+        }},
+    )
+    response = _upload_ratings(
+        client, content=TIME_BAND_RATINGS_CSV, source_label='Agency A', ignore_saved_template='true',
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body['mappingWarnings'] == []  # nothing to disagree with once the template isn't applied
+
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    assert rows[0]['timeBand'] == '19:00-20:00'  # picked Timeband, not the stale Time Belt
+
+    template = client.get('/api/mapping-templates/suggest', params={'sourceLabel': 'Agency A'}).json()
+    assert template['fieldMapping']['time_band'] == 'Time Belt'  # untouched — still stale for next time

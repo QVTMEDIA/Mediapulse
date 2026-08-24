@@ -237,6 +237,13 @@ export interface UploadMediaReportInput {
   // services/api/README.md.
   sourceLabel?: string;
   saveAsTemplate?: boolean;
+  // Skips *applying* a saved template (if one exists for sourceLabel) to
+  // this one upload, forcing fresh auto-detection instead — without
+  // touching what's stored (saveAsTemplate is still the only thing that
+  // overwrites it). Paired with a MappingWarning on a prior upload, this
+  // is how a stale template actually gets worked around instead of just
+  // pointed at.
+  ignoreSavedTemplate?: boolean;
 }
 
 export function uploadMediaReport(projectId: string, input: UploadMediaReportInput): Promise<UploadBatch> {
@@ -246,6 +253,7 @@ export function uploadMediaReport(projectId: string, input: UploadMediaReportInp
   formData.append('default_medium', input.defaultMedium);
   if (input.sourceLabel) formData.append('source_label', input.sourceLabel);
   if (input.saveAsTemplate) formData.append('save_as_template', 'true');
+  if (input.ignoreSavedTemplate) formData.append('ignore_saved_template', 'true');
   formData.append('file', input.file);
   return request<UploadBatch>(`/api/projects/${projectId}/uploads`, { method: 'POST', body: formData });
 }
@@ -320,6 +328,8 @@ export interface UploadRatingsFileInput {
   file: File;
   sourceLabel?: string;
   saveAsTemplate?: boolean;
+  // See UploadMediaReportInput.ignoreSavedTemplate — identical meaning here.
+  ignoreSavedTemplate?: boolean;
 }
 
 export function uploadRatingsFile(input: UploadRatingsFileInput): Promise<RatingsDataset> {
@@ -331,6 +341,7 @@ export function uploadRatingsFile(input: UploadRatingsFileInput): Promise<Rating
   formData.append('default_medium', input.defaultMedium ?? 'TV');
   if (input.sourceLabel) formData.append('source_label', input.sourceLabel);
   if (input.saveAsTemplate) formData.append('save_as_template', 'true');
+  if (input.ignoreSavedTemplate) formData.append('ignore_saved_template', 'true');
   formData.append('file', input.file);
   return request<RatingsDataset>('/api/ratings-datasets/upload', { method: 'POST', body: formData });
 }

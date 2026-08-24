@@ -210,6 +210,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
   const [uploadDefaultMedium, setUploadDefaultMedium] = useState('TV');
   const [uploadSourceLabel, setUploadSourceLabel] = useState('');
   const [uploadSaveAsTemplate, setUploadSaveAsTemplate] = useState(false);
+  const [uploadIgnoreSavedTemplate, setUploadIgnoreSavedTemplate] = useState(false);
   const [knownSourceLabels, setKnownSourceLabels] = useState<string[]>([]);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
@@ -365,6 +366,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
         file: uploadFile,
         sourceLabel: uploadSourceLabel.trim() || undefined,
         saveAsTemplate: uploadSaveAsTemplate,
+        ignoreSavedTemplate: uploadIgnoreSavedTemplate,
       });
       setUploadSuccess(
         `Uploaded ${result.fileName}: ${result.mappedRows} row${result.mappedRows === 1 ? '' : 's'} mapped` +
@@ -656,6 +658,25 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
                     ? 'A saved mapping exists for this label — it will be applied automatically.'
                     : 'A new label saves the mapping this file actually uses, so later uploads from the same source map automatically.'}
                 </p>
+                {knownSourceLabels.includes(uploadSourceLabel.trim()) && (
+                  <>
+                    <label className="checkbox-field">
+                      <input
+                        type="checkbox"
+                        checked={uploadIgnoreSavedTemplate}
+                        onChange={(event) => setUploadIgnoreSavedTemplate(event.target.checked)}
+                      />
+                      Ignore the saved mapping for this upload — use fresh auto-detection instead
+                    </label>
+                    <p className="field-hint">
+                      {uploadIgnoreSavedTemplate
+                        ? uploadSaveAsTemplate
+                          ? 'This upload will detect columns fresh and overwrite the saved mapping with what it finds — use this to fix a stale template.'
+                          : "This upload will detect columns fresh, but the saved mapping stays as-is for next time. Check \"Remember this column mapping\" too if the saved one is actually wrong."
+                        : ''}
+                    </p>
+                  </>
+                )}
 
                 <label>
                   File

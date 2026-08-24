@@ -80,6 +80,16 @@ async def create_upload(
     default_medium: str = Form('TV'),
     source_label: Optional[str] = Form(None),
     save_as_template: bool = Form(False),
+    # Added alongside mappingWarnings (see parsing.py's MappingWarning): a
+    # warning alone still left no way to actually act on a stale template
+    # short of retyping a different source_label (losing the label's
+    # identity/future auto-save) or clearing it entirely (which also drops
+    # save_as_template's "remember this for next time" behavior). This
+    # skips *applying* the saved template to this one upload without
+    # touching what's stored — save_as_template (unchanged) is still the
+    # only thing that overwrites it, so checking both together is the
+    # one-shot "fix this stale template" workflow.
+    ignore_saved_template: bool = Form(False),
     file: UploadFile = File(...),
     repo: UploadsRepository = Depends(get_uploads_repository),
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
@@ -93,13 +103,16 @@ async def create_upload(
     source_label is given and a saved mapping_template exists for it, that
     mapping is used instead of auto-detection (falling back to auto-detect
     per field if the template's column is missing from this particular
-    file); the first successful upload for a not-yet-seen source_label (or
-    any upload with save_as_template=true) saves the mapping actually used
-    as a template, so later uploads from the same source map automatically.
-    The response's mappingWarnings names any field where the template's
-    column disagreed with what fresh auto-detection would have picked for
-    this file — see parsing.py's MappingWarning for why that's worth
-    surfacing rather than silently trusting the template."""
+    file) — unless ignore_saved_template is set, which skips applying it
+    for this one upload only (the stored template itself is untouched
+    unless save_as_template is also set); the first successful upload for
+    a not-yet-seen source_label (or any upload with save_as_template=true)
+    saves the mapping actually used as a template, so later uploads from
+    the same source map automatically. The response's mappingWarnings
+    names any field where the template's column disagreed with what fresh
+    auto-detection would have picked for this file — see parsing.py's
+    MappingWarning for why that's worth surfacing rather than silently
+    trusting the template."""
     if projects_repo.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail='Project not found')
     if kind not in SUPPORTED_UPLOAD_KINDS:
@@ -115,7 +128,11 @@ async def create_upload(
             raise HTTPException(status_code=404, detail='Brand not found for this project')
 
     existing_template = templates_repo.get_by_source_label(source_label) if source_label else None
-    mapping_override = existing_template.field_mapping if existing_template else None
+    # Deliberately kept separate from mapping_override: ignore_saved_template
+    # only decides what gets *applied* to this parse, not whether the save
+    # logic below (which asks "did a template already exist for this label")
+    # treats this as a fresh label.
+    mapping_override = existing_template.field_mapping if existing_template and not ignore_saved_template else None
 
     data = await file.read()
     file_name = file.filename or 'uploaded_file'

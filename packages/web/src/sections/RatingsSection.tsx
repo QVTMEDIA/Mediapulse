@@ -140,6 +140,7 @@ export default function RatingsSection({ project }: { project: Project | null })
   const [defaultMedium, setDefaultMedium] = useState('TV');
   const [sourceLabel, setSourceLabel] = useState('');
   const [saveAsTemplate, setSaveAsTemplate] = useState(false);
+  const [ignoreSavedTemplate, setIgnoreSavedTemplate] = useState(false);
   const [knownSourceLabels, setKnownSourceLabels] = useState<string[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
@@ -262,6 +263,7 @@ export default function RatingsSection({ project }: { project: Project | null })
         file,
         sourceLabel: sourceLabel.trim() || undefined,
         saveAsTemplate,
+        ignoreSavedTemplate,
       });
       await attachRatingsDataset(project.projectId, dataset.ratingsDatasetId);
       setUploadSuccess(
@@ -392,6 +394,25 @@ export default function RatingsSection({ project }: { project: Project | null })
                 ? 'A saved mapping exists for this label — it will be applied automatically.'
                 : 'A new label saves the mapping this file actually uses, so later uploads from the same source map automatically.'}
             </p>
+            {knownSourceLabels.includes(sourceLabel.trim()) && (
+              <>
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={ignoreSavedTemplate}
+                    onChange={(event) => setIgnoreSavedTemplate(event.target.checked)}
+                  />
+                  Ignore the saved mapping for this upload — use fresh auto-detection instead
+                </label>
+                <p className="field-hint">
+                  {ignoreSavedTemplate
+                    ? saveAsTemplate
+                      ? 'This upload will detect columns fresh and overwrite the saved mapping with what it finds — use this to fix a stale template.'
+                      : "This upload will detect columns fresh, but the saved mapping stays as-is for next time. Check \"Remember this column mapping\" too if the saved one is actually wrong."
+                    : ''}
+                </p>
+              </>
+            )}
             <label>
               File (.xlsx, .xls, or .csv — Channel, Day, Programme, Rating columns)
               <input

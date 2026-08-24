@@ -158,6 +158,37 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(suggestions.loc[0, 'Confidence'], 'High')
         self.assertEqual(suggestions.loc[0, 'Suggestion Basis'], 'Same medium and day')
 
+    def test_unmatched_suggestions_rank_by_similarity_before_candidate_order(self):
+        ratings = pd.DataFrame({
+            'Medium': ['TV', 'TV'],
+            'Channel / Station': ['Station A', 'Station A'],
+            'Day': ['Mon', 'Mon'],
+            'Programme / Time Band': ['Bad Low Match', 'Morning Show'],
+            'Rating (%)': [1.0, 2.5],
+        })
+        ratings['Match Key'] = calc.make_key(
+            ratings['Medium'],
+            ratings['Channel / Station'],
+            ratings['Day'],
+            ratings['Programme / Time Band'],
+        )
+        media = pd.DataFrame({
+            'Brand': ['Brand A'],
+            'Source File': ['brand.xlsx'],
+            'Medium': ['TV'],
+            'Channel / Station': ['Station A'],
+            'Day': ['Mon'],
+            'Programme / Time Band': ['Morning Shw'],
+            'Match Status': ['NO RATING MATCH'],
+            'Match Key': ['TV|STATION A|MON|MORNING SHW'],
+        })
+
+        suggestions = calc.build_unmatched_suggestions(media, ratings, max_suggestions_per_row=1, min_score=0.1)
+
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions.loc[0, 'Suggested Programme / Time Band'], 'Morning Show')
+        self.assertGreater(suggestions.loc[0, 'Similarity Score'], 0.8)
+
     def test_unmatched_suggestions_are_empty_without_ratings(self):
         media = pd.DataFrame({
             'Match Status': ['NO RATING MATCH'],

@@ -1,12 +1,16 @@
 import csv
 import io
 import time
+from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user
+from app.calculations import compute_run
 from app.main import app
+from app.matches import compute_matches
 from app.repositories.brands import InMemoryBrandsRepository, get_brands_repository
 from app.repositories.mapping_templates import InMemoryMappingTemplatesRepository, get_mapping_templates_repository
 from app.repositories.matches import InMemoryMatchesRepository, get_matches_repository
@@ -88,6 +92,141 @@ def _attach_ratings(client, project_id):
 def _upload(client, project_id, brand_id):
     files = {'file': ('report.csv', io.BytesIO(UPLOAD_CSV), 'text/csv')}
     return client.post(f'/api/projects/{project_id}/uploads', files=files, data={'brand_id': brand_id})
+
+
+def _media_activity(
+    activity_id='activity-1',
+    *,
+    medium='TV',
+    station='Station A',
+    day='Monday',
+    programme='Prime Time',
+    time_band='',
+    spots=1,
+):
+    return SimpleNamespace(
+        id=activity_id,
+        project_id='project-1',
+        brand_id='brand-1',
+        upload_id='upload-1',
+        medium=medium,
+        station=station,
+        activity_date=None,
+        day=day,
+        programme=programme,
+        spots=spots,
+        cost=None,
+        time_band=time_band,
+        source_file='unit.csv',
+    )
+
+
+def _rating_row(
+    rating_id,
+    *,
+    dataset_id='dataset-1',
+    medium='TV',
+    station='Station A',
+    day='Monday',
+    programme='Prime Time',
+    time_band='',
+    rating=1.0,
+    attached_at=None,
+):
+    return SimpleNamespace(
+        id=rating_id,
+        ratings_dataset_id=dataset_id,
+        medium=medium,
+        station=station,
+        day=day,
+        programme=programme,
+        time_band=time_band,
+        rating=rating,
+        start_time=None,
+        end_time=None,
+        week=None,
+        month=None,
+        project_attached_at=attached_at,
+    )
+
+
+def test_compute_matches_prefers_highest_scored_fuzzy_suggestion():
+    activity = _media_activity(programme='Morning Shw')
+    ratings = [
+        _rating_row('rating-low', programme='Morning News', rating=1.0),
+        _rating_row('rating-best', programme='Morning Show', rating=2.5),
+    ]
+
+    result = compute_matches([activity], ratings)
+
+    assert len(result) == 1
+    assert result[0].match_status == 'suggested'
+    assert result[0].matched_rating_id == 'rating-best'
+    assert result[0].match_confidence > 0.8
+
+
+def test_auto_exact_matches_average_duplicate_rating_keys_for_calculation():
+    old_attached = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    new_attached = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    activity = _media_activity(station='TVC', programme='Prime Time', spots=2)
+    old_rating = _rating_row(
+        'aaa-old-rating',
+        dataset_id='dataset-old',
+        station='TVC',
+        programme='Prime Time',
+        rating=1.0,
+        attached_at=old_attached,
+    )
+    new_rating = _rating_row(
+        'zzz-new-rating',
+        dataset_id='dataset-new',
+        station='TVC',
+        programme='Prime Time',
+        rating=3.0,
+        attached_at=new_attached,
+    )
+
+    computed = compute_matches([activity], [old_rating, new_rating])
+
+    assert computed[0].match_status == 'exact'
+    assert computed[0].matched_rating_id == 'zzz-new-rating'
+
+    match_record = SimpleNamespace(
+        id='match-1',
+        media_activity_id=activity.id,
+        matched_rating_id=computed[0].matched_rating_id,
+        match_status=computed[0].match_status,
+    )
+    run = compute_run(
+        [activity],
+        {activity.id: match_record},
+        {old_rating.id: old_rating, new_rating.id: new_rating},
+    )
+
+    assert run.calculated_rows[0].rating == pytest.approx(2.0)
+    assert run.calculated_rows[0].grp == pytest.approx(4.0)
+
+
+def test_compute_matches_keeps_large_exact_sets_on_fast_path(monkeypatch):
+    ratings = [
+        _rating_row(f'rating-{index}', programme=f'Programme {index}', rating=1.0)
+        for index in range(1000)
+    ]
+    media = [
+        _media_activity(f'activity-{index}', programme=f'Programme {index % len(ratings)}')
+        for index in range(5000)
+    ]
+
+    def fail_fuzzy_scan(*_args, **_kwargs):
+        raise AssertionError('exact matching should not invoke fuzzy suggestions')
+
+    monkeypatch.setattr('app.matches.calc.build_unmatched_suggestions', fail_fuzzy_scan)
+    started_at = time.perf_counter()
+    result = compute_matches(media, ratings)
+
+    assert len(result) == len(media)
+    assert all(match.match_status == 'exact' for match in result)
+    assert time.perf_counter() - started_at < 2.0
 
 
 def test_matches_computed_as_exact_suggested_and_unmatched(client, project, brand):

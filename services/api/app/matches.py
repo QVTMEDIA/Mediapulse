@@ -10,6 +10,7 @@ same medium+channel, then same medium+day) and text-similarity scoring.
 """
 
 from dataclasses import dataclass
+from datetime import timezone
 from typing import Dict, List, Optional
 
 import grp_calculator as calc
@@ -39,15 +40,33 @@ def _combine_programme(programme: str, time_band: str) -> str:
     return ' '.join(part for part in [(programme or '').strip(), (time_band or '').strip()] if part)
 
 
+def _attached_timestamp(record) -> float:
+    attached_at = getattr(record, 'project_attached_at', None)
+    if attached_at is None:
+        return 0.0
+    if attached_at.tzinfo is None:
+        attached_at = attached_at.replace(tzinfo=timezone.utc)
+    return attached_at.timestamp()
+
+
+def _rating_order_key(record):
+    return (
+        -_attached_timestamp(record),
+        str(getattr(record, 'ratings_dataset_id', '')),
+        str(getattr(record, 'id', '')),
+    )
+
+
 def compute_matches(media_activity_records, rating_records) -> List[ComputedMatch]:
     if not media_activity_records:
         return []
 
+    rating_records = sorted(rating_records, key=_rating_order_key)
     ratings_by_key: Dict[str, object] = {}
     ratings_by_slot: Dict[tuple, List[object]] = {}
     for rating in rating_records:
         key = make_exact_match_key(rating.medium, rating.station, rating.day, rating.programme, rating.time_band)
-        ratings_by_key.setdefault(key, rating)  # first occurrence wins on a duplicate key
+        ratings_by_key.setdefault(key, rating)  # newest attached dataset wins on duplicate keys
         if is_time_band_range(rating.time_band):
             slot_key = (normalize_text(rating.medium), normalize_station(rating.station), normalize_day(rating.day))
             ratings_by_slot.setdefault(slot_key, []).append(rating)

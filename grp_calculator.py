@@ -821,7 +821,6 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         )
         if not extracted:
             continue
-
         # Programme-text similarity alone can't tell "AIT Lagos" (a
         # legitimate near-match for a rating on "AIT") apart from "Cool FM
         # Lagos" landing on a rating for "Human Rights FM Abuja" purely
@@ -837,18 +836,18 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         # a no-op for the "same channel" tiers above, where every candidate
         # already shares the input's normalized channel and so scores 1.0.
         blended_candidates = []
-        for _value, programme_score, index in extracted:
+        for rank, (_value, programme_score, index) in enumerate(extracted):
             candidate = candidate_rows[index]
             channel_similarity = fuzz.token_set_ratio(channel_norm, normalize_text(candidate[2])) / 100
             blended_score = (programme_score / 100) * channel_similarity
             if blended_score >= min_score:
-                blended_candidates.append((candidate, blended_score))
+                blended_candidates.append((candidate, blended_score, rank))
         if not blended_candidates:
             continue
-        ranked_candidates = sorted(blended_candidates, key=lambda item: item[1], reverse=True)
+        ranked_candidates = sorted(blended_candidates, key=lambda item: (-item[1], item[2]))
         selected_candidates = []
         seen_candidates = set()
-        for candidate, score in ranked_candidates:
+        for candidate, score, _rank in ranked_candidates:
             duplicate_key = (candidate[2], candidate[3], candidate[1], candidate[4])
             if duplicate_key in seen_candidates:
                 continue

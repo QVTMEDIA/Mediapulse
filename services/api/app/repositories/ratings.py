@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, time, timezone
 from typing import Dict, List, Optional, Protocol
 
@@ -38,6 +38,7 @@ class RatingRowRecord:
     end_time: Optional[time]
     week: Optional[int]
     month: Optional[int]
+    project_attached_at: Optional[datetime] = None
 
 
 @dataclass
@@ -103,6 +104,7 @@ def _rating_row_to_record(row: dict) -> RatingRowRecord:
         end_time=row['end_time'],
         week=row['week'],
         month=row['month'],
+        project_attached_at=row.get('project_attached_at'),
     )
 
 
@@ -225,9 +227,10 @@ class PostgresRatingsRepository:
         with get_connection() as conn:
             rows = conn.execute(
                 '''
-                SELECT r.* FROM ratings r
+                SELECT r.*, prd.attached_at AS project_attached_at FROM ratings r
                 JOIN project_ratings_datasets prd ON prd.ratings_dataset_id = r.ratings_dataset_id
                 WHERE prd.project_id = %s
+                ORDER BY prd.attached_at DESC, r.ratings_dataset_id, r.id
                 ''',
                 [project_id],
             ).fetchall()
@@ -240,7 +243,7 @@ class InMemoryRatingsRepository:
     def __init__(self):
         self._datasets: Dict[str, RatingsDatasetRecord] = {}
         self._rows: Dict[str, List[RatingRowRecord]] = {}
-        self._attachments: Dict[str, set] = {}  # project_id -> {ratings_dataset_id, ...}
+        self._attachments: Dict[str, Dict[str, datetime]] = {}  # project_id -> {ratings_dataset_id: attached_at}
 
     def list_datasets(self, *, search='', market=None):
         needle = search.lower()
@@ -294,26 +297,32 @@ class InMemoryRatingsRepository:
     def attach_to_project(self, project_id, ratings_dataset_id):
         if ratings_dataset_id not in self._datasets:
             return False
-        self._attachments.setdefault(project_id, set()).add(ratings_dataset_id)
+        self._attachments.setdefault(project_id, {})[ratings_dataset_id] = datetime.now(timezone.utc)
         return True
 
     def detach_from_project(self, project_id, ratings_dataset_id):
-        attached = self._attachments.get(project_id, set())
+        attached = self._attachments.get(project_id, {})
         if ratings_dataset_id not in attached:
             return False
-        attached.discard(ratings_dataset_id)
+        del attached[ratings_dataset_id]
         return True
 
     def list_project_datasets(self, project_id):
-        dataset_ids = self._attachments.get(project_id, set())
+        attached = self._attachments.get(project_id, {})
+        dataset_ids = sorted(attached, key=lambda dataset_id: attached[dataset_id], reverse=True)
         records = [self._datasets[d_id] for d_id in dataset_ids if d_id in self._datasets]
-        return sorted(records, key=lambda r: r.uploaded_at, reverse=True)
+        return records
 
     def list_project_rating_rows(self, project_id):
-        dataset_ids = self._attachments.get(project_id, set())
+        attached = self._attachments.get(project_id, {})
+        dataset_ids = sorted(attached, key=lambda dataset_id: attached[dataset_id], reverse=True)
         rows = []
         for dataset_id in dataset_ids:
-            rows.extend(self._rows.get(dataset_id, []))
+            attached_at = attached[dataset_id]
+            rows.extend(
+                replace(row, project_attached_at=attached_at)
+                for row in sorted(self._rows.get(dataset_id, []), key=lambda r: r.id)
+            )
         return rows
 
 

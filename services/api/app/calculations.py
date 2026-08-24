@@ -18,6 +18,8 @@ from typing import Dict, List, Optional
 import grp_calculator as calc
 import pandas as pd
 
+from .matching import make_exact_match_key
+
 
 @dataclass
 class CalculatedRow:
@@ -78,10 +80,38 @@ class RunResult:
 EMPTY_RUN = RunResult(0, 0, 0.0, 0.0, 0, 0, [], [])
 
 
+def _automatic_rating_values_by_id(rating_records) -> Dict[str, float]:
+    """Return the effective rating value each automatic match should use.
+
+    Streamlit collapses duplicate rating keys with a mean before matching.
+    The API still stores a concrete rating row id in rating_matches, so this
+    mirrors that duplicate-key averaging at calculation time for automatic
+    matches while preserving the audit pointer to the chosen row.
+    """
+    values_by_key: Dict[str, List[float]] = {}
+    ids_by_key: Dict[str, List[str]] = {}
+    for rating in rating_records:
+        key = make_exact_match_key(rating.medium, rating.station, rating.day, rating.programme, rating.time_band)
+        ids_by_key.setdefault(key, []).append(rating.id)
+        if rating.rating is not None:
+            values_by_key.setdefault(key, []).append(float(rating.rating))
+
+    rating_by_id: Dict[str, float] = {}
+    for key, rating_ids in ids_by_key.items():
+        values = values_by_key.get(key, [])
+        if not values:
+            continue
+        average = sum(values) / len(values)
+        for rating_id in rating_ids:
+            rating_by_id[rating_id] = average
+    return rating_by_id
+
+
 def compute_run(media_activity_records, match_by_activity_id: Dict[str, object], rating_by_id: Dict[str, object]) -> RunResult:
     if not media_activity_records:
         return EMPTY_RUN
 
+    automatic_rating_by_id = _automatic_rating_values_by_id(rating_by_id.values())
     calculated_rows: List[CalculatedRow] = []
     ratings_by_brand: Dict[str, List[float]] = {}
     spend_by_brand: Dict[str, float] = {}
@@ -93,7 +123,12 @@ def compute_run(media_activity_records, match_by_activity_id: Dict[str, object],
     for activity in media_activity_records:
         match = match_by_activity_id.get(activity.id)
         rating_record = rating_by_id.get(match.matched_rating_id) if match and match.matched_rating_id else None
-        rating_value = rating_record.rating if rating_record is not None else None
+        rating_value = None
+        if rating_record is not None:
+            if match.match_status == 'manual':
+                rating_value = rating_record.rating
+            else:
+                rating_value = automatic_rating_by_id.get(rating_record.id)
         is_calculable = match is not None and match.match_status != 'unmatched' and rating_value is not None
 
         if is_calculable:

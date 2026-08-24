@@ -135,6 +135,49 @@ def test_match_job_completes_and_persists_results(client, project, brand):
     assert len(client.get(f"/api/projects/{project['projectId']}/matches").json()) == 3
 
 
+def test_ensure_job_never_reports_progress(client, project, brand):
+    # 'ensure' is a single atomic repository call with no per-row loop up in
+    # match_jobs.py to report progress from -- total/processed stay 0/0,
+    # distinct from 'recompute' below. A progress bar reading this should
+    # fall back to an indeterminate state rather than showing "0 of 0".
+    _upload(client, project['projectId'], brand['brandId'])
+    _attach_ratings(client, project['projectId'])
+
+    response = client.post(f"/api/projects/{project['projectId']}/matches/jobs?mode=ensure")
+    job = response.json()
+    for _ in range(40):
+        if job['status'] in ('completed', 'failed'):
+            break
+        time.sleep(0.05)
+        job = client.get(f"/api/projects/{project['projectId']}/matches/jobs/{job['jobId']}").json()
+
+    assert job['status'] == 'completed'
+    assert job['total'] == 0
+    assert job['processed'] == 0
+
+
+def test_recompute_job_reports_progress(client, project, brand):
+    _upload(client, project['projectId'], brand['brandId'])
+    before = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    assert all(m['matchStatus'] == 'unmatched' for m in before)  # no ratings yet -- all 3 rows unmatched
+
+    _attach_ratings(client, project['projectId'])
+
+    response = client.post(f"/api/projects/{project['projectId']}/matches/jobs?mode=recompute")
+    assert response.status_code == 202
+    job = response.json()
+
+    for _ in range(40):
+        if job['status'] in ('completed', 'failed'):
+            break
+        time.sleep(0.05)
+        job = client.get(f"/api/projects/{project['projectId']}/matches/jobs/{job['jobId']}").json()
+
+    assert job['status'] == 'completed'
+    assert job['total'] == len(before) == 3  # every previously-unmatched row gets visited
+    assert job['processed'] == job['total']
+
+
 def test_duplicate_unresolved_rows_do_not_crash_matching(client, project, brand):
     ratings = (
         b'Channel,Day,Programme,Rating\n'

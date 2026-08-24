@@ -28,6 +28,13 @@ def _to_out(record: RatingMatchRecord) -> RatingMatchOut:
     )
 
 
+def _job_to_out(job) -> MatchJobOut:
+    return MatchJobOut(
+        job_id=job.id, project_id=job.project_id, status=job.status, error=job.error,
+        total=job.total, processed=job.processed,
+    )
+
+
 @router.post('/jobs', response_model=MatchJobOut, status_code=202)
 def start_job(
     project_id: str,
@@ -42,7 +49,7 @@ def start_job(
     if mode not in ('ensure', 'recompute'):
         raise HTTPException(status_code=422, detail='mode must be ensure or recompute')
     job = start_match_job(project_id, mode, matches_repo, uploads_repo, ratings_repo)
-    return MatchJobOut(job_id=job.id, project_id=job.project_id, status=job.status)
+    return _job_to_out(job)
 
 
 @router.get('/jobs/{job_id}', response_model=MatchJobOut)
@@ -52,7 +59,7 @@ def get_job(project_id: str, job_id: str, projects_repo: ProjectsRepository = De
     job = get_match_job(job_id)
     if job is None or job.project_id != project_id:
         raise HTTPException(status_code=404, detail='Match job not found for this project')
-    return MatchJobOut(job_id=job.id, project_id=job.project_id, status=job.status, error=job.error)
+    return _job_to_out(job)
 
 
 @router.get('', response_model=list[RatingMatchOut])

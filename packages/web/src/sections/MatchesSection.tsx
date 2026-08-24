@@ -84,6 +84,11 @@ export default function MatchesSection({ project }: { project: Project | null })
   const [correctingId, setCorrectingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isRecomputing, setIsRecomputing] = useState(false);
+  // total stays 0 until the backend job actually starts running (see
+  // match_jobs.py's MatchJob) -- null distinguishes "no progress info yet"
+  // from "0 of 0", so the bar renders indeterminate for that brief window
+  // instead of a misleading full/empty state.
+  const [recomputeProgress, setRecomputeProgress] = useState<{ processed: number; total: number } | null>(null);
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({});
   const [matchFilter, setMatchFilter] = useState<MatchFilter>('all');
   const [isExporting, setIsExporting] = useState(false);
@@ -154,19 +159,26 @@ export default function MatchesSection({ project }: { project: Project | null })
     if (!project) return;
     setIsRecomputing(true);
     setActionError(null);
+    setRecomputeProgress(null);
     try {
       const job = await startMatchJob(project.projectId, 'recompute');
       let jobResult = job;
       while (jobResult.status === 'queued' || jobResult.status === 'running') {
+        // total is 0 for the brief window before the job actually starts
+        // running (see match_jobs.py) -- only treat it as real progress
+        // info once the job has told us how many rows it's working through.
+        setRecomputeProgress(jobResult.total > 0 ? { processed: jobResult.processed, total: jobResult.total } : null);
         await new Promise((resolve) => window.setTimeout(resolve, 500));
         jobResult = await getMatchJob(project.projectId, job.jobId);
       }
       if (jobResult.status === 'failed') throw new ApiError(500, jobResult.error ?? 'Matching failed.');
+      setRecomputeProgress(jobResult.total > 0 ? { processed: jobResult.processed, total: jobResult.total } : null);
       await refresh(project.projectId);
     } catch (error) {
       setActionError(error instanceof ApiError ? error.message : 'Could not recompute matches.');
     } finally {
       setIsRecomputing(false);
+      setRecomputeProgress(null);
     }
   }
 
@@ -331,9 +343,28 @@ export default function MatchesSection({ project }: { project: Project | null })
               title="Re-attempt matching for unmatched rows against the project's current ratings"
               onClick={handleRecompute}
             >
-              {isRecomputing ? 'Recomputing…' : 'Recompute'}
+              {isRecomputing
+                ? recomputeProgress
+                  ? `Recomputing… ${recomputeProgress.processed}/${recomputeProgress.total}`
+                  : 'Recomputing…'
+                : 'Recompute'}
             </button>
           </div>
+          {isRecomputing && (
+            <div
+              className="progress-bar"
+              role="progressbar"
+              aria-label="Recompute progress"
+              aria-valuemin={0}
+              aria-valuemax={recomputeProgress?.total ?? undefined}
+              aria-valuenow={recomputeProgress?.processed ?? undefined}
+            >
+              <div
+                className={recomputeProgress ? 'progress-bar-fill' : 'progress-bar-fill progress-bar-indeterminate'}
+                style={recomputeProgress ? { width: `${(recomputeProgress.processed / recomputeProgress.total) * 100}%` } : undefined}
+              />
+            </div>
+          )}
           <div className="match-list">
             {!loading && unmatched.length === 0 && <p className="empty-state">No unmatched spots.</p>}
             {limitedUnmatched.visibleRows.map((match) => (

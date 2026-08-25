@@ -73,6 +73,8 @@ class RatingsRepository(Protocol):
 
     def list_project_rating_rows(self, project_id: str) -> List[RatingRowRecord]: ...
 
+    def list_rows_by_ids(self, rating_row_ids: List[str]) -> List[RatingRowRecord]: ...
+
 
 def _dataset_row_to_record(row: dict) -> RatingsDatasetRecord:
     return RatingsDatasetRecord(
@@ -236,6 +238,21 @@ class PostgresRatingsRepository:
             ).fetchall()
         return [_rating_row_to_record(row) for row in rows]
 
+    def list_rows_by_ids(self, rating_row_ids):
+        # Fetches only specific rating rows by id -- built for the Matches
+        # screen, which used to fetch every row of every attached dataset
+        # just to describe the handful its matches actually reference.
+        # Found live: a project with one 24,696-row ratings dataset made
+        # the Matches screen's initial load fetch all 24,696 rows (a 7MB+
+        # JSON response, ~33s) on every single page visit. The caller
+        # (routers/matches.py) already knows exactly which rating ids its
+        # matches point at, so this fetches only those.
+        if not rating_row_ids:
+            return []
+        with get_connection() as conn:
+            rows = conn.execute('SELECT * FROM ratings WHERE id = ANY(%s)', [list(rating_row_ids)]).fetchall()
+        return [_rating_row_to_record(row) for row in rows]
+
 
 class InMemoryRatingsRepository:
     """Stand-in for tests and DB-free local runs (API_REPOSITORY=memory)."""
@@ -324,6 +341,12 @@ class InMemoryRatingsRepository:
                 for row in sorted(self._rows.get(dataset_id, []), key=lambda r: r.id)
             )
         return rows
+
+    def list_rows_by_ids(self, rating_row_ids):
+        wanted = set(rating_row_ids)
+        if not wanted:
+            return []
+        return [row for rows in self._rows.values() for row in rows if row.id in wanted]
 
 
 _memory_repository = InMemoryRatingsRepository()

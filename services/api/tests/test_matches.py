@@ -414,6 +414,40 @@ def test_matches_computed_as_exact_suggested_and_unmatched(client, project, bran
     assert by_status['unmatched'][0]['matchedRatingId'] is None
 
 
+def test_matched_ratings_returns_only_referenced_rows(client, project, brand):
+    # Regression for a real production incident: the Matches screen used to
+    # fetch every row of every attached ratings dataset (GET .../ratings-
+    # datasets/{id}/rows) just to describe the handful its matches actually
+    # reference -- on a project with a 24,696-row dataset, that was a 7MB+
+    # response taking ~33s on every single page load. GET .../matches/
+    # ratings fetches only the specific rows actually pointed at.
+    _upload(client, project['projectId'], brand['brandId'])
+    dataset = _attach_ratings(client, project['projectId'])
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    matched_rating_ids = {m['matchedRatingId'] for m in matches if m['matchedRatingId']}
+    assert len(matched_rating_ids) == 2  # exact + suggested; the unmatched row has none
+
+    response = client.get(f"/api/projects/{project['projectId']}/matches/ratings")
+    assert response.status_code == 200
+    rows = response.json()
+
+    assert len(rows) == 2  # not all rows in the attached dataset (there are 2 here, but the point holds at any scale)
+    assert {row['ratingRowId'] for row in rows} == matched_rating_ids
+    assert all(row['ratingsDatasetId'] == dataset['ratingsDatasetId'] for row in rows)
+
+
+def test_matched_ratings_empty_when_nothing_matched_yet(client, project, brand):
+    _upload(client, project['projectId'], brand['brandId'])
+    response = client.get(f"/api/projects/{project['projectId']}/matches/ratings")
+    assert response.status_code == 200
+    assert response.json() == []  # no ratings attached at all yet -> nothing matched -> nothing referenced
+
+
+def test_matched_ratings_rejects_missing_project(client):
+    response = client.get('/api/projects/does-not-exist/matches/ratings')
+    assert response.status_code == 404
+
+
 def test_match_job_completes_and_persists_results(client, project, brand):
     _upload(client, project['projectId'], brand['brandId'])
     _attach_ratings(client, project['projectId'])

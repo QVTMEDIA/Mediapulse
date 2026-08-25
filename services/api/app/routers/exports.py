@@ -136,9 +136,18 @@ def download_export(
         station_shares = calculations_repo.list_station_shares(project_id, record.run_id) or []
         programme_shares = calculations_repo.list_programme_shares(project_id, record.run_id) or []
 
+    # One list_brands() call instead of one brands_repo.get_brand() call per
+    # *row* below (calculations_out alone can be every matched row in the
+    # run) -- each get_brand() opens its own fresh Postgres connection
+    # (db.py's get_connection() is one connection per call), so a project
+    # with a few thousand matched rows meant a few thousand sequential
+    # connection round trips just to build one workbook. The same mistake,
+    # found and fixed at its worst, most row-heavy call site: this is the
+    # Export Centre's download route.
+    brand_names = {brand.id: brand.name for brand in brands_repo.list_brands(project_id)}
+
     def _brand_name(brand_id: str) -> str:
-        brand = brands_repo.get_brand(project_id, brand_id)
-        return brand.name if brand else 'Unknown brand'
+        return brand_names.get(brand_id, 'Unknown brand')
 
     brand_shares_out = [
         {

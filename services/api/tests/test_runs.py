@@ -179,6 +179,49 @@ def test_brand_shares_split_correctly_across_two_brands(client, project):
     assert by_name['Brand A']['avgRating'] == pytest.approx((1.2 + 2.5) / 2)
 
 
+def test_run_detail_routes_batch_brand_lookups_instead_of_one_per_row(client, project, monkeypatch):
+    # Real production incident: every route below used to call
+    # brands_repo.get_brand(project_id, ...) once per *row* of whatever it
+    # just listed, not once per distinct brand -- each get_brand() opens
+    # its own fresh Postgres connection (db.py's get_connection() is one
+    # connection per call, by design). Found live: a real project's
+    # /stations (34 rows) took ~45s and /dayparts (more distinct groups)
+    # timed out outright. monkeypatching get_brand to fail pins down that
+    # these routes now use one list_brands() call instead, regardless of
+    # how many rows they return -- a regression here would fail loudly
+    # instead of just quietly getting slow again.
+    brand_a = _brand(client, project['projectId'], 'Brand A')
+    brand_b = _brand(client, project['projectId'], 'Brand B')
+    _upload(client, project['projectId'], brand_a['brandId'], BRAND_A_CSV)
+    _upload(
+        client, project['projectId'], brand_b['brandId'],
+        b'Channel,Programme,Day,Spots\nChannels,Business Hour,Wednesday,4\n', filename='brand_b.csv',
+    )
+    _attach_ratings(client, project['projectId'], BRAND_A_RATINGS + [
+        {'medium': 'TV', 'station': 'Channels', 'day': 'Wednesday', 'programme': 'Business Hour', 'rating': 3.0},
+    ])
+    run = client.post(f"/api/projects/{project['projectId']}/calculate").json()
+    project_id, run_id = project['projectId'], run['runId']
+
+    from app.repositories.brands import InMemoryBrandsRepository
+
+    def fail_get_brand(*_args, **_kwargs):
+        raise AssertionError('run-detail routes should batch-fetch brands via list_brands(), not get_brand() per row')
+
+    monkeypatch.setattr(InMemoryBrandsRepository, 'get_brand', fail_get_brand)
+
+    for path in ('brand-shares', 'calculations', 'stations', 'spot-efficiency', 'programmes', 'dayparts', 'trend'):
+        response = client.get(f'/api/projects/{project_id}/runs/{run_id}/{path}')
+        assert response.status_code == 200, f'{path}: {response.text}'
+        rows = response.json()
+        # trend excludes rows with no activity_date (see test_trend_excludes_
+        # rows_with_no_date) -- neither upload fixture above maps a Date
+        # column, so it's legitimately empty here, unlike every other route.
+        if path != 'trend':
+            assert rows, f'{path}: expected at least one row'
+        assert all(row['brand'] in ('Brand A', 'Brand B') for row in rows), f'{path}: {rows}'
+
+
 BRAND_A_CSV_WITH_COST = (
     b'Channel,Programme,Day,Spots,Cost\n'
     b'TVC,Prime Time,Monday,3,15000\n'

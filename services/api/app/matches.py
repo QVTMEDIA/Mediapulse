@@ -9,6 +9,7 @@ reimplementing its candidate-tiering (same medium+channel+day, then
 same medium+channel, then same medium+day) and text-similarity scoring.
 """
 
+import logging
 from dataclasses import dataclass
 from datetime import timezone
 from typing import Dict, List, Optional
@@ -26,6 +27,8 @@ from .matching import (
     time_band_contains,
 )
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class ComputedMatch:
@@ -37,6 +40,28 @@ class ComputedMatch:
 
 
 STATION_SUGGESTION_THRESHOLD = 0.78
+
+# grp_calculator.build_unmatched_suggestions costs roughly O(rows x
+# candidates-per-group) -- each row still needing a fuzzy match runs a
+# rapidfuzz text-similarity scan against every candidate rating sharing its
+# medium/channel/day (or medium/day) group. On a large upload where many
+# rows genuinely miss an exact match, that scan can pin the single CPU core
+# this app typically runs on (Render's free/starter tiers) for minutes.
+# Because Python threads share one GIL, running it inside match_jobs.py's
+# background executor doesn't add capacity -- it only keeps the HTTP request
+# itself from timing out while everything else sharing that process (other
+# users' requests, platform health checks) stalls behind it, which is what
+# actually presents as "the app crashed" at scale.
+#
+# Past this many rows still needing a fuzzy scan (after the cheap
+# station-coverage prefilter below already dropped the hopeless ones), skip
+# the fuzzy tier entirely and leave them 'unmatched' rather than risk that --
+# exact matching (the dict lookup above) is completely unaffected and stays
+# instant at any row count. A capped batch can still be resolved: fix
+# whatever's causing the bulk of exact misses (usually a mapping/
+# normalization issue) and rerun 'Full scan' once the count needing a fuzzy
+# scan has dropped back under the cap.
+FUZZY_SUGGESTION_ROW_LIMIT = 3000
 
 
 def _programme_for_suggestion(programme: str, time_band: str) -> str:
@@ -144,6 +169,14 @@ def compute_matches(media_activity_records, rating_records, *, include_suggestio
         return exact_results + _unmatched_results(unresolved)
 
     suggestion_unresolved = _filter_station_covered_unresolved(unresolved, rating_records)
+    if len(suggestion_unresolved) > FUZZY_SUGGESTION_ROW_LIMIT:
+        logger.warning(
+            'Skipping fuzzy suggestion matching for %d rows (limit %d) -- leaving them unmatched. '
+            'Fix the underlying mapping/normalization issue causing the bulk exact-miss and rerun '
+            "'Full scan' once the count needing a fuzzy scan drops back under the cap.",
+            len(suggestion_unresolved), FUZZY_SUGGESTION_ROW_LIMIT,
+        )
+        suggestion_unresolved = []
     best_suggestion_by_key = _suggest_matches(suggestion_unresolved, rating_records) if suggestion_unresolved else {}
 
     suggested_results = []

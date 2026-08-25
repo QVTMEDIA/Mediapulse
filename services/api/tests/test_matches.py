@@ -318,6 +318,51 @@ def test_compute_matches_keeps_large_exact_sets_on_fast_path(monkeypatch):
     assert time.perf_counter() - started_at < 2.0
 
 
+def test_compute_matches_caps_fuzzy_suggestions_past_row_limit(monkeypatch):
+    # Every rating/activity pair below shares medium+day but has a distinct,
+    # unique-per-index programme -- station coverage is real (same station on
+    # both sides) so _filter_station_covered_unresolved won't cheaply drop
+    # any of them, and nothing has an exact programme match, so all of them
+    # would normally reach the expensive fuzzy-scan tier. This is exactly
+    # the shape FUZZY_SUGGESTION_ROW_LIMIT exists to protect against.
+    from app.matches import FUZZY_SUGGESTION_ROW_LIMIT
+
+    row_count = FUZZY_SUGGESTION_ROW_LIMIT + 1
+    ratings = [
+        _rating_row(f'rating-{index}', programme=f'Rating Programme {index}', rating=1.0)
+        for index in range(row_count)
+    ]
+    media = [
+        _media_activity(f'activity-{index}', programme=f'Media Programme {index}')
+        for index in range(row_count)
+    ]
+
+    def fail_fuzzy_scan(*_args, **_kwargs):
+        raise AssertionError('fuzzy suggestion matching should be capped, not invoked, past the row limit')
+
+    monkeypatch.setattr('app.matches.calc.build_unmatched_suggestions', fail_fuzzy_scan)
+
+    result = compute_matches(media, ratings)
+
+    assert len(result) == row_count
+    assert all(match.match_status == 'unmatched' for match in result)
+    assert all(match.matched_rating_id is None for match in result)
+
+
+def test_compute_matches_still_runs_fuzzy_suggestions_under_row_limit():
+    # Same shape as the capped test above, just comfortably under the limit
+    # -- confirms the cap doesn't accidentally suppress normal-sized fuzzy
+    # matching (a real regression the capped test alone wouldn't catch).
+    activity = _media_activity(programme='Morning Shw')
+    rating = _rating_row('rating-best', programme='Morning Show')
+
+    result = compute_matches([activity], [rating])
+
+    assert len(result) == 1
+    assert result[0].match_status == 'suggested'
+    assert result[0].matched_rating_id == 'rating-best'
+
+
 def test_matches_computed_as_exact_suggested_and_unmatched(client, project, brand):
     _upload(client, project['projectId'], brand['brandId'])
     _attach_ratings(client, project['projectId'])

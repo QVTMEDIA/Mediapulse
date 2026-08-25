@@ -12,6 +12,7 @@ from ..repositories.projects import ProjectsRepository, get_projects_repository
 from ..repositories.ratings import RatingsRepository, get_ratings_repository
 from ..repositories.uploads import UploadsRepository, get_uploads_repository
 from ..schemas.matches import MatchCorrection, MatchJobOut, RatingMatchOut
+from ..schemas.ratings import RatingRowOut
 
 router = APIRouter(prefix='/api/projects/{project_id}/matches', tags=['matches'], dependencies=[Depends(get_current_user)])
 
@@ -25,6 +26,23 @@ def _to_out(record: RatingMatchRecord) -> RatingMatchOut:
         match_confidence=record.match_confidence,
         match_key=record.match_key,
         corrected_at=record.corrected_at,
+    )
+
+
+def _rating_row_to_out(record) -> RatingRowOut:
+    return RatingRowOut(
+        rating_row_id=record.id,
+        ratings_dataset_id=record.ratings_dataset_id,
+        medium=record.medium,
+        station=record.station,
+        day=record.day,
+        programme=record.programme,
+        time_band=record.time_band,
+        rating=record.rating,
+        start_time=record.start_time,
+        end_time=record.end_time,
+        week=record.week,
+        month=record.month,
     )
 
 
@@ -82,6 +100,35 @@ def list_matches(
     rating_rows = ratings_repo.list_project_rating_rows(project_id)
     records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows)
     return [_to_out(record) for record in records]
+
+
+@router.get('/ratings', response_model=list[RatingRowOut])
+def list_matched_ratings(
+    project_id: str,
+    matches_repo: MatchesRepository = Depends(get_matches_repository),
+    ratings_repo: RatingsRepository = Depends(get_ratings_repository),
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+):
+    """Only the specific ratings rows this project's current matches
+    actually point at -- built for the Matches screen, which used to fetch
+    every row of every attached ratings dataset (via GET .../ratings-
+    datasets/{id}/rows, once per dataset) just to describe the handful its
+    matches reference. Found live: a project with one 24,696-row ratings
+    dataset made that initial page load fetch a 7MB+ JSON response
+    (~33s) every single time the screen opened, regardless of how many of
+    those rows were actually matched to anything. Does not compute
+    matches itself (unlike GET .../matches) -- call that first, or let the
+    frontend's existing ensure-job do it, so this reads current state
+    rather than triggering the same lazy-compute a second time."""
+    if projects_repo.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    matched_rating_ids = {
+        record.matched_rating_id
+        for record in matches_repo.list_matches(project_id)
+        if record.matched_rating_id
+    }
+    rows = ratings_repo.list_rows_by_ids(matched_rating_ids)
+    return [_rating_row_to_out(row) for row in rows]
 
 
 @router.get('/export')

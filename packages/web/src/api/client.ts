@@ -275,6 +275,14 @@ export function listMatches(projectId: string): Promise<RatingMatch[]> {
   return request<RatingMatch[]>(`/api/projects/${projectId}/matches`);
 }
 
+// Only the specific ratings rows this project's current matches actually
+// point at, not every row of every attached dataset (that's listRatingRows,
+// below, used separately for the manual-assign picker's full library) --
+// see the route's own docstring for the real incident this exists to fix.
+export function listMatchedRatings(projectId: string): Promise<RatingRow[]> {
+  return request<RatingRow[]>(`/api/projects/${projectId}/matches/ratings`);
+}
+
 export type MatchJobMode = 'ensure' | 'recompute' | 'recompute_exact';
 
 export function startMatchJob(projectId: string, mode: MatchJobMode = 'ensure'): Promise<MatchJob> {

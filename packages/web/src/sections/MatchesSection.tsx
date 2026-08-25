@@ -5,6 +5,7 @@ import {
   correctMatch,
   downloadMatchReport,
   getMatchJob,
+  listMatchedRatings,
   listMatches,
   listMediaActivity,
   listProjectRatingsDatasets,
@@ -79,7 +80,19 @@ function describeMatchedRating(match: RatingMatch, ratingsById: Map<string, Rati
 export default function MatchesSection({ project }: { project: Project | null }) {
   const [matches, setMatches] = useState<RatingMatch[]>([]);
   const [activityById, setActivityById] = useState<Map<string, MediaActivityRow>>(new Map());
+  // Only the ratings actually referenced by a confirmed/suggested match --
+  // fast, part of the page's critical load path (see listMatchedRatings).
   const [ratingsById, setRatingsById] = useState<Map<string, RatingRow>>(new Map());
+  // The full attached ratings library, for the manual-assign picker on
+  // Unmatched rows -- a human needs to pick from ratings that AREN'T
+  // matched to anything yet, so this can't be scoped the way ratingsById
+  // above is. Loaded separately, in the background, after the page's
+  // critical data is already showing -- on a project with a very large
+  // ratings library this can take a while, and the Matches screen
+  // shouldn't sit on a spinner for it (see listMatchedRatings' docstring
+  // for the real incident this split fixes).
+  const [assignableRatingsById, setAssignableRatingsById] = useState<Map<string, RatingRow>>(new Map());
+  const [assignableRatingsLoading, setAssignableRatingsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [correctingId, setCorrectingId] = useState<string | null>(null);
@@ -99,10 +112,9 @@ export default function MatchesSection({ project }: { project: Project | null })
     setLoading(true);
     setLoadError(null);
     try {
-      const [job, activityResults, datasets] = await Promise.all([
+      const [job, activityResults] = await Promise.all([
         startMatchJob(projectId),
         listMediaActivity(projectId),
-        listProjectRatingsDatasets(projectId),
       ]);
       let jobResult = job;
       while (jobResult.status === 'queued' || jobResult.status === 'running') {
@@ -110,16 +122,14 @@ export default function MatchesSection({ project }: { project: Project | null })
         jobResult = await getMatchJob(projectId, job.jobId);
       }
       if (jobResult.status === 'failed') throw new ApiError(500, jobResult.error ?? 'Matching failed.');
-      const matchResults = await listMatches(projectId);
+      // Fetched together with the matches themselves, not the full attached
+      // library (see assignableRatingsById below and listMatchedRatings'
+      // docstring) -- describing an already-made match only ever needs the
+      // specific rating it points to.
+      const [matchResults, matchedRatings] = await Promise.all([listMatches(projectId), listMatchedRatings(projectId)]);
       setMatches(matchResults);
       setActivityById(new Map(activityResults.map((row) => [row.mediaActivityId, row])));
-
-      const rowLists = await Promise.all(datasets.map((dataset) => listRatingRows(dataset.ratingsDatasetId)));
-      const ratingsMap = new Map<string, RatingRow>();
-      for (const rows of rowLists) {
-        for (const row of rows) ratingsMap.set(row.ratingRowId, row);
-      }
-      setRatingsById(ratingsMap);
+      setRatingsById(new Map(matchedRatings.map((row) => [row.ratingRowId, row])));
     } catch (error) {
       setLoadError(error instanceof ApiError ? error.message : 'Could not load matches.');
     } finally {
@@ -127,15 +137,42 @@ export default function MatchesSection({ project }: { project: Project | null })
     }
   }, []);
 
+  // The full attached ratings library, for the manual-assign picker only --
+  // deliberately separate from refresh() above and not awaited by it, so a
+  // project with a very large ratings library doesn't block the whole page
+  // behind this fetch. Runs in the background; the assign picker just shows
+  // "Loading ratings…" until it resolves.
+  const refreshAssignableRatings = useCallback(async (projectId: string) => {
+    setAssignableRatingsLoading(true);
+    try {
+      const datasets = await listProjectRatingsDatasets(projectId);
+      const rowLists = await Promise.all(datasets.map((dataset) => listRatingRows(dataset.ratingsDatasetId)));
+      const ratingsMap = new Map<string, RatingRow>();
+      for (const rows of rowLists) {
+        for (const row of rows) ratingsMap.set(row.ratingRowId, row);
+      }
+      setAssignableRatingsById(ratingsMap);
+    } catch {
+      // Non-critical: the rest of the Matches screen already loaded fine.
+      // A human can still see and correct matches; only the manual-assign
+      // picker's option list stays empty, and its own empty-state message
+      // covers that case already.
+    } finally {
+      setAssignableRatingsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (project) {
       void refresh(project.projectId);
+      void refreshAssignableRatings(project.projectId);
     } else {
       setMatches([]);
       setActivityById(new Map());
       setRatingsById(new Map());
+      setAssignableRatingsById(new Map());
     }
-  }, [project, refresh]);
+  }, [project, refresh, refreshAssignableRatings]);
 
   async function handleCorrect(match: RatingMatch, matchedRatingId: string | null) {
     if (!project) return;
@@ -215,7 +252,7 @@ export default function MatchesSection({ project }: { project: Project | null })
   const showSuggested = matchFilter === 'all' || matchFilter === 'suggested';
   const showUnmatched = matchFilter === 'all' || matchFilter === 'unmatched';
   const showResolved = matchFilter === 'all' || matchFilter === 'matched';
-  const ratingOptions = Array.from(ratingsById.values()).sort((a, b) =>
+  const ratingOptions = Array.from(assignableRatingsById.values()).sort((a, b) =>
     `${a.station} ${a.day} ${a.programme}`.localeCompare(`${b.station} ${b.day} ${b.programme}`),
   );
   const limitedSuggested = useLimitedRows(suggested);
@@ -383,7 +420,9 @@ export default function MatchesSection({ project }: { project: Project | null })
               <div className="match-row" key={match.ratingMatchId}>
                 <p className="match-input">{describeActivity(activityById.get(match.mediaActivityId))}</p>
                 {ratingOptions.length === 0 ? (
-                  <p className="match-suggestion">No ratings attached to this project yet.</p>
+                  <p className="match-suggestion">
+                    {assignableRatingsLoading ? 'Loading ratings…' : 'No ratings attached to this project yet.'}
+                  </p>
                 ) : (
                   <div className="form-actions">
                     <select

@@ -476,6 +476,72 @@ def test_recompute_job_reports_progress(client, project, brand):
     assert job['processed'] == job['total']
 
 
+def test_recompute_job_batches_writes_into_one_bulk_call(client, project, brand, monkeypatch):
+    # Real production incident: match_jobs.py's _run_recompute used to call
+    # matches_repo.update_match() once per row it resolved during a "Full
+    # scan" -- each call opens its own fresh Postgres connection (db.py's
+    # get_connection() is one connection per call), so a recompute that
+    # resolved thousands of previously-unmatched rows meant thousands of
+    # sequential connection round trips, found live as the reason "Full
+    # scan" barely ever completed on a large project. Counting calls to
+    # update_matches_bulk() (which does the actual writing in one shot,
+    # regardless of backend) pins down that the job now writes once per
+    # run, not once per row, no matter how many rows get resolved.
+    from app.repositories.matches import InMemoryMatchesRepository
+
+    calls = {'bulk': 0}
+    original_bulk = InMemoryMatchesRepository.update_matches_bulk
+
+    def counting_bulk(self, updates):
+        calls['bulk'] += 1
+        return original_bulk(self, updates)
+
+    monkeypatch.setattr(InMemoryMatchesRepository, 'update_matches_bulk', counting_bulk)
+
+    _upload(client, project['projectId'], brand['brandId'])
+    client.get(f"/api/projects/{project['projectId']}/matches")  # seed initial 'unmatched' records (no ratings yet)
+    _attach_ratings(client, project['projectId'])
+
+    response = client.post(f"/api/projects/{project['projectId']}/matches/jobs?mode=recompute")
+    job = response.json()
+    for _ in range(40):
+        if job['status'] in ('completed', 'failed'):
+            break
+        time.sleep(0.05)
+        job = client.get(f"/api/projects/{project['projectId']}/matches/jobs/{job['jobId']}").json()
+
+    assert job['status'] == 'completed'
+    assert calls['bulk'] == 1  # one batched write for the whole job, not one per resolved row
+    statuses = sorted(m['matchStatus'] for m in client.get(f"/api/projects/{project['projectId']}/matches").json())
+    assert statuses == ['exact', 'suggested', 'unmatched']  # writes still actually landed
+
+
+def test_synchronous_recompute_batches_writes_into_one_bulk_call(client, project, brand, monkeypatch):
+    # Same fix, same reason, for POST /matches/recompute (the synchronous
+    # sibling of the job-based recompute above) -- it had the identical
+    # per-row update_match() loop.
+    from app.repositories.matches import InMemoryMatchesRepository
+
+    calls = {'bulk': 0}
+    original_bulk = InMemoryMatchesRepository.update_matches_bulk
+
+    def counting_bulk(self, updates):
+        calls['bulk'] += 1
+        return original_bulk(self, updates)
+
+    monkeypatch.setattr(InMemoryMatchesRepository, 'update_matches_bulk', counting_bulk)
+
+    _upload(client, project['projectId'], brand['brandId'])
+    client.get(f"/api/projects/{project['projectId']}/matches")  # seed initial 'unmatched' records (no ratings yet)
+    _attach_ratings(client, project['projectId'])
+
+    response = client.post(f"/api/projects/{project['projectId']}/matches/recompute")
+    assert response.status_code == 200
+    assert calls['bulk'] == 1
+    statuses = sorted(m['matchStatus'] for m in response.json())
+    assert statuses == ['exact', 'suggested', 'unmatched']
+
+
 def test_exact_recompute_job_skips_fuzzy_suggestions(client, project, brand):
     _upload(client, project['projectId'], brand['brandId'])
     before = client.get(f"/api/projects/{project['projectId']}/matches").json()

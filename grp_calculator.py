@@ -308,18 +308,53 @@ def is_time_band_range(value):
     return _RANGE_PATTERN.match(text) is not None
 
 
-def time_band_contains(time_band, point_time):
-    range_text = '' if pd.isna(time_band) else str(time_band).strip()
-    range_match = _RANGE_PATTERN.match(range_text)
-    point_seconds = clock_seconds(point_time)
-    if not range_match or point_seconds is None:
-        return False
+def _parse_range_seconds(value):
+    """(start, end) in seconds-since-midnight for a "HH:MM-HH:MM"-shaped
+    value, end pushed past midnight when the range wraps (e.g. 22:00-02:00)
+    -- or None if `value` isn't a parseable range at all."""
+    range_match = _RANGE_PATTERN.match('' if pd.isna(value) else str(value).strip())
+    if not range_match:
+        return None
     start = clock_seconds(range_match.group(1))
     end = clock_seconds(range_match.group(2))
     if start is None or end is None:
-        return False
+        return None
     if end <= start:
         end += 24 * 60 * 60
+    return start, end
+
+
+def time_band_contains(time_band, point_time):
+    """True when `point_time` falls inside the `time_band` range.
+
+    `point_time` is usually a single instant (a spot's own logged air time,
+    e.g. "14:32:10", checked against a rating's coarser range) -- but a
+    source file that has no distinct programme name at all often labels its
+    own rows with a coarse daypart/timeband range too, not a precise time
+    (see grp_calculator.resolve_effective_programme's docstring for why that
+    value ends up here). Treating that range as an unparseable single point
+    used to fail closed -- two identically-slotted rows in different text
+    formats ("06:00-09:00" vs "0600-0900") would come back "incompatible"
+    even though they describe the exact same window. When `point_time` also
+    parses as a range, compatibility means "the two ranges overlap at all"
+    instead, checked across a +/-24h wrap so a band that crosses midnight
+    still lines up correctly against one that doesn't."""
+    band_range = _parse_range_seconds(time_band)
+    if band_range is None:
+        return False
+    start, end = band_range
+
+    point_range = _parse_range_seconds(point_time)
+    if point_range is not None:
+        point_start, point_end = point_range
+        return any(
+            start < point_end + offset and point_start + offset < end
+            for offset in (-24 * 60 * 60, 0, 24 * 60 * 60)
+        )
+
+    point_seconds = clock_seconds(point_time)
+    if point_seconds is None:
+        return False
     return start <= point_seconds < end or start <= point_seconds + 24 * 60 * 60 < end
 
 
@@ -330,6 +365,10 @@ def compatible_time_slot(input_time, candidate_time_band):
         return True
     if is_time_band_range(candidate_time_band):
         return time_band_contains(candidate_time_band, input_time)
+    if is_time_band_range(input_time):
+        # candidate_time_band is a bare point (unusual for a rating, but
+        # handled symmetrically) -- does it fall inside the input's range?
+        return time_band_contains(input_time, candidate_time_band)
     input_seconds = clock_seconds(input_time)
     candidate_seconds = clock_seconds(candidate_time_band)
     if input_seconds is not None and candidate_seconds is not None:

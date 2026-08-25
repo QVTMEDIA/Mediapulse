@@ -190,6 +190,31 @@ def test_compute_matches_exact_with_rating_state_prefix_station_and_media_time()
     assert result[0].matched_rating_id == 'rating-magic'
 
 
+def test_compute_matches_exact_fallback_matches_same_range_in_different_text_formats():
+    # Regression: the exact-match slot fallback (ratings_by_slot ->
+    # time_band_contains) assumed the media row's own time_band was always a
+    # single instant. A file with no distinct Programme column carries a
+    # coarse Timeband *range* on both sides instead (see
+    # grp_calculator.resolve_effective_programme) -- two differently
+    # formatted strings for the identical window ("06:00-09:00" vs
+    # "0600-0900") used to come back unmatched even with an identical
+    # station, because the range-vs-range comparison failed closed.
+    activity = _media_activity(
+        medium='Radio', station='Kiss FM Lagos', day='Monday',
+        programme='0600-0900', time_band='0600-0900',
+    )
+    rating = _rating_row(
+        'rating-slot', medium='Radio', station='Kiss FM Lagos', day='Monday',
+        programme='06:00-09:00', time_band='06:00-09:00', rating=1.0,
+    )
+
+    result = compute_matches([activity], [rating])
+
+    assert len(result) == 1
+    assert result[0].match_status == 'exact'
+    assert result[0].matched_rating_id == 'rating-slot'
+
+
 def test_compute_matches_does_not_suggest_incompatible_time_band():
     activity = _media_activity(
         medium='Radio',

@@ -221,12 +221,15 @@ def recompute_matches(
         unmatched_activity = [a for a in media_activity if a.id in unmatched_by_activity_id]
         rating_rows = ratings_repo.list_project_rating_rows(project_id)
 
-        for result in compute_matches(unmatched_activity, rating_rows):
-            if result.match_status == 'unmatched':
-                continue
-            existing_match = unmatched_by_activity_id[result.media_activity_id]
-            matches_repo.update_match(
-                existing_match.id, result.matched_rating_id, result.match_status, result.match_confidence
-            )
+        # Batched into one update_matches_bulk() call rather than one
+        # update_match() call per resolved row -- same fix, same reason, as
+        # match_jobs.py's _run_recompute (the job-based version of this same
+        # operation the Matches screen actually calls).
+        updates = [
+            (unmatched_by_activity_id[result.media_activity_id].id, result.matched_rating_id, result.match_status, result.match_confidence)
+            for result in compute_matches(unmatched_activity, rating_rows)
+            if result.match_status != 'unmatched'
+        ]
+        matches_repo.update_matches_bulk(updates)
 
     return [_to_out(record) for record in matches_repo.list_matches(project_id)]

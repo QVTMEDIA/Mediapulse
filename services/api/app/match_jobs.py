@@ -74,13 +74,26 @@ def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo,
             media_activity = uploads_repo.list_media_activity(project_id)
             unmatched_activity = [a for a in media_activity if a.id in unmatched_by_activity_id]
             rating_rows = ratings_repo.list_project_rating_rows(project_id)
+            # Collected and written in one batch at the end via
+            # update_matches_bulk() rather than one matches_repo.update_match()
+            # call per resolved row -- found live as the real reason "Full
+            # scan" barely ever completed on a large project: each
+            # update_match() call opens its own fresh Postgres connection
+            # (db.py's get_connection() is one connection per call), so
+            # resolving thousands of previously-unmatched rows meant
+            # thousands of sequential connection round trips in this loop
+            # alone. processed still advances per row visited here (in
+            # memory, no DB cost) so the progress bar stays accurate even
+            # though the actual writes now happen after this loop finishes.
+            updates = []
             for result in compute_matches(unmatched_activity, rating_rows, include_suggestions=include_suggestions):
                 if result.match_status != 'unmatched':
                     existing_match = unmatched_by_activity_id[result.media_activity_id]
-                    matches_repo.update_match(
+                    updates.append((
                         existing_match.id, result.matched_rating_id, result.match_status, result.match_confidence
-                    )
+                    ))
                 _increment_processed(job_id)
+            matches_repo.update_matches_bulk(updates)
         _set_status(job_id, 'completed')
     except Exception as exc:
         _set_status(job_id, 'failed', str(exc))

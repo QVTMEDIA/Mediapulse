@@ -36,6 +36,10 @@ class MatchesRepository(Protocol):
         self, rating_match_id: str, matched_rating_id: Optional[str], match_status: str, match_confidence: Optional[float]
     ) -> Optional[RatingMatchRecord]: ...
 
+    def update_matches_bulk(
+        self, updates: List['tuple[str, Optional[str], str, Optional[float]]']
+    ) -> None: ...
+
     def delete_matches_for_media_activity(self, media_activity_ids: List[str]) -> None: ...
 
 
@@ -138,6 +142,34 @@ class PostgresMatchesRepository:
             ).fetchone()
         return _row_to_record(row) if row else None
 
+    def update_matches_bulk(self, updates):
+        # Same effect as calling update_match() once per row, in one
+        # connection instead of one per row -- found live as the real
+        # bottleneck behind "Full scan barely ever completes" on a large
+        # project: match_jobs.py's _run_recompute used to call update_match()
+        # (one fresh Postgres connection each -- see db.py's get_connection())
+        # once per row it just resolved, the exact same N-fresh-connections
+        # mistake fixed elsewhere in routers/runs.py and routers/exports.py,
+        # just on the write side of matching instead of a read. A recompute
+        # that resolves thousands of previously-unmatched rows meant
+        # thousands of sequential connection round trips before this.
+        updates = list(updates)
+        if not updates:
+            return
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    '''
+                    UPDATE rating_matches
+                    SET matched_rating_id = %s, match_status = %s, match_confidence = %s
+                    WHERE id = %s
+                    ''',
+                    [
+                        (matched_rating_id, match_status, match_confidence, rating_match_id)
+                        for rating_match_id, matched_rating_id, match_status, match_confidence in updates
+                    ],
+                )
+
     def delete_matches_for_media_activity(self, media_activity_ids):
         # Redundant with media_activity's ON DELETE CASCADE onto
         # rating_matches (db/schema.sql) in the normal "delete the upload/
@@ -205,6 +237,10 @@ class InMemoryMatchesRepository:
         record.match_status = match_status
         record.match_confidence = match_confidence
         return record
+
+    def update_matches_bulk(self, updates):
+        for rating_match_id, matched_rating_id, match_status, match_confidence in updates:
+            self.update_match(rating_match_id, matched_rating_id, match_status, match_confidence)
 
     def delete_matches_for_media_activity(self, media_activity_ids):
         ids = set(media_activity_ids)

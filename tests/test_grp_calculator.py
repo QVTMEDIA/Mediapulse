@@ -340,6 +340,61 @@ class GrpCalculatorTests(unittest.TestCase):
 
         self.assertEqual(len(suggestions), 0)
 
+    def test_compatible_time_slot_treats_two_ranges_as_overlap_not_containment(self):
+        # Regression: compatible_time_slot/time_band_contains assumed the
+        # media-side value was always a single instant (a spot's own logged
+        # air time) being checked against a rating's coarser range. A source
+        # file with no distinct programme column labels its own rows with a
+        # coarse daypart/timeband range too (see
+        # resolve_effective_programme) -- treating that range as an
+        # unparseable single point used to fail closed even when both sides
+        # describe the identical window, just in different text formats.
+        self.assertTrue(calc.compatible_time_slot('0600-0900', '0600-0900'))
+        self.assertTrue(calc.compatible_time_slot('06:00-09:00', '0600-0900'))
+        self.assertTrue(calc.compatible_time_slot('06:00-09:00', '08:00-11:00'))  # partial overlap
+        self.assertFalse(calc.compatible_time_slot('06:00-09:00', '18:00-21:00'))  # no overlap
+        self.assertTrue(calc.compatible_time_slot('22:00-02:00', '23:00-01:00'))  # midnight wrap
+        # Existing point-in-range behavior must be unaffected.
+        self.assertTrue(calc.compatible_time_slot('14:32:10', '14:00-15:00'))
+        self.assertFalse(calc.compatible_time_slot('16:32:10', '14:00-15:00'))
+
+    def test_unmatched_suggestions_match_same_range_in_different_text_formats(self):
+        # End-to-end reproduction of a real project shape: a radio file with
+        # no named Programme column, only a Timeband range column (fed
+        # through resolve_effective_programme's fallback into both Programme
+        # and Time Band), where the ratings file and the spend file format
+        # that same range slightly differently. Before the fix above, this
+        # came back with zero suggestions no matter how low min_score was
+        # set -- compatible_time_slot rejected it before similarity scoring
+        # ever got a say.
+        ratings = pd.DataFrame({
+            'Medium': ['Radio'],
+            'Channel / Station': ['Kiss FM Lagos'],
+            'Day': ['Mon'],
+            'Programme / Time Band': ['06:00-09:00'],
+            'Time Band': ['06:00-09:00'],
+            'Rating (%)': [1.0],
+        })
+        ratings['Match Key'] = calc.make_key(
+            ratings['Medium'], ratings['Channel / Station'], ratings['Day'], ratings['Programme / Time Band']
+        )
+        media = pd.DataFrame({
+            'Brand': ['Brand A'],
+            'Source File': ['spend.xlsx'],
+            'Medium': ['Radio'],
+            'Channel / Station': ['Kiss FM Lagos'],
+            'Day': ['Monday'],
+            'Programme / Time Band': ['0600-0900'],
+            'Daypart': ['0600-0900'],
+            'Match Status': ['NO RATING MATCH'],
+            'Match Key': ['RADIO|KISS FM LAGOS|MON|0600-0900'],
+        })
+
+        suggestions = calc.build_unmatched_suggestions(media, ratings)
+
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions.loc[0, 'Suggested Rating (%)'], 1.0)
+
     def test_project_info_frame_formats_metadata_for_export(self):
         project = {
             'project_id': 'MP-1234',

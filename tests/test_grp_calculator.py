@@ -395,6 +395,81 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(len(suggestions), 1)
         self.assertEqual(suggestions.loc[0, 'Suggested Rating (%)'], 1.0)
 
+    def test_unmatched_suggestions_break_score_ties_by_original_candidate_order(self):
+        # build_unmatched_suggestions scores a whole group of rows against
+        # its shared candidate list in one batched rapidfuzz call (see the
+        # function's own comments) rather than one call per row -- this
+        # pins down that candidates tying on score still come back in a
+        # stable, deterministic order (earliest candidate in the ratings
+        # frame first), the same guarantee process.extract makes and that
+        # the batching must not lose.
+        ratings = pd.DataFrame({
+            'Medium': ['Radio', 'Radio'],
+            'Channel / Station': ['Kiss FM Lagos', 'Kiss FM Lagos'],
+            'Day': ['Mon', 'Mon'],
+            'Programme / Time Band': ['Morning Show', 'Morning Show'],  # identical text -> tied score
+            'Rating (%)': [1.0, 9.0],
+        })
+        ratings['Match Key'] = calc.make_key(
+            ratings['Medium'], ratings['Channel / Station'], ratings['Day'], ratings['Programme / Time Band']
+        )
+        media = pd.DataFrame({
+            'Brand': ['Brand A'],
+            'Source File': ['spend.xlsx'],
+            'Medium': ['Radio'],
+            'Channel / Station': ['Kiss FM Lagos'],
+            'Day': ['Monday'],
+            'Programme / Time Band': ['Morning Show'],
+            'Match Status': ['NO RATING MATCH'],
+            'Match Key': ['RADIO|KISS FM LAGOS|MON|MORNING SHOW'],
+        })
+
+        suggestions = calc.build_unmatched_suggestions(media, ratings, max_suggestions_per_row=1)
+
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions.loc[0, 'Suggested Rating (%)'], 1.0)  # the earlier-indexed candidate wins the tie
+
+    def test_unmatched_suggestions_stay_fast_at_scale(self):
+        # Regression guard for the batched-scoring rework: build_unmatched_
+        # suggestions used to call rapidfuzz once per unresolved row, then
+        # was rewritten to score a whole candidate-sharing group at once.
+        # A naive rework that replaces the per-row rapidfuzz call with a
+        # per-row numpy call (argsort/nonzero) instead of a single
+        # whole-matrix numpy call re-introduces the same per-row Python
+        # overhead this change exists to remove, just relocated -- a
+        # generous wall-clock bound (mirrors the existing exact-matching
+        # scale guard, test_compute_matches_keeps_large_exact_sets_on_fast_
+        # path in services/api's suite) catches that regressing back in.
+        import time as _time
+
+        ratings = pd.DataFrame({
+            'Medium': ['Radio'] * 50,
+            'Channel / Station': ['Kiss FM Lagos'] * 50,
+            'Day': ['Mon'] * 50,
+            'Programme / Time Band': [f'Show {index}' for index in range(50)],
+            'Rating (%)': [1.0] * 50,
+        })
+        ratings['Match Key'] = calc.make_key(
+            ratings['Medium'], ratings['Channel / Station'], ratings['Day'], ratings['Programme / Time Band']
+        )
+        media = pd.DataFrame({
+            'Brand': ['Brand A'] * 3000,
+            'Source File': ['spend.xlsx'] * 3000,
+            'Medium': ['Radio'] * 3000,
+            'Channel / Station': ['Kiss FM Lagos'] * 3000,
+            'Day': ['Monday'] * 3000,
+            'Programme / Time Band': [f'Show {index % 50}' for index in range(3000)],  # exact-text near-matches
+            'Match Status': ['NO RATING MATCH'] * 3000,
+            'Match Key': [f'key-{index}' for index in range(3000)],
+        })
+
+        started_at = _time.perf_counter()
+        suggestions = calc.build_unmatched_suggestions(media, ratings)
+        elapsed = _time.perf_counter() - started_at
+
+        self.assertEqual(len(suggestions), 9000)  # up to max_suggestions_per_row (3) per row
+        self.assertLess(elapsed, 5.0)
+
     def test_project_info_frame_formats_metadata_for_export(self):
         project = {
             'project_id': 'MP-1234',

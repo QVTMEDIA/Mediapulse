@@ -4,6 +4,7 @@ import zipfile
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
 
+import numpy as np
 import pandas as pd
 from rapidfuzz import process, fuzz
 
@@ -1096,7 +1097,6 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
     ratings_index['_MediumNorm'] = normalized_series(ratings_index, 'Medium')
     ratings_index['_ChannelNorm'] = normalized_series(ratings_index, 'Channel / Station', normalize_station_for_match)
     ratings_index['_DayNorm'] = normalized_series(ratings_index, 'Day', normalize_day)
-    ratings_index['_ProgrammeNorm'] = normalized_series(ratings_index, 'Programme / Time Band')
 
     # Build the three candidate tiers once. Re-filtering the full ratings
     # frame for every unresolved row becomes costly on large uploads.
@@ -1129,11 +1129,22 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
                 ratings_index.at[index, 'Rating (%)'],
                 ratings_index.at[index, 'Match Key'],
                 ratings_index.at[index, 'Time Band'] if 'Time Band' in ratings_index.columns else '',
+                ratings_index.at[index, '_ChannelNorm'],
             )
             for index in candidate_indexes
         ]
 
-    suggestions = []
+    # Resolve each unmatched row's candidate group with the same tiered
+    # lookup as before, but defer scoring -- rows sharing the exact same
+    # candidate set (very common: most rows in a tier fall back to "same
+    # medium and day") get batched into one rapidfuzz call together below,
+    # instead of each row making its own Python -> C round trip via
+    # process.extract. Every individual process.extract call is already
+    # fast; what adds up on a large upload is the *count* of those calls --
+    # process.cdist scores a whole group of rows against its shared
+    # candidate list in a single call, so the C layer does the looping
+    # rather than this function calling into it once per row.
+    rows_by_group = {}
     for media_index, row in unmatched.iterrows():
         medium_norm = normalize_text(row.get('Medium', ''))
         channel_norm = normalize_station_for_match(row.get('Channel / Station', ''))
@@ -1146,82 +1157,127 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
             ('Same medium and channel', tuple(candidates_by_medium_channel.get((medium_norm, channel_norm), []))),
             ('Same medium and day', tuple(candidates_by_medium_day.get((medium_norm, day_norm), []))),
         ]
-        candidate_rows = None
+        candidate_indexes = None
         basis = ''
-        for candidate_basis, candidate_indexes in candidate_groups:
-            if candidate_indexes:
-                candidate_rows = candidate_cache[candidate_indexes]
+        for candidate_basis, indexes in candidate_groups:
+            if indexes:
+                candidate_indexes = indexes
                 basis = candidate_basis
                 break
-        if candidate_rows is None:
+        if candidate_indexes is None:
             continue
 
-        choices = [candidate[1] for candidate in candidate_rows]
-        extracted = process.extract(
-            programme,
-            choices,
-            scorer=fuzz.ratio,
-            score_cutoff=min_score * 100,
-            limit=max_suggestions_per_row * 5,
+        rows_by_group.setdefault(candidate_indexes, []).append(
+            (row, channel_norm, programme, media_time, basis)
         )
-        if not extracted:
-            continue
-        # Programme-text similarity alone can't tell "AIT Lagos" (a
-        # legitimate near-match for a rating on "AIT") apart from "Cool FM
-        # Lagos" landing on a rating for "Human Rights FM Abuja" purely
-        # because both happen to share a generic Programme value like "ROS"
-        # -- in the "Same medium and day" tier, station isn't part of the
-        # lookup key at all, so nothing else ties the suggestion back to a
-        # plausible station. Blending in station-name similarity
-        # (token_set_ratio, so a station's extra city/state words -- "AIT
-        # Lagos" vs "AIT" -- don't tank a real near-match the way a plain
-        # ratio would) fixes that: a station with nothing in common with
-        # the input now drags the score down instead of inheriting a
-        # confidence it never earned from the programme text alone. This is
-        # a no-op for the "same channel" tiers above, where every candidate
-        # already shares the input's normalized channel and so scores 1.0.
-        blended_candidates = []
-        for rank, (_value, programme_score, index) in enumerate(extracted):
-            candidate = candidate_rows[index]
-            if not compatible_time_slot(media_time, candidate[6]):
-                continue
-            channel_similarity = fuzz.token_set_ratio(channel_norm, normalize_station_for_match(candidate[2])) / 100
-            blended_score = (programme_score / 100) * channel_similarity
-            if blended_score >= min_score:
-                blended_candidates.append((candidate, blended_score, rank))
-        if not blended_candidates:
-            continue
-        ranked_candidates = sorted(blended_candidates, key=lambda item: (-item[1], item[2]))
-        selected_candidates = []
-        seen_candidates = set()
-        for candidate, score, _rank in ranked_candidates:
-            duplicate_key = (candidate[2], candidate[3], candidate[1], candidate[4], candidate[6])
-            if duplicate_key in seen_candidates:
-                continue
-            seen_candidates.add(duplicate_key)
-            selected_candidates.append((candidate, score))
-            if len(selected_candidates) >= max_suggestions_per_row:
-                break
 
-        for candidate, similarity in selected_candidates:
-            score = round(float(similarity), 3)
-            suggestions.append({
-                'Brand': row.get('Brand', ''),
-                'Source File': row.get('Source File', ''),
-                'Input Medium': row.get('Medium', ''),
-                'Input Channel / Station': row.get('Channel / Station', ''),
-                'Input Day': row.get('Day', ''),
-                'Input Programme / Time Band': programme,
-                'Suggested Channel / Station': candidate[2],
-                'Suggested Day': candidate[3],
-                'Suggested Programme / Time Band': candidate[1],
-                'Suggested Rating (%)': candidate[4] if pd.notna(candidate[4]) else pd.NA,
-                'Similarity Score': score,
-                'Confidence': suggestion_confidence(score),
-                'Suggestion Basis': basis,
-                'Input Match Key': row.get('Match Key', ''),
-                'Suggested Match Key': candidate[5],
-            })
+    if not rows_by_group:
+        return pd.DataFrame(columns=SUGGESTION_COLUMNS)
+
+    score_cutoff = min_score * 100
+    extract_limit = max_suggestions_per_row * 5
+
+    suggestions = []
+    for candidate_indexes, group_rows in rows_by_group.items():
+        candidate_rows = candidate_cache[candidate_indexes]
+        choices = [candidate[1] for candidate in candidate_rows]
+        candidate_channel_norms = [candidate[7] for candidate in candidate_rows]
+
+        # One programme-similarity matrix covers every row in the group at
+        # once: rows x candidates, computed by rapidfuzz's C layer in a
+        # single call instead of one process.extract() call per row.
+        # float64 matches the plain-Python fuzz.ratio() precision the
+        # row-by-row version used -- cdist returns float32 by default, fine
+        # for the cutoff/ranking comparisons below but not worth risking on
+        # the rounded score that ends up in the API response. Station-name
+        # similarity is deliberately NOT computed as a matching group-wide
+        # matrix -- only a handful of candidates per row ever survive the
+        # cutoff below, so scoring the full rows x candidates grid for it
+        # too would do far more token_set_ratio work than the result needs.
+        programme_scores = process.cdist(
+            [info[2] for info in group_rows], choices, scorer=fuzz.ratio,
+        ).astype(np.float64)
+
+        # Mirrors process.extract(..., score_cutoff=..., limit=...): for
+        # every row at once, its candidates at/above the cutoff, top
+        # `extract_limit` by score, ties broken by original candidate order.
+        # Sorted with a single whole-matrix argsort (one numpy call for the
+        # entire group) rather than once per row -- with a small candidate
+        # pool and thousands of rows, a per-row numpy call's own overhead
+        # can outweigh what it saves, the same trap as calling into
+        # rapidfuzz once per row in the first place.
+        top_k = min(extract_limit, programme_scores.shape[1])
+        top_order = np.argsort(-programme_scores, axis=1, kind='stable')[:, :top_k]
+        top_scores = np.take_along_axis(programme_scores, top_order, axis=1)
+        keep_counts = np.count_nonzero(top_scores >= score_cutoff, axis=1)
+
+        for row_position, (row, channel_norm, programme, media_time, basis) in enumerate(group_rows):
+            keep_count = int(keep_counts[row_position])
+            if keep_count == 0:
+                continue
+            row_programme_scores = programme_scores[row_position]
+            top_indexes = top_order[row_position, :keep_count]
+
+            # Programme-text similarity alone can't tell "AIT Lagos" (a
+            # legitimate near-match for a rating on "AIT") apart from "Cool FM
+            # Lagos" landing on a rating for "Human Rights FM Abuja" purely
+            # because both happen to share a generic Programme value like "ROS"
+            # -- in the "Same medium and day" tier, station isn't part of the
+            # lookup key at all, so nothing else ties the suggestion back to a
+            # plausible station. Blending in station-name similarity
+            # (token_set_ratio, so a station's extra city/state words -- "AIT
+            # Lagos" vs "AIT" -- don't tank a real near-match the way a plain
+            # ratio would) fixes that: a station with nothing in common with
+            # the input now drags the score down instead of inheriting a
+            # confidence it never earned from the programme text alone. This is
+            # a no-op for the "same channel" tiers above, where every candidate
+            # already shares the input's normalized channel and so scores 1.0.
+            # Computed only for this row's already-filtered top candidates
+            # (a handful, not the whole group) -- same amount of work the
+            # original row-by-row version did.
+            blended_candidates = []
+            for rank, idx in enumerate(top_indexes):
+                idx = int(idx)
+                candidate = candidate_rows[idx]
+                if not compatible_time_slot(media_time, candidate[6]):
+                    continue
+                channel_similarity = fuzz.token_set_ratio(channel_norm, candidate_channel_norms[idx]) / 100
+                blended_score = (row_programme_scores[idx] / 100) * channel_similarity
+                if blended_score >= min_score:
+                    blended_candidates.append((candidate, blended_score, rank))
+            if not blended_candidates:
+                continue
+            ranked_candidates = sorted(blended_candidates, key=lambda item: (-item[1], item[2]))
+            selected_candidates = []
+            seen_candidates = set()
+            for candidate, score, _rank in ranked_candidates:
+                duplicate_key = (candidate[2], candidate[3], candidate[1], candidate[4], candidate[6])
+                if duplicate_key in seen_candidates:
+                    continue
+                seen_candidates.add(duplicate_key)
+                selected_candidates.append((candidate, score))
+                if len(selected_candidates) >= max_suggestions_per_row:
+                    break
+
+            for candidate, similarity in selected_candidates:
+                score = round(float(similarity), 3)
+                suggestions.append({
+                    'Brand': row.get('Brand', ''),
+                    'Source File': row.get('Source File', ''),
+                    'Input Medium': row.get('Medium', ''),
+                    'Input Channel / Station': row.get('Channel / Station', ''),
+                    'Input Day': row.get('Day', ''),
+                    'Input Programme / Time Band': programme,
+                    'Suggested Channel / Station': candidate[2],
+                    'Suggested Day': candidate[3],
+                    'Suggested Programme / Time Band': candidate[1],
+                    'Suggested Rating (%)': candidate[4] if pd.notna(candidate[4]) else pd.NA,
+                    'Similarity Score': score,
+                    'Confidence': suggestion_confidence(score),
+                    'Suggestion Basis': basis,
+                    'Input Match Key': row.get('Match Key', ''),
+                    'Suggested Match Key': candidate[5],
+                })
 
     return pd.DataFrame(suggestions, columns=SUGGESTION_COLUMNS)
 

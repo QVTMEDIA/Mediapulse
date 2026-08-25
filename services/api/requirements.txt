@@ -9,6 +9,7 @@ PyJWT>=2.9
 # the same module the Streamlit app runs, so a pandas/openpyxl version drift
 # here could make the two runtimes parse the same upload differently.
 pandas==3.0.5
+numpy==2.5.2
 openpyxl==3.1.5
 xlrd==2.0.2
 rapidfuzz>=3.9,<4

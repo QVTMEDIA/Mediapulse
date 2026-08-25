@@ -35,6 +35,25 @@ SPOT_EFFICIENCY_WEAK_RATIO = 0.5
 SPOT_EFFICIENCY_MIN_SPOTS = 5
 
 
+def _brand_names(brands_repo: BrandsRepository, project_id: str) -> dict:
+    """{brand_id: name} for every brand in the project, fetched once.
+
+    Every route below used to call brands_repo.get_brand(project_id, ...)
+    once per *row* of whatever it just listed (once per station, per
+    programme, per daypart, per matched calculation row -- not once per
+    distinct brand) to attach a display name. Each of those calls opens its
+    own fresh Postgres connection (db.py's get_connection() is one
+    connection per call, by design -- see its docstring), so a run with a
+    few dozen stations or a few thousand matched rows meant a few dozen or
+    a few thousand sequential connection round trips just to label rows
+    that only ever reference a handful of brands. Found live: a real
+    project's /stations (34 rows) took ~45s and /dayparts (more distinct
+    groups) timed out outright, both fixed by this single change. One
+    list_brands() call replaces all of that -- same one connection a
+    single get_brand() call would have opened anyway."""
+    return {brand.id: brand.name for brand in brands_repo.list_brands(project_id)}
+
+
 def _run_to_out(record) -> GrpRunSummaryOut:
     return GrpRunSummaryOut(
         run_id=record.id,
@@ -157,13 +176,13 @@ def get_brand_shares(
     if shares is None:
         raise HTTPException(status_code=404, detail='Run not found for this project')
 
+    brand_names = _brand_names(brands_repo, project_id)
     results = []
     for share in shares:
-        brand = brands_repo.get_brand(project_id, share.brand_id)
         results.append(BrandShareOut(
             run_id=share.run_id,
             brand_id=share.brand_id,
-            brand=brand.name if brand else 'Unknown brand',
+            brand=brand_names.get(share.brand_id, 'Unknown brand'),
             total_grps=share.total_grps,
             tv_grps=share.tv_grps,
             cable_tv_grps=share.cable_tv_grps,
@@ -198,15 +217,15 @@ def get_calculations(
     if calculations is None:
         raise HTTPException(status_code=404, detail='Run not found for this project')
 
+    brand_names = _brand_names(brands_repo, project_id)
     results = []
     for row in calculations:
-        brand = brands_repo.get_brand(project_id, row.brand_id)
         results.append(GrpCalculationRowOut(
             grp_calculation_id=row.id,
             run_id=row.run_id,
             media_activity_id=row.media_activity_id,
             brand_id=row.brand_id,
-            brand=brand.name if brand else 'Unknown brand',
+            brand=brand_names.get(row.brand_id, 'Unknown brand'),
             station=row.station,
             programme=row.programme,
             day=row.day,
@@ -237,11 +256,11 @@ def get_station_shares(
     if shares is None:
         raise HTTPException(status_code=404, detail='Run not found for this project')
 
+    brand_names = _brand_names(brands_repo, project_id)
     results = []
     for share in shares:
-        brand = brands_repo.get_brand(project_id, share.brand_id)
         results.append(StationShareOut(
-            run_id=share.run_id, brand_id=share.brand_id, brand=brand.name if brand else 'Unknown brand',
+            run_id=share.run_id, brand_id=share.brand_id, brand=brand_names.get(share.brand_id, 'Unknown brand'),
             station=share.station, total_grps=share.total_grps, spots=share.spots,
         ))
     return results
@@ -274,9 +293,9 @@ def get_spot_efficiency(
     category_avg_grp_per_spot = (category_total_grps / category_total_spots) if category_total_spots else 0.0
     weak_ceiling = category_avg_grp_per_spot * SPOT_EFFICIENCY_WEAK_RATIO
 
+    brand_names = _brand_names(brands_repo, project_id)
     results = []
     for share in shares:
-        brand = brands_repo.get_brand(project_id, share.brand_id)
         grp_per_spot = (share.total_grps / share.spots) if share.spots else 0.0
         is_weak = (
             category_avg_grp_per_spot > 0
@@ -284,7 +303,7 @@ def get_spot_efficiency(
             and grp_per_spot < weak_ceiling
         )
         results.append(SpotEfficiencyOut(
-            run_id=share.run_id, brand_id=share.brand_id, brand=brand.name if brand else 'Unknown brand',
+            run_id=share.run_id, brand_id=share.brand_id, brand=brand_names.get(share.brand_id, 'Unknown brand'),
             station=share.station, spots=share.spots, total_grps=share.total_grps,
             grp_per_spot=grp_per_spot, is_weak=is_weak,
         ))
@@ -307,11 +326,11 @@ def get_programme_shares(
     if shares is None:
         raise HTTPException(status_code=404, detail='Run not found for this project')
 
+    brand_names = _brand_names(brands_repo, project_id)
     results = []
     for share in shares:
-        brand = brands_repo.get_brand(project_id, share.brand_id)
         results.append(ProgrammeShareOut(
-            run_id=share.run_id, brand_id=share.brand_id, brand=brand.name if brand else 'Unknown brand',
+            run_id=share.run_id, brand_id=share.brand_id, brand=brand_names.get(share.brand_id, 'Unknown brand'),
             programme=share.programme, total_grps=share.total_grps, spots=share.spots,
         ))
     return results
@@ -338,11 +357,11 @@ def get_daypart_shares(
     if shares is None:
         raise HTTPException(status_code=404, detail='Run not found for this project')
 
+    brand_names = _brand_names(brands_repo, project_id)
     results = []
     for share in shares:
-        brand = brands_repo.get_brand(project_id, share.brand_id)
         results.append(DaypartShareOut(
-            run_id=share.run_id, brand_id=share.brand_id, brand=brand.name if brand else 'Unknown brand',
+            run_id=share.run_id, brand_id=share.brand_id, brand=brand_names.get(share.brand_id, 'Unknown brand'),
             time_band=share.time_band, total_grps=share.total_grps, spots=share.spots,
         ))
     return results
@@ -366,11 +385,11 @@ def get_trend(
     if points is None:
         raise HTTPException(status_code=404, detail='Run not found for this project')
 
+    brand_names = _brand_names(brands_repo, project_id)
     results = []
     for point in points:
-        brand = brands_repo.get_brand(project_id, point.brand_id)
         results.append(TrendPointOut(
-            run_id=point.run_id, brand_id=point.brand_id, brand=brand.name if brand else 'Unknown brand',
+            run_id=point.run_id, brand_id=point.brand_id, brand=brand_names.get(point.brand_id, 'Unknown brand'),
             week_start=point.week_start, total_grps=point.total_grps, spots=point.spots,
         ))
     return results

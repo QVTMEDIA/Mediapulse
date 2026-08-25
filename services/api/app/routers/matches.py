@@ -118,13 +118,16 @@ def export_matches(
 
     activity_by_id = {row.id: row for row in media_activity}
     ratings_by_id = {row.id: row for row in rating_rows}
-    brand_names: dict = {}
+    # One list_brands() call instead of one brands_repo.get_brand() call per
+    # distinct brand seen in the export -- each get_brand() opens its own
+    # fresh Postgres connection (db.py's get_connection() is one connection
+    # per call), so this was already better than the per-row version of the
+    # same mistake found and fixed in routers/runs.py, but still paid a
+    # separate connection per brand rather than one connection, period.
+    brand_names = {brand.id: brand.name for brand in brands_repo.list_brands(project_id)}
 
     def _brand_name(brand_id: str) -> str:
-        if brand_id not in brand_names:
-            brand = brands_repo.get_brand(project_id, brand_id)
-            brand_names[brand_id] = brand.name if brand else 'Unknown brand'
-        return brand_names[brand_id]
+        return brand_names.get(brand_id, 'Unknown brand')
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)

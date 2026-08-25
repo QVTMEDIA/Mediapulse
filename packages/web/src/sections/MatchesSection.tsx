@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download } from 'lucide-react';
 import {
   ApiError,
@@ -108,6 +108,20 @@ export default function MatchesSection({ project }: { project: Project | null })
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  // Tracks whichever project is current *right now*, updated synchronously
+  // on every project change -- an in-flight fetch started for a project the
+  // user has since navigated away from checks this before applying its
+  // result, so a slow response landing late can't overwrite the screen
+  // with another project's data. Real bug, not theoretical: found live
+  // right after refreshAssignableRatings below was split into a slower,
+  // un-gated background fetch -- switching projects while the previous
+  // project's (still-loading) rating library fetch was in flight let its
+  // stale response repopulate the "assign a rating" picker with the WRONG
+  // project's ratings, so picking one and assigning it got rejected by the
+  // backend ("matchedRatingId is not a rating attached to this project") --
+  // correctly, since it wasn't.
+  const activeProjectIdRef = useRef<string | null>(null);
+
   const refresh = useCallback(async (projectId: string) => {
     setLoading(true);
     setLoadError(null);
@@ -127,13 +141,15 @@ export default function MatchesSection({ project }: { project: Project | null })
       // docstring) -- describing an already-made match only ever needs the
       // specific rating it points to.
       const [matchResults, matchedRatings] = await Promise.all([listMatches(projectId), listMatchedRatings(projectId)]);
+      if (activeProjectIdRef.current !== projectId) return; // stale -- project changed while this was in flight
       setMatches(matchResults);
       setActivityById(new Map(activityResults.map((row) => [row.mediaActivityId, row])));
       setRatingsById(new Map(matchedRatings.map((row) => [row.ratingRowId, row])));
     } catch (error) {
+      if (activeProjectIdRef.current !== projectId) return;
       setLoadError(error instanceof ApiError ? error.message : 'Could not load matches.');
     } finally {
-      setLoading(false);
+      if (activeProjectIdRef.current === projectId) setLoading(false);
     }
   }, []);
 
@@ -147,6 +163,7 @@ export default function MatchesSection({ project }: { project: Project | null })
     try {
       const datasets = await listProjectRatingsDatasets(projectId);
       const rowLists = await Promise.all(datasets.map((dataset) => listRatingRows(dataset.ratingsDatasetId)));
+      if (activeProjectIdRef.current !== projectId) return; // stale -- see activeProjectIdRef's own comment
       const ratingsMap = new Map<string, RatingRow>();
       for (const rows of rowLists) {
         for (const row of rows) ratingsMap.set(row.ratingRowId, row);
@@ -158,11 +175,12 @@ export default function MatchesSection({ project }: { project: Project | null })
       // picker's option list stays empty, and its own empty-state message
       // covers that case already.
     } finally {
-      setAssignableRatingsLoading(false);
+      if (activeProjectIdRef.current === projectId) setAssignableRatingsLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    activeProjectIdRef.current = project ? project.projectId : null;
     if (project) {
       void refresh(project.projectId);
       void refreshAssignableRatings(project.projectId);

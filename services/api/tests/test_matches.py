@@ -215,6 +215,42 @@ def test_compute_matches_exact_fallback_matches_same_range_in_different_text_for
     assert result[0].matched_rating_id == 'rating-slot'
 
 
+def test_compute_matches_tolerates_medium_spelling_differences():
+    # Regression: a real ratings/spend upload pair used "TV" on the ratings
+    # side and "Terrestrial TV" on the spend side for the identical medium.
+    # Medium is one of every match key's four components, so the old plain
+    # normalize_text() failed every single row over this one column
+    # disagreeing, station/day/time-band agreement notwithstanding -- 0 of
+    # 950 real spots matched until medium was canonicalized the same way
+    # normalize_medium_type() already does for GRP bucketing.
+    activity = _media_activity(
+        medium='Terrestrial TV', station='NTA', day='Monday',
+        programme='ROS', time_band='20:27:07',
+    )
+    rating = _rating_row(
+        'rating-nta', medium='TV', station='NTA', day='Monday',
+        programme='20:00:00-21:00:00', time_band='20:00:00-21:00:00', rating=3.4,
+    )
+
+    result = compute_matches([activity], [rating])
+
+    assert len(result) == 1
+    assert result[0].match_status == 'exact'
+    assert result[0].matched_rating_id == 'rating-nta'
+
+
+def test_compute_matches_does_not_bridge_genuine_medium_differences():
+    # TV vs Radio -- a real, different medium -- must never collapse into a
+    # match the way spelling variants of the same medium now do above.
+    activity = _media_activity(medium='Radio', station='NTA', day='Monday', programme='Prime Time')
+    rating = _rating_row('rating-tv', medium='TV', station='NTA', day='Monday', programme='Prime Time', rating=1.0)
+
+    result = compute_matches([activity], [rating], include_suggestions=False)
+
+    assert len(result) == 1
+    assert result[0].match_status == 'unmatched'
+
+
 def test_compute_matches_does_not_suggest_incompatible_time_band():
     activity = _media_activity(
         medium='Radio',
@@ -808,6 +844,59 @@ def test_exact_match_does_not_bridge_genuine_station_spelling_differences(client
     matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
     assert len(matches) == 1
     assert matches[0]['matchStatus'] == 'suggested'
+
+
+def test_exact_match_tolerates_medium_spelling_differences(client, project, brand):
+    # "TV" vs "Terrestrial TV" -- the same medium, spelled differently by a
+    # different vendor export. A real ratings/spend upload pair used exactly
+    # this pairing and 0 of 950 real spots matched until medium was
+    # canonicalized the same way GRP bucketing already does.
+    dataset = client.post(
+        '/api/ratings-datasets',
+        json={'provider': 'Nielsen', 'rows': [{
+            'medium': 'TV', 'station': 'NTA', 'day': 'Monday',
+            'programme': 'Prime Time', 'rating': 1.2,
+        }]},
+    ).json()
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
+
+    media = b'Channel,Programme,Day,Spots\nNTA,Prime Time,Monday,3\n'
+    files = {'file': ('report.csv', io.BytesIO(media), 'text/csv')}
+    client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={'brand_id': brand['brandId'], 'default_medium': 'Terrestrial TV'},
+    )
+
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    assert len(matches) == 1
+    assert matches[0]['matchStatus'] == 'exact'
+    assert matches[0]['matchedRatingId'] is not None
+
+
+def test_exact_match_does_not_bridge_genuine_medium_differences(client, project, brand):
+    # TV vs Radio -- a real, different medium -- must never be treated as
+    # the same for matching purposes the way spelling variants now are.
+    dataset = client.post(
+        '/api/ratings-datasets',
+        json={'provider': 'Nielsen', 'rows': [{
+            'medium': 'TV', 'station': 'NTA', 'day': 'Monday',
+            'programme': 'Prime Time', 'rating': 1.2,
+        }]},
+    ).json()
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
+
+    media = b'Channel,Programme,Day,Spots\nNTA,Prime Time,Monday,3\n'
+    files = {'file': ('report.csv', io.BytesIO(media), 'text/csv')}
+    client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={'brand_id': brand['brandId'], 'default_medium': 'Radio'},
+    )
+
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    assert len(matches) == 1
+    assert matches[0]['matchStatus'] == 'unmatched'
 
 
 def test_exact_matching_uses_time_band_instead_of_programme(client, project, brand):

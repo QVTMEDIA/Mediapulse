@@ -828,6 +828,90 @@ button:disabled {
   align-items: center;
 }
 
+.soe-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.soe-filter-group h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.soe-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  color: #ffffff;
+  background: var(--green);
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.soe-filter-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.soe-filter-options .checkbox-field {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.soe-filter-options .checkbox-field input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+}
+
+.soe-date-inputs {
+  display: flex;
+  gap: 10px;
+}
+
+.soe-date-inputs label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.soe-date-inputs input[type='date'] {
+  height: 36px;
+  padding: 0 10px;
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.soe-clear-button {
+  margin-top: 14px;
+}
+
 h3.subsection {
   margin: 20px 0 8px;
   color: var(--muted);

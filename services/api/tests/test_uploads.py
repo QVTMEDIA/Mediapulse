@@ -71,6 +71,25 @@ def test_upload_brand_report_creates_media_activity(client, project, brand):
     assert all(row['sourceFile'] == 'report.csv' for row in activity)
 
 
+def test_upload_captures_region_column_when_present(client, project, brand):
+    content = (
+        b'Channel,Programme,Day,Spots,Region\n'
+        b'TVC,Prime Time,Monday,3,Lagos\n'
+        b'AIT,News,Tuesday,2,Abuja\n'
+    )
+    _post_upload(client, project['projectId'], brand['brandId'], content=content)
+    activity = client.get(f"/api/projects/{project['projectId']}/media-activity").json()
+    regions = sorted(row['region'] for row in activity)
+    assert regions == ['Abuja', 'Lagos']
+
+
+def test_upload_leaves_region_blank_when_no_such_column(client, project, brand):
+    response = _post_upload(client, project['projectId'], brand['brandId'])
+    assert response.status_code == 201
+    activity = client.get(f"/api/projects/{project['projectId']}/media-activity").json()
+    assert all(row['region'] == '' for row in activity)
+
+
 def test_upload_with_no_cost_column_leaves_cost_null(client, project, brand):
     # null, not 0 — "no spend column was ever mapped" and "confirmed zero
     # spend" are different things, same convention as unmatched GRP rows.

@@ -12,6 +12,7 @@ from .routers import (
     projects,
     ratings,
     runs,
+    soe,
     stubs,
     uploads,
     users,
@@ -56,6 +57,7 @@ app.include_router(mapping_templates.router)
 app.include_router(ratings.router)
 app.include_router(versions.router)
 app.include_router(exports.router)
+app.include_router(soe.router)
 app.include_router(stubs.router)
 
 

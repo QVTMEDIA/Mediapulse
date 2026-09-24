@@ -276,6 +276,13 @@ create table media_activity (
   end_time time,
   campaign text,
   product text,
+  -- Geography label as the vendor's own file supplies it (state, market,
+  -- zone, territory -- whatever header the file happens to use; see
+  -- grp_calculator.SYNONYMS['region']). Purely informational/filterable,
+  -- like time_band -- never feeds match_key or the Matching Engine. NULL
+  -- on every row from a file with no such column, which is the normal
+  -- case today (most ratings-matched files have no geography breakdown).
+  region text,
   source_file text,
   source_row_number int,
   -- Resolved media spend for this row (Share of Expenditure) — from an

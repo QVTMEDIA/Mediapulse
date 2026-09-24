@@ -171,6 +171,41 @@ export interface BrandShare {
   radioSpend: number;
 }
 
+// Distinct values actually present in a project's media_activity — what
+// the SOE Explorer's filter dropdowns are populated from. Not a fixed
+// enum: what's filterable is exactly what a project's uploads contain.
+export interface SoeFilterOptions {
+  mediums: string[];
+  stations: string[];
+  regions: string[];
+  days: string[];
+}
+
+export interface SoeFilters {
+  medium: string[];
+  station: string[];
+  region: string[];
+  day: string[];
+  dateFrom: string | null;
+  dateTo: string | null;
+}
+
+export interface SoeBrand {
+  brandId: string;
+  brand: string;
+  spend: number;
+  spots: number;
+  // Percent of the *filtered* set's total spend, not the whole project's
+  // — recomputed live against whatever filters are applied, unlike
+  // BrandShare.soe (fixed at the last Calculate run).
+  soe: number;
+}
+
+export interface SoeReport {
+  totalSpend: number;
+  brands: SoeBrand[];
+}
+
 export interface StationShare {
   runId: string;
   brandId: string;
@@ -280,6 +315,9 @@ export interface MediaActivityRow {
   // file had no such column. Separate from `programme`; never used for
   // rating matching.
   timeBand: string;
+  // The vendor's own geography label (state/market/zone/territory),
+  // captured as-is — '' when the file had no such column.
+  region: string;
   sourceFile: string;
 }
 

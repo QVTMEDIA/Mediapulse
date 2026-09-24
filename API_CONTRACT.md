@@ -167,10 +167,11 @@ The normalized, standard-structure row produced after mapping.
 - `campaign`
 - `product`
 - `cost` (media spend for this row — resolved at upload time from either a direct `Cost`/`Value` column or `Spots x Rate`, whichever the file has; `null`, not `0`, when neither was ever mapped, since "no spend column" and "confirmed zero spend" are different things. Not in this contract's original field list — added alongside `BrandShare.totalSpend`/`soe`, see that section)
+- `region` — the vendor's own geography label (state/market/zone/territory — whatever header the file uses; see `grp_calculator.SYNONYMS['region']`), captured as-is like `timeBand`. `''` when the file had no such column. Purely informational/filterable — never used for rating matching. Not in this contract's original field list; added for the SOE Explorer, see that section below.
 - `sourceFile`
 - `sourceRowNumber`
 
-Implemented so far (`services/api`'s `brand_report` upload path): `mediaActivityId`, `projectId`, `brandId`, `uploadId`, `medium`, `station`, `activityDate`, `day`, `programme`, `spots`, `cost`, `timeBand`, `sourceFile`. `duration`, `adType`, `startTime`, `endTime`, `campaign`, `product`, `sourceRowNumber` aren't populated yet — `grp_calculator.build_brand_report()` doesn't extract them from a spot-level report, and `build_brand_report` drops the row-number column it briefly computes internally before returning, so there's currently no cheap way to recover `sourceRowNumber` either. Revisit once a report format that actually carries that detail shows up.
+Implemented so far (`services/api`'s `brand_report` upload path): `mediaActivityId`, `projectId`, `brandId`, `uploadId`, `medium`, `station`, `activityDate`, `day`, `programme`, `spots`, `cost`, `timeBand`, `region`, `sourceFile`. `duration`, `adType`, `startTime`, `endTime`, `campaign`, `product`, `sourceRowNumber` aren't populated yet — `grp_calculator.build_brand_report()` doesn't extract them from a spot-level report, and `build_brand_report` drops the row-number column it briefly computes internally before returning, so there's currently no cheap way to recover `sourceRowNumber` either. Revisit once a report format that actually carries that detail shows up.
 
 ### RatingMatch
 
@@ -248,6 +249,22 @@ Per-brand rollup for a run, backing the SOV chart and brand comparison screen.
 - `totalSpend` — Share of Expenditure's numerator: this brand's resolved spend, summed across **every** `media_activity` row belonging to it regardless of match status. Not in this contract's original field list, added for the Media Spend/SOE feature.
 - `soe` — `totalSpend / (sum of every brand's totalSpend in this run) * 100`. Deliberately computed from all rows, not just matched ones, unlike `sov`: money was spent on a spot whether or not a rating was ever found for it, so a project with zero matched rows can still show a fully populated SOE breakdown (it just also shows `sov: 0` for everyone, since GRP genuinely doesn't exist yet). `0` when no brand in the run has any resolved spend at all.
 - `tvSpend`, `cableTvSpend`, `radioSpend` — spend broken out by medium, same shape and computation as `tvGrps`/`cableTvGrps`/`radioGrps` but for `totalSpend` instead of `totalGrps` — backs the Spend Intelligence screen's medium breakdown. Not in this contract's original field list. May not sum exactly to `totalSpend`: a row whose medium doesn't canonicalize to TV/Cable TV/Radio isn't counted in any of the three, same silent-drop behavior the GRP medium split already has.
+
+### SOE Explorer — `SoeFilterOptions` / `SoeReport`
+
+Not in this contract's original scope. A filterable, live alternative to `BrandShare.soe`: that field is a snapshot fixed at the last `POST /calculate` run, with only three medium buckets (TV/Cable TV/Radio). The SOE Explorer instead queries `media_activity` directly on every call — works before a project has ever been calculated, and supports arbitrary combinations of filters rather than three fixed ones.
+
+**`GET /api/projects/{projectId}/soe/filters`** returns `SoeFilterOptions` — the distinct `medium`/`station`/`region`/`day` values actually present in this project's `media_activity` (not a fixed enum, since what's filterable is exactly what the project's uploads happen to contain):
+
+- `mediums`
+- `stations`
+- `regions`
+- `days`
+
+**`GET /api/projects/{projectId}/soe`** accepts repeatable query params `medium`, `station`, `region`, `day` (each OR'd within its own dimension, all dimensions AND together) plus `date_from`/`date_to` (inclusive, ISO date), and returns `SoeReport`:
+
+- `totalSpend` — sum of `cost` across every `media_activity` row matching every given filter (an omitted filter matches everything on that dimension)
+- `brands` — array of `SoeBrand`: `brandId`, `brand`, `spend`, `spots`, `soe` (`spend / totalSpend * 100` **within this filtered set**, not the whole project — `0` when `totalSpend` is `0`), sorted by `spend` descending
 
 ### StationShare
 
@@ -403,6 +420,9 @@ GET    /api/projects/{projectId}/runs/{runId}/programmes
 GET    /api/projects/{projectId}/runs/{runId}/dayparts
 GET    /api/projects/{projectId}/runs/{runId}/spot-efficiency
 GET    /api/projects/{projectId}/runs/{runId}/trend
+
+GET    /api/projects/{projectId}/soe/filters
+GET    /api/projects/{projectId}/soe
 
 GET    /api/projects/{projectId}/validation-issues
 

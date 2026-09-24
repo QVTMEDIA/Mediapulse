@@ -15,6 +15,7 @@ import {
   LogOut,
   Search,
   Settings,
+  SlidersHorizontal,
   Upload,
 } from 'lucide-react';
 import AuthScreen from './AuthScreen';
@@ -46,6 +47,7 @@ import QualitySection from './sections/QualitySection';
 import RatingsSection from './sections/RatingsSection';
 import ReportsSection from './sections/ReportsSection';
 import SettingsSection from './sections/SettingsSection';
+import SoeExplorerSection from './sections/SoeExplorerSection';
 import SpendIntelligenceSection from './sections/SpendIntelligenceSection';
 import { LimitedRowsControls, useLimitedRows } from './components/LimitedRows';
 
@@ -58,6 +60,7 @@ type SectionKey =
   | 'activity'
   | 'reports'
   | 'spendIntelligence'
+  | 'soeExplorer'
   | 'quality'
   | 'exports'
   | 'settings';
@@ -73,6 +76,7 @@ const SECTION_LABELS: Record<SectionKey, string> = {
   activity: 'Activity',
   reports: 'Reports',
   spendIntelligence: 'Spend Intelligence',
+  soeExplorer: 'SOE Explorer',
   quality: 'Quality',
   exports: 'Exports',
   settings: 'Settings',
@@ -85,6 +89,7 @@ const SECTION_DESCRIPTIONS: Partial<Record<SectionKey, string>> = {
   activity: 'Every calculated row, traceable back to its spot — the audit trail behind the brand totals.',
   reports: 'Station and programme contribution, weekly trend, and brand-vs-brand comparison.',
   spendIntelligence: 'Media spend, Share of Expenditure, and cost-per-GRP efficiency by brand.',
+  soeExplorer: 'Filter Share of Expenditure by medium, station, region, day, or date range.',
   quality: 'Missing ratings, duplicate keys, and skipped upload rows for this project.',
   settings: 'Your account, and — for owners and admins — everyone else on this deployment.',
   exports: 'Generate and download the full Excel workbook for this project.',
@@ -98,6 +103,7 @@ const navItems: { key: SectionKey; icon: typeof FolderOpen }[] = [
   { key: 'activity', icon: ActivityIcon },
   { key: 'reports', icon: FileSpreadsheet },
   { key: 'spendIntelligence', icon: DollarSign },
+  { key: 'soeExplorer', icon: SlidersHorizontal },
   { key: 'quality', icon: AlertTriangle },
   { key: 'exports', icon: Upload },
   { key: 'settings', icon: Settings },
@@ -552,6 +558,8 @@ function Workspace({
           <ReportsSection project={activeProject} />
         ) : activeSection === 'spendIntelligence' ? (
           <SpendIntelligenceSection project={activeProject} />
+        ) : activeSection === 'soeExplorer' ? (
+          <SoeExplorerSection project={activeProject} />
         ) : activeSection === 'quality' ? (
           <QualitySection project={activeProject} />
         ) : activeSection === 'settings' ? (

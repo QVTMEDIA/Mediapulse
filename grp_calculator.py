@@ -44,6 +44,14 @@ SYNONYMS = {
     # failing test). 'time band'/'time belt'/'time slot'/'slot' cover the
     # same real-world header names without that collision.
     'time_band': ['time', 'time band', 'timeband', 'time belt', 'timebelt', 'time slot', 'slot'],
+    # Geography breakdown (Share of Expenditure filtering): whatever
+    # granularity a vendor's file happens to use -- state, market, zone,
+    # territory are all real header names seen in the wild for the same
+    # concept. Purely informational, like time_band's daypart label --
+    # never feeds match_key. Deliberately excludes 'area'/'zone code' or
+    # similar substring-collision risks the way time_band's comment
+    # documents for 'daypart'.
+    'region': ['region', 'state', 'market', 'zone', 'territory'],
     'spots': ['spots', 'spot', 'no. of spots', 'no spots', 'number of spots', 'spot count', 'insertions', 'frequency', 'qty', 'quantity', 'runs', 'count'],
     'rating': ['rating (%)', 'rating', 'ratings', 'program rating', 'programme rating', 'rating %', 'rch %', 'rch%', 'reach %', 'reach%', 'tvr', 'tvrs', 'grp', 'grps'],
     'grp': ['grp', 'grps', 'gross rating points', 'gross rating point', 'row grp', 'total grp', 'total grps'],
@@ -1388,6 +1396,10 @@ def build_brand_report(raw, mapping, file_name, default_medium='TV'):
         # .get() for cost/rate: app.py builds its own narrower mapping dict
         # that doesn't include it.
         'Daypart': safe_col(raw, mapping.get('time_band', '-- none --'), ''),
+        # Geography breakdown (Share of Expenditure filtering) — same
+        # "blank when unmapped" convention as Daypart above; mapping.get(...)
+        # for the same app.py-narrower-mapping-dict reason.
+        'Region': safe_col(raw, mapping.get('region', '-- none --'), ''),
         'Spots': spots_values.fillna(0),
         # NaN (not 0) when no cost/rate column was mapped at all — "no spend
         # data" and "confirmed zero spend" are different things, same

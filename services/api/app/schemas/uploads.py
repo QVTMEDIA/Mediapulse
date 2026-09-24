@@ -44,4 +44,8 @@ class MediaActivityRowOut(CamelModel):
     # SYNONYMS['time_band'] comment. '' when the file had no such column,
     # not used for matching (only `programme`/`day`/`station`/`medium` are).
     time_band: str = ''
+    # Vendor's own geography label (state/market/zone/territory), captured
+    # as-is — see grp_calculator.py's SYNONYMS['region'] comment. '' when
+    # the file had no such column, same convention as time_band above.
+    region: str = ''
     source_file: str

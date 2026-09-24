@@ -16,6 +16,9 @@ import type {
   RatingMatch,
   RatingRow,
   RatingsDataset,
+  SoeFilterOptions,
+  SoeFilters,
+  SoeReport,
   SpotEfficiency,
   StationShare,
   TrendPoint,
@@ -202,6 +205,27 @@ export function listBrandShares(projectId: string, runId: string): Promise<Brand
 
 export function calculateProject(projectId: string): Promise<GrpRunSummary> {
   return request<GrpRunSummary>(`/api/projects/${projectId}/calculate`, { method: 'POST' });
+}
+
+export function getSoeFilterOptions(projectId: string): Promise<SoeFilterOptions> {
+  return request<SoeFilterOptions>(`/api/projects/${projectId}/soe/filters`);
+}
+
+// Live, filterable Share of Expenditure — distinct from listBrandShares
+// above (a fixed snapshot from the last Calculate run): this recomputes on
+// every call from whatever filters are given, works before a project has
+// ever been calculated, and isn't limited to the three TV/Cable TV/Radio
+// buckets brand_shares stores.
+export function getSoe(projectId: string, filters: Partial<SoeFilters> = {}): Promise<SoeReport> {
+  const query = new URLSearchParams();
+  for (const value of filters.medium ?? []) query.append('medium', value);
+  for (const value of filters.station ?? []) query.append('station', value);
+  for (const value of filters.region ?? []) query.append('region', value);
+  for (const value of filters.day ?? []) query.append('day', value);
+  if (filters.dateFrom) query.set('date_from', filters.dateFrom);
+  if (filters.dateTo) query.set('date_to', filters.dateTo);
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  return request<SoeReport>(`/api/projects/${projectId}/soe${suffix}`);
 }
 
 export function startCalculationJob(projectId: string): Promise<CalculationJob> {

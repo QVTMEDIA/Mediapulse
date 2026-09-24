@@ -254,7 +254,9 @@ Per-brand rollup for a run, backing the SOV chart and brand comparison screen.
 
 Not in this contract's original scope. A filterable, live alternative to `BrandShare.soe`: that field is a snapshot fixed at the last `POST /calculate` run, with only three medium buckets (TV/Cable TV/Radio). The SOE Explorer instead queries `media_activity` directly on every call — works before a project has ever been calculated, and supports arbitrary combinations of filters rather than three fixed ones.
 
-**`GET /api/projects/{projectId}/soe/filters`** returns `SoeFilterOptions` — the distinct `medium`/`station`/`region`/`day` values actually present in this project's `media_activity` (not a fixed enum, since what's filterable is exactly what the project's uploads happen to contain):
+Both routes accept an optional `upload_id` query param, scoping to a single `uploads` row's `media_activity` rows rather than pooling every upload the project has ever had — the SOE Explorer analyzes one uploaded file at a time by design (see `packages/web`'s `SoeExplorerSection.tsx`: a project picker and an uploaded-file picker, both starting unselected, rather than defaulting to whatever project happens to be active elsewhere in the app). Omitted, both routes fall back to the whole project, unchanged from before `upload_id` existed.
+
+**`GET /api/projects/{projectId}/soe/filters`** returns `SoeFilterOptions` — the distinct `medium`/`station`/`region`/`day` values actually present in the selected `media_activity` rows (not a fixed enum, since what's filterable is exactly what the file happens to contain):
 
 - `mediums`
 - `stations`

@@ -140,3 +140,60 @@ def test_soe_requires_authentication():
     with TestClient(app) as anon_client:
         response = anon_client.get('/api/projects/whatever/soe')
         assert response.status_code == 401
+
+
+# A second, unrelated upload to the same project -- Brand C only, on a
+# station/region/day the first upload never touches. Proves upload_id
+# scoping actually isolates one file's rows rather than still pooling
+# every upload a project has ever had.
+SECOND_UPLOAD_CSV = (
+    b'Brand,Medium,Station,Region,Day,Programme,Spots,Rate\n'
+    b'Brand C,Radio,Wazobia,Rivers,Friday,Drive Time,2,60000\n'
+)
+
+
+def _upload_second_csv(client, project_id):
+    files = {'file': ('second.csv', io.BytesIO(SECOND_UPLOAD_CSV), 'text/csv')}
+    response = client.post(f'/api/projects/{project_id}/uploads', files=files, data={'kind': 'composite_report'})
+    assert response.status_code == 201
+    return response.json()
+
+
+def test_soe_upload_id_scopes_to_that_upload_only(client, project):
+    first_upload = _upload_soe_csv(client, project['projectId'])
+    _upload_second_csv(client, project['projectId'])
+
+    response = client.get(
+        f"/api/projects/{project['projectId']}/soe", params={'upload_id': first_upload['uploadId']}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body['totalSpend'] == pytest.approx(600_000)  # only the first upload's rows
+    by_brand = {row['brand']: row for row in body['brands']}
+    assert set(by_brand) == {'Brand A', 'Brand B'}  # Brand C from the second upload is excluded
+
+
+def test_soe_omitting_upload_id_pools_every_upload(client, project):
+    first_upload = _upload_soe_csv(client, project['projectId'])
+    second_upload = _upload_second_csv(client, project['projectId'])
+
+    response = client.get(f"/api/projects/{project['projectId']}/soe")
+    assert response.status_code == 200
+    body = response.json()
+    assert body['totalSpend'] == pytest.approx(720_000)  # 600k + 120k (2 spots x 60000)
+    by_brand = {row['brand']: row for row in body['brands']}
+    assert set(by_brand) == {'Brand A', 'Brand B', 'Brand C'}
+    assert first_upload['uploadId'] != second_upload['uploadId']
+
+
+def test_soe_filters_upload_id_scopes_facets_to_that_upload_only(client, project):
+    first_upload = _upload_soe_csv(client, project['projectId'])
+    _upload_second_csv(client, project['projectId'])
+
+    response = client.get(
+        f"/api/projects/{project['projectId']}/soe/filters", params={'upload_id': first_upload['uploadId']}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body['regions'] == ['Abuja', 'Kano', 'Lagos']  # Rivers (second upload) excluded
+    assert 'Wazobia' not in body['stations']

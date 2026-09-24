@@ -23,12 +23,13 @@ def _brand_names(brands_repo: BrandsRepository, project_id: str) -> dict:
 @router.get('/filters', response_model=SoeFilterOptionsOut)
 def get_soe_filters(
     project_id: str,
+    upload_id: Optional[str] = Query(default=None),
     repo: UploadsRepository = Depends(get_uploads_repository),
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
 ):
     if projects_repo.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail='Project not found')
-    options = repo.list_soe_filter_options(project_id)
+    options = repo.list_soe_filter_options(project_id, upload_id=upload_id)
     return SoeFilterOptionsOut(
         mediums=options.mediums, stations=options.stations, regions=options.regions, days=options.days
     )
@@ -37,6 +38,7 @@ def get_soe_filters(
 @router.get('', response_model=SoeReportOut)
 def get_soe(
     project_id: str,
+    upload_id: Optional[str] = Query(default=None),
     medium: List[str] = Query(default_factory=list),
     station: List[str] = Query(default_factory=list),
     region: List[str] = Query(default_factory=list),
@@ -54,11 +56,14 @@ def get_soe(
     it works before a project has ever been calculated and supports
     arbitrary filter combinations rather than three fixed ones. Each
     repeated query param (e.g. ?medium=TV&medium=Radio) is OR'd within its
-    own dimension; different dimensions AND together."""
+    own dimension; different dimensions AND together. upload_id scopes to
+    one uploaded file -- the SOE Explorer analyzes a single upload at a
+    time, never pools every upload a project has ever had."""
     if projects_repo.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail='Project not found')
     rows = repo.query_soe(
         project_id,
+        upload_id=upload_id,
         mediums=medium or None,
         stations=station or None,
         regions=region or None,

@@ -207,8 +207,12 @@ export function calculateProject(projectId: string): Promise<GrpRunSummary> {
   return request<GrpRunSummary>(`/api/projects/${projectId}/calculate`, { method: 'POST' });
 }
 
-export function getSoeFilterOptions(projectId: string): Promise<SoeFilterOptions> {
-  return request<SoeFilterOptions>(`/api/projects/${projectId}/soe/filters`);
+// uploadId scopes to one uploaded file — the SOE Explorer analyzes a
+// single upload at a time rather than pooling everything a project has
+// ever had; omitted, the filter facets span the whole project.
+export function getSoeFilterOptions(projectId: string, uploadId?: string): Promise<SoeFilterOptions> {
+  const suffix = uploadId ? `?upload_id=${encodeURIComponent(uploadId)}` : '';
+  return request<SoeFilterOptions>(`/api/projects/${projectId}/soe/filters${suffix}`);
 }
 
 // Live, filterable Share of Expenditure — distinct from listBrandShares
@@ -218,6 +222,7 @@ export function getSoeFilterOptions(projectId: string): Promise<SoeFilterOptions
 // buckets brand_shares stores.
 export function getSoe(projectId: string, filters: Partial<SoeFilters> = {}): Promise<SoeReport> {
   const query = new URLSearchParams();
+  if (filters.uploadId) query.set('upload_id', filters.uploadId);
   for (const value of filters.medium ?? []) query.append('medium', value);
   for (const value of filters.station ?? []) query.append('station', value);
   for (const value of filters.region ?? []) query.append('region', value);

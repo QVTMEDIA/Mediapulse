@@ -182,6 +182,7 @@ export interface SoeFilterOptions {
 }
 
 export interface SoeFilters {
+  uploadId: string | null;
   medium: string[];
   station: string[];
   region: string[];

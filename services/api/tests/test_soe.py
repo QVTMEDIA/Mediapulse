@@ -197,3 +197,23 @@ def test_soe_filters_upload_id_scopes_facets_to_that_upload_only(client, project
     body = response.json()
     assert body['regions'] == ['Abuja', 'Kano', 'Lagos']  # Rivers (second upload) excluded
     assert 'Wazobia' not in body['stations']
+
+
+def test_soe_only_upload_is_still_fully_queryable_by_soe(client, project):
+    # soe_only disconnects an upload from the Matching Engine/GRP
+    # calculation (see test_matches.py/test_runs.py) -- it must NOT also
+    # disconnect it from SOE Explorer itself, which is the whole point of
+    # the flag existing.
+    files = {'file': ('spend.csv', io.BytesIO(SOE_CSV), 'text/csv')}
+    response = client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={'kind': 'composite_report', 'soe_only': 'true'},
+    )
+    assert response.status_code == 201
+    assert response.json()['soeOnly'] is True
+
+    soe = client.get(f"/api/projects/{project['projectId']}/soe").json()
+    assert soe['totalSpend'] == pytest.approx(600_000)
+    by_brand = {row['brand']: row for row in soe['brands']}
+    assert set(by_brand) == {'Brand A', 'Brand B'}

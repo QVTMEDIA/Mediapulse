@@ -96,7 +96,7 @@ def list_matches(
     computed, call POST .../matches/recompute to retry 'unmatched' rows."""
     if projects_repo.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail='Project not found')
-    media_activity = uploads_repo.list_media_activity(project_id)
+    media_activity = uploads_repo.list_media_activity_for_matching(project_id)
     rating_rows = ratings_repo.list_project_rating_rows(project_id)
     records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows)
     return [_to_out(record) for record in records]
@@ -159,7 +159,7 @@ def export_matches(
     if projects_repo.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail='Project not found')
 
-    media_activity = uploads_repo.list_media_activity(project_id)
+    media_activity = uploads_repo.list_media_activity_for_matching(project_id)
     rating_rows = ratings_repo.list_project_rating_rows(project_id)
     records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows)
 
@@ -264,7 +264,7 @@ def recompute_matches(
     existing = matches_repo.list_matches(project_id)
     unmatched_by_activity_id = {m.media_activity_id: m for m in existing if m.match_status == 'unmatched'}
     if unmatched_by_activity_id:
-        media_activity = uploads_repo.list_media_activity(project_id)
+        media_activity = uploads_repo.list_media_activity_for_matching(project_id)
         unmatched_activity = [a for a in media_activity if a.id in unmatched_by_activity_id]
         rating_rows = ratings_repo.list_project_rating_rows(project_id)
 

@@ -246,7 +246,14 @@ create table uploads (
   mapped_rows int not null default 0,
   issue_rows int not null default 0,
   uploaded_by uuid references users(id) on delete set null,
-  uploaded_at timestamptz not null default now()
+  uploaded_at timestamptz not null default now(),
+  -- True for an upload made through the SOE Explorer's own upload panel --
+  -- its media_activity rows are meant purely for live Share of Expenditure
+  -- analysis of that one file, never for the Matching Engine or a
+  -- calculated GRP run. False (the default) for an upload made through the
+  -- ordinary Project Detail upload form, which behaves exactly as before.
+  -- See services/api/app/repositories/uploads.py's list_media_activity_for_matching.
+  soe_only boolean not null default false
 );
 
 create index uploads_project_idx on uploads (project_id);

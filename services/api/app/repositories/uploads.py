@@ -35,6 +35,13 @@ class UploadRecord:
     mapped_rows: int
     issue_rows: int
     uploaded_at: datetime
+    # True for an upload made through the SOE Explorer's own upload panel --
+    # its media_activity rows are visible to query_soe()/list_media_activity()
+    # (Activity screen, brand deletion, etc.) exactly like any other upload,
+    # but list_media_activity_for_matching() excludes them, so they never
+    # reach the Matching Engine or a calculated GRP run. False (the default)
+    # for an upload made through the ordinary Project Detail upload form.
+    soe_only: bool = False
 
 
 @dataclass
@@ -86,6 +93,16 @@ class UploadsRepository(Protocol):
 
     def list_media_activity(self, project_id: str) -> List[MediaActivityRecord]: ...
 
+    def list_media_activity_for_matching(self, project_id: str) -> List[MediaActivityRecord]:
+        """Like list_media_activity(), but excludes rows belonging to an
+        soe_only upload -- everything the Matching Engine and GRP
+        calculation (compute_run) read, since neither should ever see data
+        uploaded purely for SOE Explorer's own live spend analysis. Every
+        other consumer of media_activity (the Activity screen, brand
+        deletion, export row-labeling) deliberately keeps using the
+        unfiltered list_media_activity() instead."""
+        ...
+
     def query_soe(
         self,
         project_id: str,
@@ -120,6 +137,7 @@ class UploadsRepository(Protocol):
         kind: str,
         inserts: List[MediaActivityInsert],
         issue_rows: int = 0,
+        soe_only: bool = False,
     ) -> Tuple[UploadRecord, List[MediaActivityRecord]]: ...
 
     def delete_upload(self, project_id: str, upload_id: str) -> bool: ...
@@ -137,6 +155,7 @@ def _upload_row_to_record(row: dict) -> UploadRecord:
         mapped_rows=row['mapped_rows'],
         issue_rows=row['issue_rows'],
         uploaded_at=row['uploaded_at'],
+        soe_only=bool(row['soe_only']),
     )
 
 
@@ -176,15 +195,28 @@ class PostgresUploadsRepository:
             ).fetchall()
         return [_activity_row_to_record(row) for row in rows]
 
-    def create_upload_with_activity(self, project_id, brand_id, file_name, kind, inserts, issue_rows=0):
+    def list_media_activity_for_matching(self, project_id):
+        with get_connection() as conn:
+            rows = conn.execute(
+                '''
+                SELECT media_activity.* FROM media_activity
+                JOIN uploads ON uploads.id = media_activity.upload_id
+                WHERE media_activity.project_id = %s AND uploads.soe_only = false
+                ORDER BY media_activity.id
+                ''',
+                [project_id],
+            ).fetchall()
+        return [_activity_row_to_record(row) for row in rows]
+
+    def create_upload_with_activity(self, project_id, brand_id, file_name, kind, inserts, issue_rows=0, soe_only=False):
         with get_connection() as conn:
             upload_row = conn.execute(
                 '''
-                INSERT INTO uploads (project_id, brand_id, file_name, kind, mapped_rows, issue_rows)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO uploads (project_id, brand_id, file_name, kind, mapped_rows, issue_rows, soe_only)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING *
                 ''',
-                [project_id, brand_id, file_name, kind, len(inserts), issue_rows],
+                [project_id, brand_id, file_name, kind, len(inserts), issue_rows, soe_only],
             ).fetchone()
             activity_records = []
             if inserts:
@@ -310,10 +342,17 @@ class InMemoryUploadsRepository:
     def list_media_activity(self, project_id):
         return [a for a in self._activity.values() if a.project_id == project_id]
 
-    def create_upload_with_activity(self, project_id, brand_id, file_name, kind, inserts, issue_rows=0):
+    def list_media_activity_for_matching(self, project_id):
+        return [
+            a for a in self._activity.values()
+            if a.project_id == project_id and not self._uploads[a.upload_id].soe_only
+        ]
+
+    def create_upload_with_activity(self, project_id, brand_id, file_name, kind, inserts, issue_rows=0, soe_only=False):
         upload = UploadRecord(
             id=str(uuid.uuid4()), project_id=project_id, brand_id=brand_id, file_name=file_name, kind=kind,
             mapped_rows=len(inserts), issue_rows=issue_rows, uploaded_at=datetime.now(timezone.utc),
+            soe_only=soe_only,
         )
         self._uploads[upload.id] = upload
         activity_records = []

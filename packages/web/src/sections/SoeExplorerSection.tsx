@@ -47,7 +47,14 @@ function FilterGroup({
 // upload or browse what's already there: the upload form and the file list
 // both work across every project up front. A file's own project only
 // matters once it's selected, to route the filter/report queries to the
-// right /api/projects/{projectId}/soe endpoint underneath.
+// right /api/projects/{projectId}/soe endpoint underneath. The upload
+// form's own Project field starts unselected and stays that way until the
+// user actually picks one -- no default, not even the first project in the
+// list, since silently attaching a file to the wrong project is worse than
+// making someone pick. Every upload here also goes up with soeOnly: true,
+// so it never reaches the Matching Engine or a calculated GRP run -- this
+// tab is for live spend analysis of one file, not for feeding a project's
+// real ratings-matched numbers.
 export default function SoeExplorerSection({ projects }: { projects: Project[] }) {
   const [uploads, setUploads] = useState<UploadBatch[]>([]);
   const [uploadsLoading, setUploadsLoading] = useState(false);
@@ -76,14 +83,6 @@ export default function SoeExplorerSection({ projects }: { projects: Project[] }
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
-
-  // Defaults to the first project so the upload form is usable the moment
-  // it renders -- picking a project is available (for a multi-project
-  // account), never required to get started.
-  useEffect(() => {
-    if (uploadTargetProjectId && projects.some((project) => project.projectId === uploadTargetProjectId)) return;
-    setUploadTargetProjectId(projects[0]?.projectId ?? '');
-  }, [projects, uploadTargetProjectId]);
 
   const loadAllUploads = useCallback((projectList: Project[]) => {
     if (projectList.length === 0) {
@@ -164,7 +163,11 @@ export default function SoeExplorerSection({ projects }: { projects: Project[] }
 
   async function handleUpload(event: FormEvent) {
     event.preventDefault();
-    if (!uploadTargetProjectId || !uploadFile) {
+    if (!uploadTargetProjectId) {
+      setUploadError('Choose a project first.');
+      return;
+    }
+    if (!uploadFile) {
       setUploadError('Choose a file first.');
       return;
     }
@@ -176,6 +179,9 @@ export default function SoeExplorerSection({ projects }: { projects: Project[] }
         kind: 'composite_report',
         defaultMedium: uploadDefaultMedium,
         file: uploadFile,
+        // Never feeds the Matching Engine or a calculated GRP run -- this
+        // upload exists purely for this file's own live SOE analysis.
+        soeOnly: true,
       });
       setUploadSuccess(
         `Uploaded ${result.fileName}: ${result.mappedRows} row${result.mappedRows === 1 ? '' : 's'} mapped` +
@@ -244,6 +250,7 @@ export default function SoeExplorerSection({ projects }: { projects: Project[] }
             <label>
               Project
               <select value={uploadTargetProjectId} onChange={(event) => setUploadTargetProjectId(event.target.value)}>
+                <option value="">Select a project…</option>
                 {projects.map((project) => (
                   <option value={project.projectId} key={project.projectId}>
                     {project.projectName}
@@ -251,7 +258,11 @@ export default function SoeExplorerSection({ projects }: { projects: Project[] }
                 ))}
               </select>
             </label>
-            <button type="submit" className="secondary-button" disabled={isUploading || !uploadFile}>
+            <button
+              type="submit"
+              className="secondary-button"
+              disabled={isUploading || !uploadFile || !uploadTargetProjectId}
+            >
               {isUploading ? 'Uploading…' : 'Upload'}
             </button>
           </div>

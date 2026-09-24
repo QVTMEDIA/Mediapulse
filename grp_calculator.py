@@ -1102,7 +1102,11 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         return pd.DataFrame(columns=SUGGESTION_COLUMNS)
 
     ratings_index = ratings.copy()
-    ratings_index['_MediumNorm'] = normalized_series(ratings_index, 'Medium')
+    # normalize_medium_type, not the default normalize_text -- a ratings
+    # export's "TV" and a spend export's "Terrestrial TV" describe the same
+    # medium but disagree as plain text, which would silently exclude every
+    # candidate from this tiering (see app/matching.py.normalize_medium).
+    ratings_index['_MediumNorm'] = normalized_series(ratings_index, 'Medium', normalize_medium_type)
     ratings_index['_ChannelNorm'] = normalized_series(ratings_index, 'Channel / Station', normalize_station_for_match)
     ratings_index['_DayNorm'] = normalized_series(ratings_index, 'Day', normalize_day)
 
@@ -1154,7 +1158,7 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
     # rather than this function calling into it once per row.
     rows_by_group = {}
     for media_index, row in unmatched.iterrows():
-        medium_norm = normalize_text(row.get('Medium', ''))
+        medium_norm = normalize_medium_type(row.get('Medium', ''))
         channel_norm = normalize_station_for_match(row.get('Channel / Station', ''))
         day_norm = normalize_day(row.get('Day', ''))
         programme = row.get('Programme / Time Band', '')

@@ -22,8 +22,8 @@ from .matching import (
     make_exact_match_key,
     make_match_key,
     normalize_day,
+    normalize_medium,
     normalize_station,
-    normalize_text,
     time_band_contains,
 )
 
@@ -103,7 +103,7 @@ def _unmatched_results(unresolved) -> List[ComputedMatch]:
 def _rating_station_index(rating_records) -> Dict[str, tuple[str, ...]]:
     stations_by_medium: Dict[str, set[str]] = {}
     for rating in rating_records:
-        medium = normalize_text(getattr(rating, 'medium', ''))
+        medium = normalize_medium(getattr(rating, 'medium', ''))
         station = normalize_station(getattr(rating, 'station', ''))
         if medium and station:
             stations_by_medium.setdefault(medium, set()).add(station)
@@ -128,7 +128,7 @@ def _filter_station_covered_unresolved(unresolved, rating_records):
     covered = []
     for activity, key in unresolved:
         coverage_key = (
-            normalize_text(getattr(activity, 'medium', '')),
+            normalize_medium(getattr(activity, 'medium', '')),
             normalize_station(getattr(activity, 'station', '')),
         )
         if coverage_key not in station_coverage_cache:
@@ -149,7 +149,7 @@ def compute_matches(media_activity_records, rating_records, *, include_suggestio
         key = make_exact_match_key(rating.medium, rating.station, rating.day, rating.programme, rating.time_band)
         ratings_by_key.setdefault(key, rating)  # highest-priority (then newest-attached) dataset wins on duplicate keys
         if is_time_band_range(rating.time_band):
-            slot_key = (normalize_text(rating.medium), normalize_station(rating.station), normalize_day(rating.day))
+            slot_key = (normalize_medium(rating.medium), normalize_station(rating.station), normalize_day(rating.day))
             ratings_by_slot.setdefault(slot_key, []).append(rating)
 
     exact_results: List[ComputedMatch] = []
@@ -160,7 +160,7 @@ def compute_matches(media_activity_records, rating_records, *, include_suggestio
         key = make_exact_match_key(activity.medium, activity.station, activity.day, activity.programme, activity.time_band)
         rating = ratings_by_key.get(key)
         if rating is None:
-            slot_key = (normalize_text(activity.medium), normalize_station(activity.station), normalize_day(activity.day))
+            slot_key = (normalize_medium(activity.medium), normalize_station(activity.station), normalize_day(activity.day))
             rating = next(
                 (
                     candidate for candidate in ratings_by_slot.get(slot_key, [])

@@ -10,10 +10,17 @@ DEFAULT_DATABASE_URL = 'postgresql://mediapulse:mediapulse@localhost:5432/mediap
 class Settings:
     database_url: str
     repository_backend: str  # 'postgres' | 'memory'
+    # Shared secret gating self-registration -- '' (the default) means no
+    # gate at all, so an unconfigured deployment keeps today's open
+    # signup behavior rather than silently locking everyone out. Set this
+    # in the deployment's env once you want /api/auth/register to require
+    # it (see CHANGELOG.md).
+    register_invite_code: str
 
 
 def get_settings() -> Settings:
     return Settings(
         database_url=os.environ.get('DATABASE_URL', DEFAULT_DATABASE_URL),
         repository_backend=os.environ.get('API_REPOSITORY', 'postgres').strip().lower(),
+        register_invite_code=os.environ.get('REGISTER_INVITE_CODE', '').strip(),
     )

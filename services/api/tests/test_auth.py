@@ -229,6 +229,36 @@ def test_owner_cannot_demote_themselves(client):
     assert response.status_code == 422
 
 
+def test_register_is_open_when_no_invite_code_is_configured(client, monkeypatch):
+    monkeypatch.delenv('REGISTER_INVITE_CODE', raising=False)
+    response = _register(client, email='open@example.com')
+    assert response.status_code == 201
+
+
+def test_register_rejects_missing_invite_code_when_configured(client, monkeypatch):
+    monkeypatch.setenv('REGISTER_INVITE_CODE', 'let-me-in')
+    response = _register(client, email='gatecrash@example.com')
+    assert response.status_code == 403
+
+
+def test_register_rejects_wrong_invite_code(client, monkeypatch):
+    monkeypatch.setenv('REGISTER_INVITE_CODE', 'let-me-in')
+    response = client.post(
+        '/api/auth/register',
+        json={'email': 'wrong@example.com', 'password': 'correct horse', 'inviteCode': 'nope'},
+    )
+    assert response.status_code == 403
+
+
+def test_register_accepts_correct_invite_code(client, monkeypatch):
+    monkeypatch.setenv('REGISTER_INVITE_CODE', 'let-me-in')
+    response = client.post(
+        '/api/auth/register',
+        json={'email': 'right@example.com', 'password': 'correct horse', 'inviteCode': 'let-me-in'},
+    )
+    assert response.status_code == 201
+
+
 def test_update_role_rejects_unknown_role(client):
     owner_body = _register(client, email='owner9@example.com').json()
     owner_token = owner_body['accessToken']

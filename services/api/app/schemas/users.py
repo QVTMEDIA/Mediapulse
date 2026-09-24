@@ -35,6 +35,9 @@ class RegisterIn(CamelModel):
     email: str
     password: str = Field(min_length=8, max_length=200)
     display_name: str = Field(default='', max_length=200)
+    # Only checked when the deployment has REGISTER_INVITE_CODE set (see
+    # app/config.py) -- '' otherwise, matching the open-by-default rule.
+    invite_code: str = Field(default='', max_length=200)
 
     _normalize_email = field_validator('email')(_validate_email)
 

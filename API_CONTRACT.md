@@ -34,6 +34,8 @@ Role is global, not per-project — see the comment on the `users` table in `db/
 
 Returned by `POST /api/auth/register` and `POST /api/auth/login`. `accessToken` is a JWT, sent back as `Authorization: Bearer <accessToken>` on every subsequent request.
 
+**`POST /api/auth/register`'s `inviteCode` field** (string, default `''`) — only checked when the deployment has `REGISTER_INVITE_CODE` set (see `services/api/README.md`); an unconfigured deployment ignores it and registration stays open to anyone, unchanged from before this field existed. When configured, a request with a missing or wrong `inviteCode` gets `403` before the duplicate-email check runs (so an unauthenticated caller can't use the 409/201 split to probe which emails already have accounts). Not in this contract's original field list.
+
 - `accessToken`
 - `tokenType` (always `bearer`)
 - `user` (a `User`)

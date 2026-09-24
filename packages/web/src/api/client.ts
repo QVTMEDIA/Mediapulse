@@ -99,7 +99,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-export function register(input: { email: string; password: string; displayName?: string }): Promise<AuthSession> {
+export function register(
+  input: { email: string; password: string; displayName?: string; inviteCode?: string },
+): Promise<AuthSession> {
   return request<AuthSession>('/api/auth/register', { method: 'POST', body: JSON.stringify(input) });
 }
 

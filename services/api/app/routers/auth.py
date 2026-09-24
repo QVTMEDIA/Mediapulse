@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_user
+from ..config import get_settings
 from ..repositories.users import UserRecord, UsersRepository, get_users_repository
 from ..schemas.users import LoginIn, RegisterIn, TokenOut, UserOut
 from ..security import create_access_token, hash_password, verify_password
@@ -27,6 +28,13 @@ def _token_for(record: UserRecord) -> TokenOut:
 
 @router.post('/register', response_model=TokenOut, status_code=201)
 def register(payload: RegisterIn, users_repo: UsersRepository = Depends(get_users_repository)):
+    required_code = get_settings().register_invite_code
+    # Checked before the duplicate-email lookup below, on purpose: an
+    # unauthenticated caller with no invite code shouldn't be able to use
+    # this endpoint's 409/201 split to probe which emails already have
+    # accounts.
+    if required_code and payload.invite_code != required_code:
+        raise HTTPException(status_code=403, detail='Invalid or missing invite code.')
     if users_repo.get_by_email(payload.email) is not None:
         raise HTTPException(status_code=409, detail='An account with this email already exists.')
     # Bootstrap: the very first account on a fresh deployment becomes the

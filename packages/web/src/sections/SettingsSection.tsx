@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Users } from 'lucide-react';
-import { ApiError, listUsers, updateUserRole } from '../api/client';
+import { ApiError, listUsers, updateProfile, updateUserRole } from '../api/client';
 import type { User, UserRole } from '../api/contracts';
 import { LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 
@@ -10,7 +10,156 @@ function RoleBadge({ role }: { role: UserRole }) {
   return <span className={`status status-${role === 'owner' ? 'complete' : role === 'admin' ? 'review' : 'setup'}`}>{role}</span>;
 }
 
-export default function SettingsSection({ currentUser }: { currentUser: User }) {
+function ProfilePanel({ currentUser, onUserUpdated }: { currentUser: User; onUserUpdated: (user: User) => void }) {
+  const [displayName, setDisplayName] = useState(currentUser.displayName);
+  const [isSavingName, setIsSavingName] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [nameSaved, setNameSaved] = useState(false);
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSaved, setPasswordSaved] = useState(false);
+
+  // Keep the field in sync if the account is updated from elsewhere (e.g.
+  // a fresh /auth/me fetch on another tab), without clobbering an in-progress edit.
+  useEffect(() => {
+    setDisplayName(currentUser.displayName);
+  }, [currentUser.displayName]);
+
+  async function handleNameSubmit(event: FormEvent) {
+    event.preventDefault();
+    setNameError(null);
+    setNameSaved(false);
+    setIsSavingName(true);
+    try {
+      const updated = await updateProfile({ displayName });
+      onUserUpdated(updated);
+      setNameSaved(true);
+    } catch (error) {
+      setNameError(error instanceof ApiError ? error.message : 'Could not update your name.');
+    } finally {
+      setIsSavingName(false);
+    }
+  }
+
+  async function handlePasswordSubmit(event: FormEvent) {
+    event.preventDefault();
+    setPasswordError(null);
+    setPasswordSaved(false);
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New password and confirmation do not match.');
+      return;
+    }
+    setIsSavingPassword(true);
+    try {
+      const updated = await updateProfile({ currentPassword, newPassword });
+      onUserUpdated(updated);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordSaved(true);
+    } catch (error) {
+      setPasswordError(error instanceof ApiError ? error.message : 'Could not change your password.');
+    } finally {
+      setIsSavingPassword(false);
+    }
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-header">
+        <div>
+          <h2>Your account</h2>
+          <p>Signed in as {currentUser.email}</p>
+        </div>
+      </div>
+      <dl className="project-meta">
+        <div>
+          <dt>Role</dt>
+          <dd>
+            <RoleBadge role={currentUser.role} />
+          </dd>
+        </div>
+        <div>
+          <dt>Member since</dt>
+          <dd>{currentUser.createdAt}</dd>
+        </div>
+      </dl>
+
+      <form className="inline-form" onSubmit={handleNameSubmit}>
+        <label>
+          Name
+          <input
+            type="text"
+            value={displayName}
+            onChange={(event) => {
+              setDisplayName(event.target.value);
+              setNameSaved(false);
+            }}
+            placeholder="Jane Analyst"
+          />
+        </label>
+        <button type="submit" className="secondary-button" disabled={isSavingName || displayName === currentUser.displayName}>
+          {isSavingName ? 'Saving…' : 'Save name'}
+        </button>
+        {nameSaved && <span className="inline-success">Saved.</span>}
+        {nameError && <p className="inline-error">{nameError}</p>}
+      </form>
+
+      <form className="inline-form" onSubmit={handlePasswordSubmit}>
+        <label>
+          Current password
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={currentPassword}
+            onChange={(event) => setCurrentPassword(event.target.value)}
+          />
+        </label>
+        <label>
+          New password
+          <input
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            value={newPassword}
+            onChange={(event) => setNewPassword(event.target.value)}
+            placeholder="At least 8 characters"
+          />
+        </label>
+        <label>
+          Confirm new password
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+          />
+        </label>
+        <button
+          type="submit"
+          className="secondary-button"
+          disabled={isSavingPassword || !currentPassword || !newPassword}
+        >
+          {isSavingPassword ? 'Changing…' : 'Change password'}
+        </button>
+        {passwordSaved && <span className="inline-success">Password changed.</span>}
+        {passwordError && <p className="inline-error">{passwordError}</p>}
+      </form>
+    </div>
+  );
+}
+
+export default function SettingsSection({
+  currentUser,
+  onUserUpdated,
+}: {
+  currentUser: User;
+  onUserUpdated: (user: User) => void;
+}) {
   const canManageTeam = currentUser.role === 'owner' || currentUser.role === 'admin';
   const [users, setUsers] = useState<User[]>([]);
   const limitedUsers = useLimitedRows(users);
@@ -50,30 +199,7 @@ export default function SettingsSection({ currentUser }: { currentUser: User }) 
 
   return (
     <>
-      <div className="panel">
-        <div className="panel-header">
-          <div>
-            <h2>Your account</h2>
-            <p>Signed in as {currentUser.email}</p>
-          </div>
-        </div>
-        <dl className="project-meta">
-          <div>
-            <dt>Name</dt>
-            <dd>{currentUser.displayName || '—'}</dd>
-          </div>
-          <div>
-            <dt>Role</dt>
-            <dd>
-              <RoleBadge role={currentUser.role} />
-            </dd>
-          </div>
-          <div>
-            <dt>Member since</dt>
-            <dd>{currentUser.createdAt}</dd>
-          </div>
-        </dl>
-      </div>
+      <ProfilePanel currentUser={currentUser} onUserUpdated={onUserUpdated} />
 
       {canManageTeam ? (
         <div className="panel">

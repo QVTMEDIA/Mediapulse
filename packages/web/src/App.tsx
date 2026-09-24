@@ -179,7 +179,15 @@ function ComingSoonPanel({ section }: { section: SectionKey }) {
   );
 }
 
-function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: () => void }) {
+function Workspace({
+  currentUser,
+  onSignOut,
+  onUserUpdated,
+}: {
+  currentUser: User;
+  onSignOut: () => void;
+  onUserUpdated: (user: User) => void;
+}) {
   const [activeSection, setActiveSection] = useState<SectionKey>('overview');
   const [projects, setProjects] = useState<Project[]>([]);
   const limitedProjects = useLimitedRows(projects);
@@ -547,7 +555,7 @@ function Workspace({ currentUser, onSignOut }: { currentUser: User; onSignOut: (
         ) : activeSection === 'quality' ? (
           <QualitySection project={activeProject} />
         ) : activeSection === 'settings' ? (
-          <SettingsSection currentUser={currentUser} />
+          <SettingsSection currentUser={currentUser} onUserUpdated={onUserUpdated} />
         ) : activeSection === 'exports' ? (
           <ExportsSection project={activeProject} />
         ) : activeSection === 'projectDetail' ? (
@@ -863,7 +871,11 @@ function App() {
   if (authState.status === 'signedOut' || !authState.user) {
     return <AuthScreen onAuthenticated={handleAuthenticated} />;
   }
-  return <Workspace currentUser={authState.user} onSignOut={handleSignOut} />;
+  function handleUserUpdated(user: User) {
+    setAuthState((current) => (current.status === 'signedIn' ? { ...current, user } : current));
+  }
+
+  return <Workspace currentUser={authState.user} onSignOut={handleSignOut} onUserUpdated={handleUserUpdated} />;
 }
 
 export default App;

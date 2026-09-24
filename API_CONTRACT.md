@@ -36,6 +36,13 @@ Returned by `POST /api/auth/register` and `POST /api/auth/login`. `accessToken` 
 
 **`POST /api/auth/register`'s `inviteCode` field** (string, default `''`) — only checked when the deployment has `REGISTER_INVITE_CODE` set (see `services/api/README.md`); an unconfigured deployment ignores it and registration stays open to anyone, unchanged from before this field existed. When configured, a request with a missing or wrong `inviteCode` gets `403` before the duplicate-email check runs (so an unauthenticated caller can't use the 409/201 split to probe which emails already have accounts). Not in this contract's original field list.
 
+**`PATCH /api/auth/me`** — a signed-in user editing their own profile, distinct from `PATCH /api/users/{userId}/role` (owner-only, acts on someone else, role only). Every field optional and independent:
+
+- `displayName` — renames the account. Sent alone to change just the name.
+- `currentPassword` + `newPassword` — changes the password; both required together (`401` if `currentPassword` is missing or wrong, `422` if `newPassword` is under 8 characters). Requiring the current password even with a valid bearer token in hand is deliberate — an already-authenticated session shouldn't be enough by itself to lock the real account owner out from a hijacked or shared browser.
+
+Not in this contract's original route list.
+
 - `accessToken`
 - `tokenType` (always `bearer`)
 - `user` (a `User`)
@@ -339,6 +346,7 @@ One entry per past `GrpRunSummary` for a project — "each recalculation ... bec
 POST   /api/auth/register
 POST   /api/auth/login
 GET    /api/auth/me
+PATCH  /api/auth/me
 
 GET    /api/users
 PATCH  /api/users/{userId}/role

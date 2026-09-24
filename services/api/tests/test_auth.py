@@ -259,6 +259,67 @@ def test_register_accepts_correct_invite_code(client, monkeypatch):
     assert response.status_code == 201
 
 
+def test_user_can_update_own_display_name(client):
+    token = _register(client, email='rename@example.com', display_name='Old Name').json()['accessToken']
+    response = client.patch(
+        '/api/auth/me', json={'displayName': 'New Name'}, headers={'Authorization': f'Bearer {token}'}
+    )
+    assert response.status_code == 200
+    assert response.json()['displayName'] == 'New Name'
+
+
+def test_update_profile_requires_authentication(client):
+    response = client.patch('/api/auth/me', json={'displayName': 'Nope'})
+    assert response.status_code == 401
+
+
+def test_user_can_change_password_with_correct_current_password(client):
+    token = _register(client, email='pwchange@example.com', password='original pw').json()['accessToken']
+    response = client.patch(
+        '/api/auth/me',
+        json={'currentPassword': 'original pw', 'newPassword': 'brand new password'},
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    assert response.status_code == 200
+
+    login_with_new = client.post(
+        '/api/auth/login', json={'email': 'pwchange@example.com', 'password': 'brand new password'}
+    )
+    assert login_with_new.status_code == 200
+    login_with_old = client.post(
+        '/api/auth/login', json={'email': 'pwchange@example.com', 'password': 'original pw'}
+    )
+    assert login_with_old.status_code == 401
+
+
+def test_change_password_rejects_wrong_current_password(client):
+    token = _register(client, email='wrongpw@example.com', password='original pw').json()['accessToken']
+    response = client.patch(
+        '/api/auth/me',
+        json={'currentPassword': 'not the password', 'newPassword': 'brand new password'},
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    assert response.status_code == 401
+
+
+def test_change_password_requires_current_password(client):
+    token = _register(client, email='missingpw@example.com', password='original pw').json()['accessToken']
+    response = client.patch(
+        '/api/auth/me', json={'newPassword': 'brand new password'}, headers={'Authorization': f'Bearer {token}'}
+    )
+    assert response.status_code == 401
+
+
+def test_change_password_rejects_short_new_password(client):
+    token = _register(client, email='shortpw@example.com', password='original pw').json()['accessToken']
+    response = client.patch(
+        '/api/auth/me',
+        json={'currentPassword': 'original pw', 'newPassword': 'short'},
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    assert response.status_code == 422
+
+
 def test_update_role_rejects_unknown_role(client):
     owner_body = _register(client, email='owner9@example.com').json()
     owner_token = owner_body['accessToken']

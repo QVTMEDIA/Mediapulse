@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..auth import get_current_user
 from ..config import get_settings
 from ..repositories.users import UserRecord, UsersRepository, get_users_repository
-from ..schemas.users import LoginIn, RegisterIn, TokenOut, UserOut
+from ..schemas.users import LoginIn, RegisterIn, TokenOut, UpdateProfileIn, UserOut
 from ..security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix='/api/auth', tags=['auth'])
@@ -65,3 +65,20 @@ def login(payload: LoginIn, users_repo: UsersRepository = Depends(get_users_repo
 @router.get('/me', response_model=UserOut)
 def me(current_user: UserRecord = Depends(get_current_user)):
     return _to_out(current_user)
+
+
+@router.patch('/me', response_model=UserOut)
+def update_me(
+    payload: UpdateProfileIn,
+    current_user: UserRecord = Depends(get_current_user),
+    users_repo: UsersRepository = Depends(get_users_repository),
+):
+    if payload.new_password is not None:
+        # current_password is required to change it -- an already-valid
+        # bearer token alone shouldn't be enough to lock out the real owner
+        # of the account from a hijacked or shared browser session.
+        if not payload.current_password or not verify_password(payload.current_password, current_user.password_hash):
+            raise HTTPException(status_code=401, detail='Incorrect current password.')
+    password_hash = hash_password(payload.new_password) if payload.new_password is not None else None
+    record = users_repo.update_profile(current_user.id, display_name=payload.display_name, password_hash=password_hash)
+    return _to_out(record)

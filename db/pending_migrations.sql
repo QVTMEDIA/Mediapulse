@@ -41,3 +41,9 @@ alter table brand_shares
   add column if not exists cable_tv_spend numeric(14,2) not null default 0;
 alter table brand_shares
   add column if not exists radio_spend numeric(14,2) not null default 0;
+
+-- Disconnect SOE Explorer uploads from the Matching Engine/GRP calculation
+-- entirely -- services/api PR "Exclude SOE Explorer uploads from matching
+-- and GRP calculation".
+alter table uploads
+  add column if not exists soe_only boolean not null default false;

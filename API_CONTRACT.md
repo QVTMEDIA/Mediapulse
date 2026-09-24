@@ -131,9 +131,10 @@ Shared across projects via the Ratings Library — not owned by a single project
 - `mappedRows`
 - `issueRows`
 - `uploadedAt`
+- `soeOnly` — not in this contract's original field list. `true` when this upload was made through the SOE Explorer's own upload panel: its `MediaActivityRow`s are fully visible to `GET /soe`/`GET /soe/filters` and `GET /media-activity` exactly like any other upload, but are entirely excluded from the Matching Engine and GRP calculation (`GET /matches`, `POST /calculate`, and everything that feeds them) — see `services/api/README.md`. `false` (the default) for the ordinary Project Detail upload form.
 - `mappingWarnings` — same shape and same "stale mapping template" meaning as `RatingsDataset.mappingWarnings` above. Populated only on the response to `POST /uploads` (this upload's own parse); `GET /uploads` (listing past uploads) always returns `[]`, since it isn't persisted anywhere to look up again.
 
-**`POST /uploads`'s `ignore_saved_template` form field** — same meaning as `POST /ratings-datasets/upload`'s above.
+**`POST /uploads`'s `ignore_saved_template` form field** — same meaning as `POST /ratings-datasets/upload`'s above. **Its `soe_only` form field** (default `false`) sets `UploadBatch.soeOnly` above.
 
 `DELETE /uploads/{uploadId}` (owner/admin) removes the upload and all its `MediaActivityRow`s. Returns `409` if any of those rows were ever part of a calculated run — an upload that's never been calculated can always be deleted.
 

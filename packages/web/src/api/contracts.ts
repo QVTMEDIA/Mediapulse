@@ -110,6 +110,10 @@ export interface UploadBatch {
   mappedRows: number;
   issueRows: number;
   uploadedAt: string;
+  // True for an upload made through the SOE Explorer's own upload panel —
+  // excluded from the Matching Engine/GRP calculation entirely, never just
+  // from this project's "active" numbers.
+  soeOnly: boolean;
   // Only ever populated on the response to POST .../uploads (this
   // upload's own parse) — GET .../uploads (listing past uploads) always
   // leaves this empty. See MappingWarning.
@@ -467,6 +471,7 @@ export const sampleWorkspace: MediapulseWorkspace = {
       mappedRows: 202,
       issueRows: 1,
       uploadedAt: '2026-08-19 15:05:00',
+      soeOnly: false,
       mappingWarnings: [],
     },
     {
@@ -478,6 +483,7 @@ export const sampleWorkspace: MediapulseWorkspace = {
       mappedRows: 202,
       issueRows: 0,
       uploadedAt: '2026-08-19 15:18:00',
+      soeOnly: false,
       mappingWarnings: [],
     },
   ],

@@ -94,6 +94,34 @@ def test_calculate_computes_grp_and_run_summary(client, project):
     assert run['totalGrps'] == pytest.approx(3 * 1.2 + 2 * 2.5)  # 8.6
 
 
+def test_calculate_excludes_soe_only_uploads_entirely(client, project):
+    # An SOE Explorer upload (soe_only=true) must contribute nothing to a
+    # calculated run -- not spots, not spend, not GRPs -- even though its
+    # rows would otherwise match the same ratings as the normal upload.
+    brand = _brand(client, project['projectId'], 'Brand A')
+    _upload(client, project['projectId'], brand['brandId'], BRAND_A_CSV_WITH_COST)
+    _attach_ratings(client, project['projectId'], BRAND_A_RATINGS)
+
+    soe_csv = b'Channel,Programme,Day,Spots,Cost\nTVC,Prime Time,Monday,100,999999\n'
+    files = {'file': ('soe.csv', io.BytesIO(soe_csv), 'text/csv')}
+    response = client.post(
+        f"/api/projects/{project['projectId']}/uploads",
+        files=files,
+        data={'brand_id': brand['brandId'], 'soe_only': 'true'},
+    )
+    assert response.status_code == 201
+    assert response.json()['soeOnly'] is True
+
+    run = client.post(f"/api/projects/{project['projectId']}/calculate").json()
+    assert run['totalSpots'] == 5  # unaffected by the 100-spot soe_only upload
+    assert run['matchedRows'] == 2
+    assert run['totalGrps'] == pytest.approx(3 * 1.2 + 2 * 2.5)
+    assert run['totalSpend'] == pytest.approx(25000)  # 15000 + 10000 only -- the soe_only upload's 999999 never counted
+
+    brand_shares = client.get(f"/api/projects/{project['projectId']}/runs/{run['runId']}/brand-shares").json()
+    assert brand_shares[0]['totalSpend'] == pytest.approx(25000)
+
+
 def test_calculate_computes_matches_implicitly_without_prior_get(client, project):
     # calling /calculate without ever calling GET /matches first must still work
     brand = _brand(client, project['projectId'], 'Brand A')

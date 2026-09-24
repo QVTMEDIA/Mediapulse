@@ -290,6 +290,12 @@ export interface UploadMediaReportInput {
   // is how a stale template actually gets worked around instead of just
   // pointed at.
   ignoreSavedTemplate?: boolean;
+  // Marks every row this upload produces as excluded from the Matching
+  // Engine and GRP calculation — set only by the SOE Explorer's own upload
+  // panel, never by the ordinary Project Detail upload form. See
+  // services/api/app/repositories/uploads.py's
+  // list_media_activity_for_matching.
+  soeOnly?: boolean;
 }
 
 export function uploadMediaReport(projectId: string, input: UploadMediaReportInput): Promise<UploadBatch> {
@@ -300,6 +306,7 @@ export function uploadMediaReport(projectId: string, input: UploadMediaReportInp
   if (input.sourceLabel) formData.append('source_label', input.sourceLabel);
   if (input.saveAsTemplate) formData.append('save_as_template', 'true');
   if (input.ignoreSavedTemplate) formData.append('ignore_saved_template', 'true');
+  if (input.soeOnly) formData.append('soe_only', 'true');
   formData.append('file', input.file);
   return request<UploadBatch>(`/api/projects/${projectId}/uploads`, { method: 'POST', body: formData });
 }

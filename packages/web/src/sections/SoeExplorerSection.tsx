@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { SlidersHorizontal, Upload } from 'lucide-react';
 import { ApiError, getSoe, getSoeFilterOptions, listUploads, uploadMediaReport } from '../api/client';
 import type { Project, SoeFilterOptions, SoeReport, UploadBatch } from '../api/contracts';
@@ -41,14 +41,14 @@ function FilterGroup({
   );
 }
 
-// Analyzed one uploaded file at a time on purpose, never the active project
-// implicitly: SOE Explorer is meant for "what does this specific file say",
-// and pooling every upload a project has ever had (including files from
-// unrelated brands or stale re-uploads) would silently blend numbers a user
-// never asked to combine. Both the project and the upload start unselected.
+// Analyzed one uploaded file at a time on purpose -- SOE Explorer is meant
+// for "what does this specific file say", not pooling every upload a
+// project has ever had. But there's no project-picking gate before you can
+// upload or browse what's already there: the upload form and the file list
+// both work across every project up front. A file's own project only
+// matters once it's selected, to route the filter/report queries to the
+// right /api/projects/{projectId}/soe endpoint underneath.
 export default function SoeExplorerSection({ projects }: { projects: Project[] }) {
-  const [selectedProjectId, setSelectedProjectId] = useState('');
-
   const [uploads, setUploads] = useState<UploadBatch[]>([]);
   const [uploadsLoading, setUploadsLoading] = useState(false);
   const [uploadsError, setUploadsError] = useState<string | null>(null);
@@ -69,6 +69,7 @@ export default function SoeExplorerSection({ projects }: { projects: Project[] }
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
 
+  const [uploadTargetProjectId, setUploadTargetProjectId] = useState('');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadDefaultMedium, setUploadDefaultMedium] = useState('TV');
   const [isUploading, setIsUploading] = useState(false);
@@ -76,26 +77,44 @@ export default function SoeExplorerSection({ projects }: { projects: Project[] }
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
 
-  const loadUploads = useCallback((projectId: string) => {
+  // Defaults to the first project so the upload form is usable the moment
+  // it renders -- picking a project is available (for a multi-project
+  // account), never required to get started.
+  useEffect(() => {
+    if (uploadTargetProjectId && projects.some((project) => project.projectId === uploadTargetProjectId)) return;
+    setUploadTargetProjectId(projects[0]?.projectId ?? '');
+  }, [projects, uploadTargetProjectId]);
+
+  const loadAllUploads = useCallback((projectList: Project[]) => {
+    if (projectList.length === 0) {
+      setUploads([]);
+      return Promise.resolve();
+    }
     setUploadsLoading(true);
     setUploadsError(null);
-    return listUploads(projectId)
-      .then(setUploads)
+    return Promise.all(projectList.map((project) => listUploads(project.projectId)))
+      .then((byProject) => {
+        const merged = byProject.flat().sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
+        setUploads(merged);
+      })
       .catch((error) => setUploadsError(error instanceof ApiError ? error.message : 'Could not load uploads.'))
       .finally(() => setUploadsLoading(false));
   }, []);
 
-  // Switching (or clearing) the project resets everything downstream — an
-  // upload/filter selection from a different project is meaningless here.
+  // Every project's uploads are fetched up front so the file picker below
+  // always reflects everything available across the whole account.
   useEffect(() => {
-    setSelectedUploadId('');
-    setUploads([]);
-    setUploadFile(null);
-    setUploadError(null);
-    setUploadSuccess(null);
-    if (!selectedProjectId) return;
-    void loadUploads(selectedProjectId);
-  }, [selectedProjectId, loadUploads]);
+    void loadAllUploads(projects);
+  }, [projects, loadAllUploads]);
+
+  const selectedUpload = uploads.find((upload) => upload.uploadId === selectedUploadId) ?? null;
+  const selectedProjectId = selectedUpload?.projectId ?? '';
+
+  const projectNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    projects.forEach((project) => map.set(project.projectId, project.projectName));
+    return map;
+  }, [projects]);
 
   const loadFilterOptions = useCallback((projectId: string, uploadId: string) => {
     setOptionsLoading(true);
@@ -145,7 +164,7 @@ export default function SoeExplorerSection({ projects }: { projects: Project[] }
 
   async function handleUpload(event: FormEvent) {
     event.preventDefault();
-    if (!selectedProjectId || !uploadFile) {
+    if (!uploadTargetProjectId || !uploadFile) {
       setUploadError('Choose a file first.');
       return;
     }
@@ -153,7 +172,7 @@ export default function SoeExplorerSection({ projects }: { projects: Project[] }
     setUploadError(null);
     setUploadSuccess(null);
     try {
-      const result = await uploadMediaReport(selectedProjectId, {
+      const result = await uploadMediaReport(uploadTargetProjectId, {
         kind: 'composite_report',
         defaultMedium: uploadDefaultMedium,
         file: uploadFile,
@@ -164,9 +183,9 @@ export default function SoeExplorerSection({ projects }: { projects: Project[] }
       );
       setUploadFile(null);
       setFileInputKey((key) => key + 1);
-      await loadUploads(selectedProjectId);
+      await loadAllUploads(projects);
       // The file just uploaded is almost always the one someone wants to
-      // look at next — select it automatically rather than leaving them to
+      // look at next -- select it automatically rather than leaving them to
       // find it in the dropdown themselves.
       setSelectedUploadId(result.uploadId);
     } catch (error) {
@@ -188,50 +207,22 @@ export default function SoeExplorerSection({ projects }: { projects: Project[] }
     setDateTo('');
   }
 
-  const selectedProject = projects.find((p) => p.projectId === selectedProjectId) ?? null;
   const hasAnyFilterableData = filterOptions.mediums.length > 0 || filterOptions.stations.length > 0;
   const maxSpend = Math.max(1, ...report.brands.map((brand) => brand.spend));
 
   return (
     <>
-      <div className="panel">
+      <form className="panel upload-form" onSubmit={handleUpload}>
         <div className="panel-header">
           <div>
-            <h2>Choose a project</h2>
-            <p>SOE Explorer works from one uploaded file at a time — pick a project, then a file, to get started.</p>
+            <h2>Upload spend data</h2>
+            <p>.xlsx, .xls, or .csv, multiple brands read from a Brand column</p>
           </div>
+          <Upload size={20} aria-hidden />
         </div>
-        <div className="upload-form-row">
-          <label>
-            Project
-            <select value={selectedProjectId} onChange={(event) => setSelectedProjectId(event.target.value)}>
-              <option value="">Select a project…</option>
-              {projects.map((project) => (
-                <option value={project.projectId} key={project.projectId}>
-                  {project.projectName}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </div>
-
-      {!selectedProjectId && (
-        <div className="panel placeholder-panel">
-          <h2>No project selected</h2>
-          <p>Choose a project above to see or upload its spend data.</p>
-        </div>
-      )}
-
-      {selectedProjectId && (
-        <form className="panel upload-form" onSubmit={handleUpload}>
-          <div className="panel-header">
-            <div>
-              <h2>Upload spend data</h2>
-              <p>{selectedProject?.projectName} — .xlsx, .xls, or .csv, multiple brands read from a Brand column</p>
-            </div>
-            <Upload size={20} aria-hidden />
-          </div>
+        {projects.length === 0 ? (
+          <p className="empty-state">Create a project first — uploads need somewhere to live.</p>
+        ) : (
           <div className="upload-form-row">
             <label>
               File
@@ -250,52 +241,61 @@ export default function SoeExplorerSection({ projects }: { projects: Project[] }
                 <option value="Cable TV">Cable TV</option>
               </select>
             </label>
+            <label>
+              Project
+              <select value={uploadTargetProjectId} onChange={(event) => setUploadTargetProjectId(event.target.value)}>
+                {projects.map((project) => (
+                  <option value={project.projectId} key={project.projectId}>
+                    {project.projectName}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button type="submit" className="secondary-button" disabled={isUploading || !uploadFile}>
               {isUploading ? 'Uploading…' : 'Upload'}
             </button>
           </div>
-          {uploadError && <p className="inline-error">{uploadError}</p>}
-          {uploadSuccess && <p className="inline-success">{uploadSuccess}</p>}
-        </form>
-      )}
+        )}
+        {uploadError && <p className="inline-error">{uploadError}</p>}
+        {uploadSuccess && <p className="inline-success">{uploadSuccess}</p>}
+      </form>
 
-      {selectedProjectId && (
-        <div className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Choose an uploaded file</h2>
-              <p>
-                {uploadsLoading
-                  ? 'Loading…'
-                  : `${uploads.length} file${uploads.length === 1 ? '' : 's'} uploaded to this project`}
-              </p>
-            </div>
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>Choose an uploaded file</h2>
+            <p>
+              {uploadsLoading
+                ? 'Loading…'
+                : `${uploads.length} file${uploads.length === 1 ? '' : 's'} uploaded across every project`}
+            </p>
           </div>
-          {uploadsError && <p className="inline-error">{uploadsError}</p>}
-          {!uploadsLoading && !uploadsError && uploads.length === 0 && (
-            <p className="empty-state">No files uploaded yet — use the form above to add one.</p>
-          )}
-          {uploads.length > 0 && (
-            <div className="upload-form-row">
-              <label>
-                Uploaded file
-                <select value={selectedUploadId} onChange={(event) => setSelectedUploadId(event.target.value)}>
-                  <option value="">Select a file…</option>
-                  {uploads.map((upload) => (
-                    <option value={upload.uploadId} key={upload.uploadId}>
-                      {upload.fileName} — {upload.mappedRows} row{upload.mappedRows === 1 ? '' : 's'} — {upload.uploadedAt}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          )}
         </div>
-      )}
+        {uploadsError && <p className="inline-error">{uploadsError}</p>}
+        {!uploadsLoading && !uploadsError && uploads.length === 0 && (
+          <p className="empty-state">No files uploaded yet — use the form above to add one.</p>
+        )}
+        {uploads.length > 0 && (
+          <div className="upload-form-row">
+            <label>
+              Uploaded file
+              <select value={selectedUploadId} onChange={(event) => setSelectedUploadId(event.target.value)}>
+                <option value="">Select a file…</option>
+                {uploads.map((upload) => (
+                  <option value={upload.uploadId} key={upload.uploadId}>
+                    {upload.fileName} — {projectNameById.get(upload.projectId) ?? 'Unknown project'} —{' '}
+                    {upload.mappedRows} row{upload.mappedRows === 1 ? '' : 's'} — {upload.uploadedAt}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+      </div>
 
       {optionsError && <p className="inline-error">{optionsError}</p>}
 
-      {selectedProjectId && selectedUploadId && !optionsLoading && !hasAnyFilterableData && !optionsError && (
+      {selectedUploadId && !optionsLoading && !hasAnyFilterableData && !optionsError && (
         <div className="panel placeholder-panel">
           <h2>No spend data in this file</h2>
           <p>This upload has no rows with a Cost or Rate column mapped.</p>

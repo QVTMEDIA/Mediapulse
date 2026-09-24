@@ -113,6 +113,12 @@ export function getCurrentUser(): Promise<User> {
   return request<User>('/api/auth/me');
 }
 
+export function updateProfile(
+  input: { displayName?: string; currentPassword?: string; newPassword?: string },
+): Promise<User> {
+  return request<User>('/api/auth/me', { method: 'PATCH', body: JSON.stringify(input) });
+}
+
 export function listUsers(): Promise<User[]> {
   return request<User[]>('/api/users');
 }

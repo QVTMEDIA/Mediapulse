@@ -1016,6 +1016,51 @@ h3.subsection {
   border-radius: 8px;
 }
 
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.inline-form label {
+  display: grid;
+  flex: 1 1 160px;
+  min-width: 0;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.inline-form input {
+  height: 40px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 400;
+}
+
+.inline-form .inline-error,
+.inline-form .inline-success {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.inline-success {
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .inline-warning {
   margin: 0 0 12px;
   padding: 10px 12px;

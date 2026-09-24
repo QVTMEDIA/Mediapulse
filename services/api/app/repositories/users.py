@@ -34,6 +34,15 @@ class UsersRepository(Protocol):
 
     def update_role(self, user_id: str, role: str) -> Optional[UserRecord]: ...
 
+    def update_profile(
+        self, user_id: str, *, display_name: Optional[str] = None, password_hash: Optional[str] = None
+    ) -> Optional[UserRecord]:
+        """Updates whichever of display_name/password_hash is not None,
+        leaving the other field untouched. Distinct from update_role -- that
+        one's owner-only and acts on someone else; this is what a user does
+        to their own account via PATCH /api/auth/me."""
+        ...
+
 
 def _row_to_record(row: dict) -> UserRecord:
     return UserRecord(
@@ -88,6 +97,19 @@ class PostgresUsersRepository:
             ).fetchone()
         return _row_to_record(row) if row else None
 
+    def update_profile(self, user_id: str, *, display_name: Optional[str] = None, password_hash: Optional[str] = None):
+        with get_connection() as conn:
+            row = conn.execute(
+                '''
+                UPDATE users
+                SET display_name = COALESCE(%s, display_name), password_hash = COALESCE(%s, password_hash)
+                WHERE id = %s
+                RETURNING *
+                ''',
+                [display_name, password_hash, user_id],
+            ).fetchone()
+        return _row_to_record(row) if row else None
+
 
 class InMemoryUsersRepository:
     """Stand-in for tests and for local exploration without Postgres running
@@ -129,6 +151,16 @@ class InMemoryUsersRepository:
         if record is None:
             return None
         record.role = role
+        return record
+
+    def update_profile(self, user_id: str, *, display_name: Optional[str] = None, password_hash: Optional[str] = None):
+        record = self._rows.get(user_id)
+        if record is None:
+            return None
+        if display_name is not None:
+            record.display_name = display_name
+        if password_hash is not None:
+            record.password_hash = password_hash
         return record
 
 

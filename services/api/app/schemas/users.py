@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from typing import Optional
 
 from pydantic import Field, field_validator
 
@@ -57,3 +58,15 @@ class TokenOut(CamelModel):
 
 class UpdateRoleIn(CamelModel):
     role: str
+
+
+class UpdateProfileIn(CamelModel):
+    """PATCH /api/auth/me -- a user editing their own account. Distinct
+    from UpdateRoleIn, which only an owner can apply to someone else.
+    Every field is optional and independent: send just displayName to
+    rename yourself, or currentPassword+newPassword together to change
+    your password, or both at once."""
+
+    display_name: Optional[str] = Field(default=None, max_length=200)
+    current_password: Optional[str] = None
+    new_password: Optional[str] = Field(default=None, min_length=8, max_length=200)

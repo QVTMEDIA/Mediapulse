@@ -34,6 +34,8 @@ Role is global, not per-project — see the comment on the `users` table in `db/
 
 Returned by `POST /api/auth/register` and `POST /api/auth/login`. `accessToken` is a JWT, sent back as `Authorization: Bearer <accessToken>` on every subsequent request.
 
+**`POST /api/auth/register`'s `inviteCode` field** (string, default `''`) — only checked when the deployment has `REGISTER_INVITE_CODE` set (see `services/api/README.md`); an unconfigured deployment ignores it and registration stays open to anyone, unchanged from before this field existed. When configured, a request with a missing or wrong `inviteCode` gets `403` before the duplicate-email check runs (so an unauthenticated caller can't use the 409/201 split to probe which emails already have accounts). Not in this contract's original field list.
+
 - `accessToken`
 - `tokenType` (always `bearer`)
 - `user` (a `User`)
@@ -79,6 +81,12 @@ Shared across projects via the Ratings Library — not owned by a single project
 - `mappingWarnings` — array (`[]` when there's nothing to report) of `MappingWarning`: `{ field, templateColumn, detectedColumn }`. Not in this contract's original field list. Populated only on the response to `POST /ratings-datasets/upload` (same rule as `issues`), whenever a saved mapping template (`source_label`) pinned a field to a column that disagrees with what fresh auto-detection would have picked for this specific file — a real, previously-silent failure mode: a template saved from an older/coarser file gets reused against a newer file that has a genuinely better-matching column sitting right next to the stale one, the stale template still wins (parsing succeeds, nothing errors), and the only symptom is every row later coming back unmatched. `[]` both when no template was used and when the template's column agrees with detection — never populated when the template's column is simply missing from this file (that's the pre-existing, correct fallback-to-auto-detect path, not a disagreement).
 
 **`POST /ratings-datasets/upload`'s `ignore_saved_template` form field** (bool, default `false`) — the actionable follow-up to `mappingWarnings`: skips *applying* a saved `source_label` template to this one upload, forcing fresh auto-detection instead, without touching what's stored. `save_as_template` (unchanged) is still the only thing that overwrites an existing template — checking both together on one upload is the one-shot "fix a stale template in place" workflow. Not in this contract's original field list; identical field on `POST /projects/{projectId}/uploads` — see below.
+
+- `priority` — nullable int. Per-*project-attachment* precedence (lower wins), not a property of the dataset itself — `null` on every non-project-scoped route (the global library listing, upload responses), a real int on `GET`/`PUT /projects/{projectId}/ratings-datasets*`. Not in this contract's original field list.
+
+**Multiple ratings datasets attached to the same project are pooled, not tried in some fixed order** — `GET .../matches`'s exact-key lookup takes the first row it sees per key (`services/api/app/matches.py`, `ratings_by_key.setdefault(key, rating)`), so when two attached datasets genuinely overlap (a corrected re-upload of the same week, a second provider covering the same stations), which one's row "wins" for that key used to be arbitrary — no `ORDER BY` on the pooling query. `project_ratings_datasets.priority` (new column, `db/schema.sql`) fixes that: `list_project_rating_rows` now orders by it, so "first occurrence" means "highest-priority attached dataset". A freshly-attached dataset defaults to the bottom of the project's current order (lowest precedence), so attaching one more secondary/backup source never silently outranks a dataset the project already relies on.
+
+**`PUT /api/projects/{projectId}/ratings-datasets/priority`** (`RatingsDatasetPriorityUpdate`: `{ orderedRatingsDatasetIds }`) — not in this contract's original route list, added so a user can control that precedence instead of it being arbitrary. The given list must be exactly the project's current attached set, in the new priority order (index 0 = highest precedence); a partial or stale list `422`s rather than silently leaving some attached dataset's priority untouched. Returns the project's attached datasets in their new order, same shape as `GET .../ratings-datasets` (which is itself now ordered by priority, not `attached_at`, so it doubles as the reorder UI's source order).
 
 `DELETE /projects/{projectId}/ratings-datasets/{ratingsDatasetId}/attach` detaches the dataset from that one project — the shared dataset (and every other project's attachment to it) is untouched, and so is anything already matched or calculated against it, since `RatingMatch`/`GrpCalculationRow` reference the actual `RatingRow`s directly, not the attachment. Any authenticated user can detach, same as attach — no owner/admin requirement, unlike deleting an upload or brand.
 
@@ -350,6 +358,7 @@ GET    /api/ratings-datasets/{ratingsDatasetId}/rows
 POST   /api/projects/{projectId}/ratings-datasets/{ratingsDatasetId}/attach
 DELETE /api/projects/{projectId}/ratings-datasets/{ratingsDatasetId}/attach
 GET    /api/projects/{projectId}/ratings-datasets
+PUT    /api/projects/{projectId}/ratings-datasets/priority
 
 GET    /api/projects/{projectId}/brands
 POST   /api/projects/{projectId}/brands

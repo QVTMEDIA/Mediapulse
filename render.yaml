@@ -41,3 +41,10 @@ services:
       # deployment's real URL is known; see the CORS note in app/main.py.
       - key: ALLOWED_ORIGINS
         sync: false
+      # Optional. Unset (the default) leaves POST /api/auth/register open to
+      # anyone, same as before this variable existed. Set any string here to
+      # require it as the `inviteCode` field on registration -- see the
+      # "Deploying to production" section of services/api/README.md before
+      # turning this on for a deployment whose URL isn't meant to be public.
+      - key: REGISTER_INVITE_CODE
+        sync: false

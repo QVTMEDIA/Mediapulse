@@ -99,7 +99,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-export function register(input: { email: string; password: string; displayName?: string }): Promise<AuthSession> {
+export function register(
+  input: { email: string; password: string; displayName?: string; inviteCode?: string },
+): Promise<AuthSession> {
   return request<AuthSession>('/api/auth/register', { method: 'POST', body: JSON.stringify(input) });
 }
 
@@ -332,6 +334,20 @@ export function attachRatingsDataset(projectId: string, ratingsDatasetId: string
 // and anything already matched/calculated against it, are untouched.
 export function detachRatingsDataset(projectId: string, ratingsDatasetId: string): Promise<void> {
   return request<void>(`/api/projects/${projectId}/ratings-datasets/${ratingsDatasetId}/attach`, { method: 'DELETE' });
+}
+
+// orderedRatingsDatasetIds must be exactly the project's current attached
+// set, in the new priority order (index 0 = highest precedence) — decides
+// which attached dataset's row wins when two share an exact match key.
+// Returns the project's attached datasets in their new order.
+export function reorderProjectRatingsDatasets(
+  projectId: string,
+  orderedRatingsDatasetIds: string[],
+): Promise<RatingsDataset[]> {
+  return request<RatingsDataset[]>(`/api/projects/${projectId}/ratings-datasets/priority`, {
+    method: 'PUT',
+    body: JSON.stringify({ orderedRatingsDatasetIds }),
+  });
 }
 
 export function listRatingRows(ratingsDatasetId: string): Promise<RatingRow[]> {

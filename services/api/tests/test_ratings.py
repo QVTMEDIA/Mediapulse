@@ -120,6 +120,94 @@ def test_project_datasets_list_is_empty_when_nothing_attached(client):
     assert response.json() == []
 
 
+def _attach(client, project_id, dataset_id):
+    response = client.post(f"/api/projects/{project_id}/ratings-datasets/{dataset_id}/attach")
+    assert response.status_code == 204
+
+
+def test_newly_attached_datasets_default_to_priority_by_attach_order(client):
+    project = client.post('/api/projects', json={'projectName': 'Seasoning Q1'}).json()
+    a = client.post('/api/ratings-datasets', json={'provider': 'A'}).json()
+    b = client.post('/api/ratings-datasets', json={'provider': 'B'}).json()
+    _attach(client, project['projectId'], a['ratingsDatasetId'])
+    _attach(client, project['projectId'], b['ratingsDatasetId'])
+
+    listed = client.get(f"/api/projects/{project['projectId']}/ratings-datasets").json()
+    assert [(d['ratingsDatasetId'], d['priority']) for d in listed] == [
+        (a['ratingsDatasetId'], 0), (b['ratingsDatasetId'], 1),
+    ]
+
+
+def test_reorder_changes_priority_and_listing_order(client):
+    project = client.post('/api/projects', json={'projectName': 'Seasoning Q1'}).json()
+    a = client.post('/api/ratings-datasets', json={'provider': 'A'}).json()
+    b = client.post('/api/ratings-datasets', json={'provider': 'B'}).json()
+    _attach(client, project['projectId'], a['ratingsDatasetId'])
+    _attach(client, project['projectId'], b['ratingsDatasetId'])
+
+    response = client.put(
+        f"/api/projects/{project['projectId']}/ratings-datasets/priority",
+        json={'orderedRatingsDatasetIds': [b['ratingsDatasetId'], a['ratingsDatasetId']]},
+    )
+    assert response.status_code == 200
+    assert [(d['ratingsDatasetId'], d['priority']) for d in response.json()] == [
+        (b['ratingsDatasetId'], 0), (a['ratingsDatasetId'], 1),
+    ]
+
+    # persisted, not just echoed in the response
+    listed = client.get(f"/api/projects/{project['projectId']}/ratings-datasets").json()
+    assert [d['ratingsDatasetId'] for d in listed] == [b['ratingsDatasetId'], a['ratingsDatasetId']]
+
+
+def test_reorder_rejects_a_partial_list(client):
+    project = client.post('/api/projects', json={'projectName': 'Seasoning Q1'}).json()
+    a = client.post('/api/ratings-datasets', json={'provider': 'A'}).json()
+    b = client.post('/api/ratings-datasets', json={'provider': 'B'}).json()
+    _attach(client, project['projectId'], a['ratingsDatasetId'])
+    _attach(client, project['projectId'], b['ratingsDatasetId'])
+
+    response = client.put(
+        f"/api/projects/{project['projectId']}/ratings-datasets/priority",
+        json={'orderedRatingsDatasetIds': [a['ratingsDatasetId']]},  # missing b
+    )
+    assert response.status_code == 422
+
+    # nothing changed
+    listed = client.get(f"/api/projects/{project['projectId']}/ratings-datasets").json()
+    assert [(d['ratingsDatasetId'], d['priority']) for d in listed] == [
+        (a['ratingsDatasetId'], 0), (b['ratingsDatasetId'], 1),
+    ]
+
+
+def test_reorder_rejects_an_id_not_attached_to_this_project(client):
+    project = client.post('/api/projects', json={'projectName': 'Seasoning Q1'}).json()
+    a = client.post('/api/ratings-datasets', json={'provider': 'A'}).json()
+    other = client.post('/api/ratings-datasets', json={'provider': 'Other'}).json()  # never attached
+    _attach(client, project['projectId'], a['ratingsDatasetId'])
+
+    response = client.put(
+        f"/api/projects/{project['projectId']}/ratings-datasets/priority",
+        json={'orderedRatingsDatasetIds': [other['ratingsDatasetId']]},
+    )
+    assert response.status_code == 422
+
+
+def test_reorder_rejects_missing_project(client):
+    response = client.put(
+        '/api/projects/does-not-exist/ratings-datasets/priority',
+        json={'orderedRatingsDatasetIds': []},
+    )
+    assert response.status_code == 404
+
+
+def test_global_ratings_library_listing_does_not_include_priority(client):
+    # priority is a per-project-attachment concept -- meaningless on the
+    # shared library listing, which isn't scoped to any one project.
+    client.post('/api/ratings-datasets', json={'provider': 'Nielsen'})
+    response = client.get('/api/ratings-datasets')
+    assert response.json()[0]['priority'] is None
+
+
 RATINGS_CSV = (
     b'Channel,Day,Programme,Rating\n'
     b'TVC,Monday,Prime Time,1.2\n'

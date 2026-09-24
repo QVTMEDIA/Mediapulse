@@ -8,6 +8,7 @@ export default function AuthScreen({ onAuthenticated }: { onAuthenticated: (sess
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,7 +18,7 @@ export default function AuthScreen({ onAuthenticated }: { onAuthenticated: (sess
     setIsSubmitting(true);
     try {
       const session =
-        mode === 'signIn' ? await login({ email, password }) : await register({ email, password, displayName });
+        mode === 'signIn' ? await login({ email, password }) : await register({ email, password, displayName, inviteCode });
       setAuthToken(session.accessToken);
       onAuthenticated(session);
     } catch (err) {
@@ -103,6 +104,19 @@ export default function AuthScreen({ onAuthenticated }: { onAuthenticated: (sess
               placeholder={mode === 'register' ? 'At least 8 characters' : '••••••••'}
             />
           </label>
+
+          {mode === 'register' && (
+            <label>
+              Invite code
+              <input
+                type="text"
+                autoComplete="off"
+                value={inviteCode}
+                onChange={(event) => setInviteCode(event.target.value)}
+                placeholder="Ask your admin, if this deployment requires one"
+              />
+            </label>
+          )}
 
           {mode === 'register' && (
             <p className="field-hint">

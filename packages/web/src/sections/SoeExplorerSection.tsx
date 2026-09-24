@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
-import { SlidersHorizontal } from 'lucide-react';
-import { ApiError, getSoe, getSoeFilterOptions } from '../api/client';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { SlidersHorizontal, Upload } from 'lucide-react';
+import { ApiError, getSoe, getSoeFilterOptions, uploadMediaReport } from '../api/client';
 import type { Project, SoeFilterOptions, SoeReport } from '../api/contracts';
 import { formatNumber } from './SpendIntelligenceSection';
 
@@ -57,6 +57,30 @@ export default function SoeExplorerSection({ project }: { project: Project | nul
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
 
+  // Own upload option, scoped to composite_report only -- SOE data is
+  // inherently multi-brand (your own brands plus whatever competitors a
+  // monitoring vendor's file covers), and composite_report already
+  // resolves/creates a brand per row from the file's own Brand column, so
+  // there's no brand picker needed here the way the Project Detail upload
+  // form has one for brand_report. Deliberately lighter than that form
+  // (no mapping-template save/label controls) -- this is a quick "add more
+  // spend data without leaving this screen" path, not a replacement for it.
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadDefaultMedium, setUploadDefaultMedium] = useState('TV');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [fileInputKey, setFileInputKey] = useState(0);
+
+  const loadFilterOptions = useCallback((projectId: string) => {
+    setOptionsLoading(true);
+    setOptionsError(null);
+    return getSoeFilterOptions(projectId)
+      .then(setFilterOptions)
+      .catch((error) => setOptionsError(error instanceof ApiError ? error.message : 'Could not load filters.'))
+      .finally(() => setOptionsLoading(false));
+  }, []);
+
   useEffect(() => {
     // Selections from a previous project don't carry over — a "Lagos"
     // filter left on from a different project would silently exclude
@@ -67,20 +91,18 @@ export default function SoeExplorerSection({ project }: { project: Project | nul
     setDays([]);
     setDateFrom('');
     setDateTo('');
+    setUploadFile(null);
+    setUploadError(null);
+    setUploadSuccess(null);
     if (!project) {
       setFilterOptions(EMPTY_FILTER_OPTIONS);
       setReport(EMPTY_REPORT);
       return;
     }
-    setOptionsLoading(true);
-    setOptionsError(null);
-    getSoeFilterOptions(project.projectId)
-      .then(setFilterOptions)
-      .catch((error) => setOptionsError(error instanceof ApiError ? error.message : 'Could not load filters.'))
-      .finally(() => setOptionsLoading(false));
-  }, [project]);
+    void loadFilterOptions(project.projectId);
+  }, [project, loadFilterOptions]);
 
-  const refresh = useCallback(() => {
+  const refreshReport = useCallback(() => {
     if (!project) return;
     setReportLoading(true);
     setReportError(null);
@@ -98,8 +120,41 @@ export default function SoeExplorerSection({ project }: { project: Project | nul
   }, [project, mediums, stations, regions, days, dateFrom, dateTo]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void refreshReport();
+  }, [refreshReport]);
+
+  async function handleUpload(event: FormEvent) {
+    event.preventDefault();
+    if (!project || !uploadFile) {
+      setUploadError('Choose a file first.');
+      return;
+    }
+    setIsUploading(true);
+    setUploadError(null);
+    setUploadSuccess(null);
+    try {
+      const result = await uploadMediaReport(project.projectId, {
+        kind: 'composite_report',
+        defaultMedium: uploadDefaultMedium,
+        file: uploadFile,
+      });
+      setUploadSuccess(
+        `Uploaded ${result.fileName}: ${result.mappedRows} row${result.mappedRows === 1 ? '' : 's'} mapped` +
+          (result.issueRows ? `, ${result.issueRows} skipped with issues.` : '.'),
+      );
+      setUploadFile(null);
+      setFileInputKey((key) => key + 1);
+      // New rows can introduce mediums/stations/regions/days that weren't
+      // in the filter set a moment ago, so both need refreshing, not just
+      // the report.
+      await loadFilterOptions(project.projectId);
+      refreshReport();
+    } catch (error) {
+      setUploadError(error instanceof ApiError ? error.message : 'Could not upload the file.');
+    } finally {
+      setIsUploading(false);
+    }
+  }
 
   const hasActiveFilters =
     mediums.length > 0 || stations.length > 0 || regions.length > 0 || days.length > 0 || !!dateFrom || !!dateTo;
@@ -127,12 +182,46 @@ export default function SoeExplorerSection({ project }: { project: Project | nul
 
   return (
     <>
+      <form className="panel upload-form" onSubmit={handleUpload}>
+        <div className="panel-header">
+          <div>
+            <h2>Upload spend data</h2>
+            <p>{project.projectName} — .xlsx, .xls, or .csv, multiple brands read from a Brand column</p>
+          </div>
+          <Upload size={20} aria-hidden />
+        </div>
+        <div className="upload-form-row">
+          <label>
+            File
+            <input
+              key={fileInputKey}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)}
+            />
+          </label>
+          <label>
+            Default medium (used if the file has no Medium column)
+            <select value={uploadDefaultMedium} onChange={(event) => setUploadDefaultMedium(event.target.value)}>
+              <option value="TV">TV</option>
+              <option value="Radio">Radio</option>
+              <option value="Cable TV">Cable TV</option>
+            </select>
+          </label>
+          <button type="submit" className="secondary-button" disabled={isUploading || !uploadFile}>
+            {isUploading ? 'Uploading…' : 'Upload'}
+          </button>
+        </div>
+        {uploadError && <p className="inline-error">{uploadError}</p>}
+        {uploadSuccess && <p className="inline-success">{uploadSuccess}</p>}
+      </form>
+
       {optionsError && <p className="inline-error">{optionsError}</p>}
 
       {!optionsLoading && !hasAnyFilterableData && !optionsError && (
         <div className="panel placeholder-panel">
           <h2>No spend data yet</h2>
-          <p>Upload a report with a Cost or Rate column, then come back here to explore it.</p>
+          <p>Upload a report with a Cost or Rate column above to explore it here.</p>
         </div>
       )}
 

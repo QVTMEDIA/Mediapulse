@@ -835,6 +835,16 @@ button:disabled {
   margin-top: 12px;
 }
 
+.soe-filter-group {
+  /* A grid item's default minimum width is its content's min-content size
+     (CSS Grid's "auto" minimum), which ignores the track's own
+     minmax(200px, …) floor -- so a wide child (two date inputs side by
+     side, here) can force this column, and the whole grid, wider than the
+     panel and push a horizontal scrollbar onto the page. This lets every
+     column actually shrink to the track's real size instead. */
+  min-width: 0;
+}
+
 .soe-filter-group h3 {
   display: flex;
   align-items: center;
@@ -899,18 +909,23 @@ button:disabled {
 
 .soe-date-inputs {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
 .soe-date-inputs label {
   display: grid;
   gap: 6px;
+  min-width: 0;
+  flex: 1 1 140px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
 }
 
 .soe-date-inputs input[type='date'] {
+  width: 100%;
+  min-width: 0;
   height: 36px;
   padding: 0 10px;
   color: var(--ink);

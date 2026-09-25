@@ -250,6 +250,7 @@ export function getSoe(filters: Partial<SoeFilters> = {}): Promise<SoeReport> {
   for (const value of filters.medium ?? []) query.append('medium', value);
   for (const value of filters.station ?? []) query.append('station', value);
   for (const value of filters.region ?? []) query.append('region', value);
+  for (const value of filters.state ?? []) query.append('state', value);
   for (const value of filters.day ?? []) query.append('day', value);
   if (filters.dateFrom) query.set('date_from', filters.dateFrom);
   if (filters.dateTo) query.set('date_to', filters.dateTo);

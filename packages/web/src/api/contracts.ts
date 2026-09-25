@@ -190,6 +190,7 @@ export interface SoeFilterOptions {
   mediums: string[];
   stations: string[];
   regions: string[];
+  states: string[];
   days: string[];
 }
 
@@ -198,6 +199,7 @@ export interface SoeFilters {
   medium: string[];
   station: string[];
   region: string[];
+  state: string[];
   day: string[];
   dateFrom: string | null;
   dateTo: string | null;

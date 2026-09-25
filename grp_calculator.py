@@ -45,13 +45,25 @@ SYNONYMS = {
     # same real-world header names without that collision.
     'time_band': ['time', 'time band', 'timeband', 'time belt', 'timebelt', 'time slot', 'slot'],
     # Geography breakdown (Share of Expenditure filtering): whatever
-    # granularity a vendor's file happens to use -- state, market, zone,
-    # territory are all real header names seen in the wild for the same
-    # concept. Purely informational, like time_band's daypart label --
-    # never feeds match_key. Deliberately excludes 'area'/'zone code' or
-    # similar substring-collision risks the way time_band's comment
-    # documents for 'daypart'.
-    'region': ['region', 'state', 'market', 'zone', 'territory'],
+    # broader zone/market granularity a vendor's file happens to use --
+    # market, zone, territory are real header names seen in the wild for
+    # the same concept. Purely informational, like time_band's daypart
+    # label -- never feeds match_key. Deliberately excludes 'area'/'zone
+    # code' or similar substring-collision risks the way time_band's
+    # comment documents for 'daypart'.
+    #
+    # Deliberately excludes 'state' -- a real vendor file (the one that
+    # prompted this) carries both a State column (e.g. "Lagos") and a
+    # separate, coarser Region column (e.g. "South West") side by side;
+    # 'state' used to be a region synonym, so that file's State data was
+    # silently dropped whenever a Region column was also present (region
+    # always won). 'state' is now its own logical field below, captured
+    # independently instead of collapsing into region.
+    'region': ['region', 'market', 'zone', 'territory'],
+    # Same reasoning as 'region' above, but for the finer-grained state/
+    # province/city-state level a file may label separately from its own
+    # broader region. Never feeds match_key.
+    'state': ['state', 'state name'],
     'spots': ['spots', 'spot', 'no. of spots', 'no spots', 'number of spots', 'spot count', 'insertions', 'frequency', 'qty', 'quantity', 'runs', 'count'],
     'rating': ['rating (%)', 'rating', 'ratings', 'program rating', 'programme rating', 'rating %', 'rch %', 'rch%', 'reach %', 'reach%', 'tvr', 'tvrs', 'grp', 'grps'],
     'grp': ['grp', 'grps', 'gross rating points', 'gross rating point', 'row grp', 'total grp', 'total grps'],
@@ -1402,8 +1414,12 @@ def build_brand_report(raw, mapping, file_name, default_medium='TV'):
         'Daypart': safe_col(raw, mapping.get('time_band', '-- none --'), ''),
         # Geography breakdown (Share of Expenditure filtering) — same
         # "blank when unmapped" convention as Daypart above; mapping.get(...)
-        # for the same app.py-narrower-mapping-dict reason.
+        # for the same app.py-narrower-mapping-dict reason. Region and
+        # State are independent columns, not one falling back to the
+        # other — a file can (and the one that prompted this does) carry
+        # both at once, a state and its own broader region side by side.
         'Region': safe_col(raw, mapping.get('region', '-- none --'), ''),
+        'State': safe_col(raw, mapping.get('state', '-- none --'), ''),
         'Spots': spots_values.fillna(0),
         # NaN (not 0) when no cost/rate column was mapped at all — "no spend
         # data" and "confirmed zero spend" are different things, same

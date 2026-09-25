@@ -69,7 +69,8 @@ def get_soe_filters(
 ):
     options = repo.list_filter_options(upload_id=upload_id)
     return SoeFilterOptionsOut(
-        mediums=options.mediums, stations=options.stations, regions=options.regions, days=options.days
+        mediums=options.mediums, stations=options.stations, regions=options.regions,
+        states=options.states, days=options.days,
     )
 
 
@@ -79,6 +80,7 @@ def get_soe(
     medium: List[str] = Query(default_factory=list),
     station: List[str] = Query(default_factory=list),
     region: List[str] = Query(default_factory=list),
+    state: List[str] = Query(default_factory=list),
     day: List[str] = Query(default_factory=list),
     date_from: Optional[date] = Query(default=None),
     date_to: Optional[date] = Query(default=None),
@@ -94,6 +96,7 @@ def get_soe(
         mediums=medium or None,
         stations=station or None,
         regions=region or None,
+        states=state or None,
         days=day or None,
         date_from=date_from,
         date_to=date_to,

@@ -270,14 +270,15 @@ Not in this contract's original scope. A filterable, live alternative to `BrandS
 
 Both `GET /api/soe/filters` and `GET /api/soe` accept an optional `upload_id` query param, scoping to a single upload's rows rather than pooling every upload ever made — the SOE Explorer analyzes one uploaded file at a time by design (see `packages/web`'s `SoeExplorerSection.tsx`: an uploaded-file picker, starting unselected). Omitted, both routes pool every upload.
 
-**`GET /api/soe/filters`** returns `SoeFilterOptions` — the distinct `medium`/`station`/`region`/`day` values actually present in the selected rows (not a fixed enum, since what's filterable is exactly what the file happens to contain):
+**`GET /api/soe/filters`** returns `SoeFilterOptions` — the distinct `medium`/`station`/`region`/`state`/`day` values actually present in the selected rows (not a fixed enum, since what's filterable is exactly what the file happens to contain):
 
 - `mediums`
 - `stations`
 - `regions`
+- `states` — distinct from `regions`, not a fallback for it: a vendor file can carry both a State column (finer-grained, e.g. a specific state/city) and a Region column (coarser, e.g. a geopolitical zone) as independent data. Scoped to SOE Explorer's `composite_report` upload path only, not the ordinary Project Detail upload — `media_activity`/`MediaActivityRowOut` has no `state` field. Not in this contract's original field list.
 - `days`
 
-**`GET /api/soe`** accepts repeatable query params `medium`, `station`, `region`, `day` (each OR'd within its own dimension, all dimensions AND together) plus `date_from`/`date_to` (inclusive, ISO date), and returns `SoeReport`:
+**`GET /api/soe`** accepts repeatable query params `medium`, `station`, `region`, `state`, `day` (each OR'd within its own dimension, all dimensions AND together) plus `date_from`/`date_to` (inclusive, ISO date), and returns `SoeReport`:
 
 - `totalSpend` — sum of `cost` across every row matching every given filter (an omitted filter matches everything on that dimension)
 - `brands` — array of `SoeBrand`: `brand`, `spend`, `spots`, `soe` (`spend / totalSpend * 100` **within this filtered set** — `0` when `totalSpend` is `0`), sorted by `spend` descending

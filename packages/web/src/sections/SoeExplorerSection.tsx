@@ -4,7 +4,7 @@ import { ApiError, deleteSoeUpload, getSoe, getSoeFilterOptions, listSoeUploads,
 import type { SoeFilterOptions, SoeReport, SoeUpload } from '../api/contracts';
 import { formatNumber } from './SpendIntelligenceSection';
 
-const EMPTY_FILTER_OPTIONS: SoeFilterOptions = { mediums: [], stations: [], regions: [], days: [] };
+const EMPTY_FILTER_OPTIONS: SoeFilterOptions = { mediums: [], stations: [], regions: [], states: [], days: [] };
 const EMPTY_REPORT: SoeReport = { totalSpend: 0, brands: [] };
 
 function toggleValue(list: string[], value: string): string[] {
@@ -61,6 +61,7 @@ export default function SoeExplorerSection() {
   const [mediums, setMediums] = useState<string[]>([]);
   const [stations, setStations] = useState<string[]>([]);
   const [regions, setRegions] = useState<string[]>([]);
+  const [states, setStates] = useState<string[]>([]);
   const [days, setDays] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -105,6 +106,7 @@ export default function SoeExplorerSection() {
     setMediums([]);
     setStations([]);
     setRegions([]);
+    setStates([]);
     setDays([]);
     setDateFrom('');
     setDateTo('');
@@ -125,6 +127,7 @@ export default function SoeExplorerSection() {
       medium: mediums,
       station: stations,
       region: regions,
+      state: states,
       day: days,
       dateFrom: dateFrom || null,
       dateTo: dateTo || null,
@@ -132,7 +135,7 @@ export default function SoeExplorerSection() {
       .then(setReport)
       .catch((error) => setReportError(error instanceof ApiError ? error.message : 'Could not load Share of Expenditure.'))
       .finally(() => setReportLoading(false));
-  }, [selectedUploadId, mediums, stations, regions, days, dateFrom, dateTo]);
+  }, [selectedUploadId, mediums, stations, regions, states, days, dateFrom, dateTo]);
 
   useEffect(() => {
     void refreshReport();
@@ -182,12 +185,14 @@ export default function SoeExplorerSection() {
   }
 
   const hasActiveFilters =
-    mediums.length > 0 || stations.length > 0 || regions.length > 0 || days.length > 0 || !!dateFrom || !!dateTo;
+    mediums.length > 0 || stations.length > 0 || regions.length > 0 || states.length > 0 || days.length > 0 ||
+    !!dateFrom || !!dateTo;
 
   function clearFilters() {
     setMediums([]);
     setStations([]);
     setRegions([]);
+    setStates([]);
     setDays([]);
     setDateFrom('');
     setDateTo('');
@@ -308,6 +313,12 @@ export default function SoeExplorerSection() {
                 options={filterOptions.regions}
                 selected={regions}
                 onToggle={(value) => setRegions((current) => toggleValue(current, value))}
+              />
+              <FilterGroup
+                label="State"
+                options={filterOptions.states}
+                selected={states}
+                onToggle={(value) => setStates((current) => toggleValue(current, value))}
               />
               <FilterGroup
                 label="Day"

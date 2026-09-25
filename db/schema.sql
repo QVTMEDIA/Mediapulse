@@ -351,6 +351,10 @@ create table soe_activity (
   cost numeric(14,2),
   time_band text not null default '',
   region text not null default '',
+  -- Independent of region, not a fallback for it -- a real vendor file
+  -- carries both a state (e.g. "Lagos") and a separate, coarser region
+  -- (e.g. "South West") at once. '' when the file had no such column.
+  state text not null default '',
   source_file text not null
 );
 

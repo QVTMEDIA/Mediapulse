@@ -20,15 +20,17 @@ def client():
     app.dependency_overrides.clear()
 
 
-# Brand A: 200k TV/NTA/Lagos + 150k Radio/CoolFM/Abuja = 350k total.
-# Brand B: 90k TV/NTA/Lagos + 160k TV/Channels/Kano = 250k total.
-# Category total: 600k.
+# Brand A: 200k TV/NTA/Lagos/Ikeja + 150k Radio/CoolFM/Abuja/Garki = 350k total.
+# Brand B: 90k TV/NTA/Lagos/Surulere + 160k TV/Channels/Kano/Sabon Gari = 250k total.
+# Category total: 600k. Row 3 deliberately shares Region=Lagos with row 1 but
+# has a different State (Surulere vs Ikeja) -- proves State and Region are
+# independent dimensions, not the same value under two names.
 SOE_CSV = (
-    b'Brand,Medium,Station,Region,Day,Programme,Spots,Rate\n'
-    b'Brand A,TV,NTA,Lagos,Monday,Breakfast Show,2,100000\n'
-    b'Brand A,Radio,Cool FM,Abuja,Tuesday,Drive Time,3,50000\n'
-    b'Brand B,TV,NTA,Lagos,Monday,Breakfast Show,1,90000\n'
-    b'Brand B,TV,Channels,Kano,Wednesday,News,4,40000\n'
+    b'Brand,Medium,Station,Region,State,Day,Programme,Spots,Rate\n'
+    b'Brand A,TV,NTA,Lagos,Ikeja,Monday,Breakfast Show,2,100000\n'
+    b'Brand A,Radio,Cool FM,Abuja,Garki,Tuesday,Drive Time,3,50000\n'
+    b'Brand B,TV,NTA,Lagos,Surulere,Monday,Breakfast Show,1,90000\n'
+    b'Brand B,TV,Channels,Kano,Sabon Gari,Wednesday,News,4,40000\n'
 )
 
 
@@ -68,6 +70,7 @@ def test_soe_filters_returns_distinct_values_present(client):
     assert body['mediums'] == ['Radio', 'TV']
     assert body['stations'] == ['Channels', 'Cool FM', 'NTA']
     assert body['regions'] == ['Abuja', 'Kano', 'Lagos']
+    assert body['states'] == ['Garki', 'Ikeja', 'Sabon Gari', 'Surulere']
     assert body['days'] == ['Monday', 'Tuesday', 'Wednesday']
 
 
@@ -117,6 +120,28 @@ def test_soe_combined_filters_and_together(client):
     assert by_brand['Brand B']['soe'] == pytest.approx(100.0)
 
 
+def test_soe_state_filter_isolates_that_state(client):
+    _upload_soe_csv(client)
+    response = client.get('/api/soe', params={'state': 'Ikeja'})
+    assert response.status_code == 200
+    body = response.json()
+    assert body['totalSpend'] == pytest.approx(200_000)
+    by_brand = {row['brand']: row for row in body['brands']}
+    assert set(by_brand) == {'Brand A'}
+
+
+def test_soe_state_filter_is_independent_of_region(client):
+    _upload_soe_csv(client)
+    # Rows 1 and 3 share Region=Lagos but have different States -- filtering
+    # by Region=Lagos plus State=Surulere should isolate row 3 alone.
+    response = client.get('/api/soe', params={'region': 'Lagos', 'state': 'Surulere'})
+    assert response.status_code == 200
+    body = response.json()
+    assert body['totalSpend'] == pytest.approx(90_000)
+    by_brand = {row['brand']: row for row in body['brands']}
+    assert set(by_brand) == {'Brand B'}
+
+
 def test_soe_empty_returns_zero_with_no_error(client):
     response = client.get('/api/soe')
     assert response.status_code == 200
@@ -138,12 +163,12 @@ def test_soe_upload_requires_authentication():
         assert response.status_code == 401
 
 
-# A second, unrelated upload -- Brand C only, on a station/region/day the
-# first upload never touches. Proves upload_id scoping actually isolates
+# A second, unrelated upload -- Brand C only, on a station/region/state/day
+# the first upload never touches. Proves upload_id scoping actually isolates
 # one file's rows rather than still pooling every upload ever made.
 SECOND_UPLOAD_CSV = (
-    b'Brand,Medium,Station,Region,Day,Programme,Spots,Rate\n'
-    b'Brand C,Radio,Wazobia,Rivers,Friday,Drive Time,2,60000\n'
+    b'Brand,Medium,Station,Region,State,Day,Programme,Spots,Rate\n'
+    b'Brand C,Radio,Wazobia,Rivers,Port Harcourt,Friday,Drive Time,2,60000\n'
 )
 
 
@@ -187,6 +212,7 @@ def test_soe_filters_upload_id_scopes_facets_to_that_upload_only(client):
     assert response.status_code == 200
     body = response.json()
     assert body['regions'] == ['Abuja', 'Kano', 'Lagos']  # Rivers (second upload) excluded
+    assert body['states'] == ['Garki', 'Ikeja', 'Sabon Gari', 'Surulere']  # Port Harcourt excluded
     assert 'Wazobia' not in body['stations']
 
 

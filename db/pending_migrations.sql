@@ -69,7 +69,15 @@ create table if not exists soe_activity (
   cost numeric(14,2),
   time_band text not null default '',
   region text not null default '',
+  state text not null default '',
   source_file text not null
 );
 
 create index if not exists soe_activity_upload_idx on soe_activity (upload_id);
+
+-- SOE Explorer State filter, independent of Region -- services/api PR
+-- "Include option to filter by State on the SOE Explorer page". Safety
+-- net in case soe_activity was already created by the block above on an
+-- earlier run of this file, before `state` existed here.
+alter table soe_activity
+  add column if not exists state text not null default '';

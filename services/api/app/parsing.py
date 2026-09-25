@@ -22,7 +22,10 @@ COMPOSITE_REQUIRED_MAPPING_FIELDS = ('channel', 'programme', 'spots')
 # to build_brand_report (see that function's docstring) — build_brand_report
 # never reads those mapping keys, so keeping them would just be dead noise
 # in the mapping dict (and in the sourceLabel templates saved from it).
-COMPOSITE_OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day', 'rate', 'cost', 'time_band', 'region')
+# 'state' is scoped to composite (SOE Explorer) only, not the plain
+# brand_report/OPTIONAL_MAPPING_FIELDS path above — media_activity has no
+# state column, only soe_activity does; see services/api/app/routers/soe.py.
+COMPOSITE_OPTIONAL_MAPPING_FIELDS = ('brand', 'medium', 'date', 'day', 'rate', 'cost', 'time_band', 'region', 'state')
 
 RATINGS_REQUIRED_MAPPING_FIELDS = ('channel', 'programme', 'rating')
 # 'time_band' lets calc.resolve_effective_programme() fall back to a bare
@@ -170,6 +173,7 @@ class ParsedCompositeRow:
     cost: Optional[float] = None
     time_band: str = ''
     region: str = ''
+    state: str = ''
 
 
 @dataclass
@@ -230,6 +234,7 @@ def parse_composite_report(
             cost=_clean_cost(row['Cost']),
             time_band=str(row['Daypart'] or ''),
             region=str(row['Region'] or ''),
+            state=str(row['State'] or ''),
         )
         for _, row in report.iterrows()
         if str(row['Brand'] or '').strip()

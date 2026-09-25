@@ -33,6 +33,7 @@ class SoeActivityRecord:
     cost: Optional[float]
     time_band: str
     region: str
+    state: str
     source_file: str
 
 
@@ -57,6 +58,7 @@ class SoeFilterOptions:
     mediums: List[str]
     stations: List[str]
     regions: List[str]
+    states: List[str]
     days: List[str]
 
 
@@ -76,6 +78,7 @@ class SoeRepository(Protocol):
         mediums: Optional[List[str]] = None,
         stations: Optional[List[str]] = None,
         regions: Optional[List[str]] = None,
+        states: Optional[List[str]] = None,
         days: Optional[List[str]] = None,
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
@@ -115,6 +118,7 @@ def _activity_row_to_record(row: dict) -> SoeActivityRecord:
         cost=float(row['cost']) if row['cost'] is not None else None,
         time_band=row['time_band'] or '',
         region=row['region'] or '',
+        state=row['state'] or '',
         source_file=row['source_file'] or '',
     )
 
@@ -144,14 +148,14 @@ class PostgresSoeRepository:
                         '''
                         INSERT INTO soe_activity (
                             upload_id, brand, medium, station, activity_date, day, programme, spots,
-                            cost, time_band, region, source_file
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            cost, time_band, region, state, source_file
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ''',
                         [
                             (
                                 upload_row['id'], row.brand_name, row.medium, row.station, row.activity_date,
                                 row.day, row.programme, row.spots, row.cost, row.time_band, row.region,
-                                row.source_file,
+                                row.state, row.source_file,
                             )
                             for row in rows
                         ],
@@ -171,7 +175,7 @@ class PostgresSoeRepository:
             row = conn.execute('DELETE FROM soe_uploads WHERE id = %s RETURNING id', [upload_id]).fetchone()
         return row is not None
 
-    def query_soe(self, *, upload_id=None, mediums=None, stations=None, regions=None, days=None, date_from=None, date_to=None):
+    def query_soe(self, *, upload_id=None, mediums=None, stations=None, regions=None, states=None, days=None, date_from=None, date_to=None):
         clauses = ['true']
         params: list = []
         if upload_id:
@@ -186,6 +190,9 @@ class PostgresSoeRepository:
         if regions:
             clauses.append('region = ANY(%s)')
             params.append(list(regions))
+        if states:
+            clauses.append('state = ANY(%s)')
+            params.append(list(states))
         if days:
             clauses.append('day = ANY(%s)')
             params.append(list(days))
@@ -223,6 +230,7 @@ class PostgresSoeRepository:
             mediums=_distinct('medium'),
             stations=_distinct('station'),
             regions=_distinct('region'),
+            states=_distinct('state'),
             days=_distinct('day'),
         )
 
@@ -248,7 +256,7 @@ class InMemorySoeRepository:
             record = SoeActivityRecord(
                 id=str(uuid.uuid4()), upload_id=upload.id, brand=row.brand_name, medium=row.medium,
                 station=row.station, activity_date=row.activity_date, day=row.day, programme=row.programme,
-                spots=row.spots, cost=row.cost, time_band=row.time_band, region=row.region,
+                spots=row.spots, cost=row.cost, time_band=row.time_band, region=row.region, state=row.state,
                 source_file=row.source_file,
             )
             self._activity[record.id] = record
@@ -264,7 +272,7 @@ class InMemorySoeRepository:
         del self._uploads[upload_id]
         return True
 
-    def query_soe(self, *, upload_id=None, mediums=None, stations=None, regions=None, days=None, date_from=None, date_to=None):
+    def query_soe(self, *, upload_id=None, mediums=None, stations=None, regions=None, states=None, days=None, date_from=None, date_to=None):
         totals: Dict[str, Dict[str, float]] = {}
         for activity in self._activity.values():
             if upload_id and activity.upload_id != upload_id:
@@ -274,6 +282,8 @@ class InMemorySoeRepository:
             if stations and activity.station not in stations:
                 continue
             if regions and activity.region not in regions:
+                continue
+            if states and activity.state not in states:
                 continue
             if days and activity.day not in days:
                 continue
@@ -295,6 +305,7 @@ class InMemorySoeRepository:
             mediums=sorted({a.medium for a in rows if a.medium}),
             stations=sorted({a.station for a in rows if a.station}),
             regions=sorted({a.region for a in rows if a.region}),
+            states=sorted({a.state for a in rows if a.state}),
             days=sorted({a.day for a in rows if a.day}),
         )
 

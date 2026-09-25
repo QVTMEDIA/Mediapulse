@@ -11,6 +11,7 @@ class SoeFilterOptionsOut(CamelModel):
     mediums: List[str]
     stations: List[str]
     regions: List[str]
+    states: List[str]
     days: List[str]
 
 

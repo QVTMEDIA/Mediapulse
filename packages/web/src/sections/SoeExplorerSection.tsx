@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { SlidersHorizontal, Upload } from 'lucide-react';
 import { ApiError, deleteSoeUpload, getSoe, getSoeFilterOptions, listSoeUploads, uploadSoeFile } from '../api/client';
 import type { SoeFilterOptions, SoeReport, SoeUpload } from '../api/contracts';
@@ -11,16 +11,48 @@ function toggleValue(list: string[], value: string): string[] {
   return list.includes(value) ? list.filter((entry) => entry !== value) : [...list, value];
 }
 
+// A fixed regional preset requested directly ("Dairy Location"), not
+// derived from any uploaded file -- so matching against whatever State
+// values a file actually has has to be case-insensitive and tolerate the
+// two real-world spelling variants for these particular states ("Cross
+// River" vs "Cross Rivers", and "Abuja" vs "FCT"/"FCT Abuja") rather than
+// requiring an exact string match.
+const DAIRY_LOCATION_STATES = [
+  'Lagos', 'Abia', 'Bauchi', 'Enugu', 'Kwara', 'Cross Rivers', 'Ekiti', 'Borno',
+  'Sokoto', 'Rivers', 'Plateau', 'Oyo', 'Kano', 'Kaduna', 'Edo', 'Anambra',
+  'Abuja', 'Niger',
+];
+
+const DAIRY_LOCATION_ALIASES: Record<string, string[]> = {
+  'cross rivers': ['cross river', 'cross rivers'],
+  abuja: ['abuja', 'fct', 'fct abuja'],
+};
+
+function normalizeStateName(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function isDairyLocationState(option: string): boolean {
+  const normalizedOption = normalizeStateName(option);
+  return DAIRY_LOCATION_STATES.some((target) => {
+    const normalizedTarget = normalizeStateName(target);
+    const aliases = DAIRY_LOCATION_ALIASES[normalizedTarget] ?? [normalizedTarget];
+    return aliases.includes(normalizedOption);
+  });
+}
+
 function FilterGroup({
   label,
   options,
   selected,
   onToggle,
+  headerExtra,
 }: {
   label: string;
   options: string[];
   selected: string[];
   onToggle: (value: string) => void;
+  headerExtra?: ReactNode;
 }) {
   if (options.length === 0) return null;
   return (
@@ -29,6 +61,7 @@ function FilterGroup({
         {label}
         {selected.length > 0 && <span className="soe-filter-count">{selected.length}</span>}
       </h3>
+      {headerExtra}
       <div className="soe-filter-options">
         {options.map((option) => (
           <label className="checkbox-field" key={option}>
@@ -319,6 +352,15 @@ export default function SoeExplorerSection() {
                 options={filterOptions.states}
                 selected={states}
                 onToggle={(value) => setStates((current) => toggleValue(current, value))}
+                headerExtra={
+                  <button
+                    type="button"
+                    className="soe-preset-button"
+                    onClick={() => setStates(filterOptions.states.filter(isDairyLocationState))}
+                  >
+                    Dairy Location
+                  </button>
+                }
               />
               <FilterGroup
                 label="Day"

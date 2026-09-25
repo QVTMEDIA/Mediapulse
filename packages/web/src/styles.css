@@ -868,6 +868,31 @@ button:disabled {
   max-height: 180px;
   overflow-y: auto;
   padding-right: 4px;
+  /* Without this, a long option list (many stations, e.g.) falls back to
+     the platform's default scrollbar -- on Windows/Linux that's a wide,
+     square track with up/down arrow buttons that visually crowds into
+     whatever sits below it (reported directly: it overlapped the "Date
+     range" fields right underneath). A thin, brand-colored bar reads as
+     part of the design instead of a jarring OS control, on every platform. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.soe-filter-options::-webkit-scrollbar {
+  width: 6px;
+}
+
+.soe-filter-options::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.soe-filter-options::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+
+.soe-filter-options::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
 }
 
 .soe-filter-options .checkbox-field {

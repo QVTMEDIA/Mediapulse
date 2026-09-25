@@ -559,7 +559,7 @@ function Workspace({
         ) : activeSection === 'spendIntelligence' ? (
           <SpendIntelligenceSection project={activeProject} />
         ) : activeSection === 'soeExplorer' ? (
-          <SoeExplorerSection projects={projects} />
+          <SoeExplorerSection />
         ) : activeSection === 'quality' ? (
           <QualitySection project={activeProject} />
         ) : activeSection === 'settings' ? (

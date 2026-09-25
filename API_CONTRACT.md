@@ -131,10 +131,9 @@ Shared across projects via the Ratings Library — not owned by a single project
 - `mappedRows`
 - `issueRows`
 - `uploadedAt`
-- `soeOnly` — not in this contract's original field list. `true` when this upload was made through the SOE Explorer's own upload panel: its `MediaActivityRow`s are fully visible to `GET /soe`/`GET /soe/filters` and `GET /media-activity` exactly like any other upload, but are entirely excluded from the Matching Engine and GRP calculation (`GET /matches`, `POST /calculate`, and everything that feeds them) — see `services/api/README.md`. `false` (the default) for the ordinary Project Detail upload form.
 - `mappingWarnings` — same shape and same "stale mapping template" meaning as `RatingsDataset.mappingWarnings` above. Populated only on the response to `POST /uploads` (this upload's own parse); `GET /uploads` (listing past uploads) always returns `[]`, since it isn't persisted anywhere to look up again.
 
-**`POST /uploads`'s `ignore_saved_template` form field** — same meaning as `POST /ratings-datasets/upload`'s above. **Its `soe_only` form field** (default `false`) sets `UploadBatch.soeOnly` above.
+**`POST /uploads`'s `ignore_saved_template` form field** — same meaning as `POST /ratings-datasets/upload`'s above.
 
 `DELETE /uploads/{uploadId}` (owner/admin) removes the upload and all its `MediaActivityRow`s. Returns `409` if any of those rows were ever part of a calculated run — an upload that's never been calculated can always be deleted.
 
@@ -251,23 +250,37 @@ Per-brand rollup for a run, backing the SOV chart and brand comparison screen.
 - `soe` — `totalSpend / (sum of every brand's totalSpend in this run) * 100`. Deliberately computed from all rows, not just matched ones, unlike `sov`: money was spent on a spot whether or not a rating was ever found for it, so a project with zero matched rows can still show a fully populated SOE breakdown (it just also shows `sov: 0` for everyone, since GRP genuinely doesn't exist yet). `0` when no brand in the run has any resolved spend at all.
 - `tvSpend`, `cableTvSpend`, `radioSpend` — spend broken out by medium, same shape and computation as `tvGrps`/`cableTvGrps`/`radioGrps` but for `totalSpend` instead of `totalGrps` — backs the Spend Intelligence screen's medium breakdown. Not in this contract's original field list. May not sum exactly to `totalSpend`: a row whose medium doesn't canonicalize to TV/Cable TV/Radio isn't counted in any of the three, same silent-drop behavior the GRP medium split already has.
 
-### SOE Explorer — `SoeFilterOptions` / `SoeReport`
+### SOE Explorer — `SoeUpload` / `SoeFilterOptions` / `SoeReport`
 
-Not in this contract's original scope. A filterable, live alternative to `BrandShare.soe`: that field is a snapshot fixed at the last `POST /calculate` run, with only three medium buckets (TV/Cable TV/Radio). The SOE Explorer instead queries `media_activity` directly on every call — works before a project has ever been calculated, and supports arbitrary combinations of filters rather than three fixed ones.
+Not in this contract's original scope. A filterable, live alternative to `BrandShare.soe`: that field is a snapshot fixed at the last `POST /calculate` run, with only three medium buckets (TV/Cable TV/Radio). The SOE Explorer instead queries its own data directly on every call — works before a project has ever been calculated (indeed, without any project involved at all — see below), and supports arbitrary combinations of filters rather than three fixed ones.
 
-Both routes accept an optional `upload_id` query param, scoping to a single `uploads` row's `media_activity` rows rather than pooling every upload the project has ever had — the SOE Explorer analyzes one uploaded file at a time by design (see `packages/web`'s `SoeExplorerSection.tsx`: a project picker and an uploaded-file picker, both starting unselected, rather than defaulting to whatever project happens to be active elsewhere in the app). Omitted, both routes fall back to the whole project, unchanged from before `upload_id` existed.
+**Deliberately not nested under `/api/projects/{projectId}`.** SOE Explorer uploads are never attached to any project or brand — not even excluded-from-matching-but-still-attached, an earlier design this superseded (see `services/api/README.md`'s Design notes). They live in their own `soe_uploads`/`soe_activity` tables (`services/api/app/repositories/soe.py`), entirely separate from `uploads`/`media_activity`, so they can never reach the Matching Engine or a calculated GRP run. `brand` on `SoeBrand` below is the plain text a file's own Brand column supplies, not a foreign key — there's no project to scope a `Brand` entity to.
 
-**`GET /api/projects/{projectId}/soe/filters`** returns `SoeFilterOptions` — the distinct `medium`/`station`/`region`/`day` values actually present in the selected `media_activity` rows (not a fixed enum, since what's filterable is exactly what the file happens to contain):
+**`GET /api/soe/uploads`** returns every `SoeUpload` uploaded through this panel, newest first:
+
+- `uploadId`
+- `fileName`
+- `mappedRows`
+- `issueRows`
+- `uploadedAt`
+
+**`POST /api/soe/uploads`** (multipart) takes `file` and `default_medium` (used when the file has no Medium column; default `TV`) — no `brand_id`/`kind`, since this always reads a Brand column from the file itself (the same underlying parse as a `composite_report` upload) and never needs a caller-supplied brand. Returns the created `SoeUpload`.
+
+**`DELETE /api/soe/uploads/{uploadId}`** (owner/admin) removes the upload and its `soe_activity` rows. No audit-trail restriction (unlike `DELETE /uploads/{uploadId}`) — this data can never be part of a calculated run, so there's nothing to protect.
+
+Both `GET /api/soe/filters` and `GET /api/soe` accept an optional `upload_id` query param, scoping to a single upload's rows rather than pooling every upload ever made — the SOE Explorer analyzes one uploaded file at a time by design (see `packages/web`'s `SoeExplorerSection.tsx`: an uploaded-file picker, starting unselected). Omitted, both routes pool every upload.
+
+**`GET /api/soe/filters`** returns `SoeFilterOptions` — the distinct `medium`/`station`/`region`/`day` values actually present in the selected rows (not a fixed enum, since what's filterable is exactly what the file happens to contain):
 
 - `mediums`
 - `stations`
 - `regions`
 - `days`
 
-**`GET /api/projects/{projectId}/soe`** accepts repeatable query params `medium`, `station`, `region`, `day` (each OR'd within its own dimension, all dimensions AND together) plus `date_from`/`date_to` (inclusive, ISO date), and returns `SoeReport`:
+**`GET /api/soe`** accepts repeatable query params `medium`, `station`, `region`, `day` (each OR'd within its own dimension, all dimensions AND together) plus `date_from`/`date_to` (inclusive, ISO date), and returns `SoeReport`:
 
-- `totalSpend` — sum of `cost` across every `media_activity` row matching every given filter (an omitted filter matches everything on that dimension)
-- `brands` — array of `SoeBrand`: `brandId`, `brand`, `spend`, `spots`, `soe` (`spend / totalSpend * 100` **within this filtered set**, not the whole project — `0` when `totalSpend` is `0`), sorted by `spend` descending
+- `totalSpend` — sum of `cost` across every row matching every given filter (an omitted filter matches everything on that dimension)
+- `brands` — array of `SoeBrand`: `brand`, `spend`, `spots`, `soe` (`spend / totalSpend * 100` **within this filtered set** — `0` when `totalSpend` is `0`), sorted by `spend` descending
 
 ### StationShare
 
@@ -396,6 +409,12 @@ GET    /api/mapping-templates
 POST   /api/mapping-templates
 GET    /api/mapping-templates/suggest?sourceLabel=
 
+GET    /api/soe/uploads
+POST   /api/soe/uploads
+DELETE /api/soe/uploads/{uploadId}
+GET    /api/soe/filters
+GET    /api/soe
+
 GET    /api/projects/{projectId}/uploads
 POST   /api/projects/{projectId}/uploads
 DELETE /api/projects/{projectId}/uploads/{uploadId}
@@ -423,9 +442,6 @@ GET    /api/projects/{projectId}/runs/{runId}/programmes
 GET    /api/projects/{projectId}/runs/{runId}/dayparts
 GET    /api/projects/{projectId}/runs/{runId}/spot-efficiency
 GET    /api/projects/{projectId}/runs/{runId}/trend
-
-GET    /api/projects/{projectId}/soe/filters
-GET    /api/projects/{projectId}/soe
 
 GET    /api/projects/{projectId}/validation-issues
 

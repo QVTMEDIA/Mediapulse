@@ -98,18 +98,6 @@ def test_upload_with_no_cost_column_leaves_cost_null(client, project, brand):
     assert all(row['cost'] is None for row in activity)
 
 
-def test_upload_soe_only_defaults_false(client, project, brand):
-    response = _post_upload(client, project['projectId'], brand['brandId'])
-    assert response.json()['soeOnly'] is False
-
-
-def test_upload_soe_only_flag_round_trips_true(client, project, brand):
-    response = _post_upload(client, project['projectId'], brand['brandId'], soe_only='true')
-    assert response.json()['soeOnly'] is True
-    listed = client.get(f"/api/projects/{project['projectId']}/uploads").json()
-    assert listed[0]['soeOnly'] is True
-
-
 def test_upload_resolves_cost_from_a_direct_cost_column(client, project, brand):
     csv = (
         b'Channel,Programme,Day,Spots,Cost\n'

@@ -17,10 +17,6 @@ class UploadBatchOut(CamelModel):
     mapped_rows: int
     issue_rows: int
     uploaded_at: datetime
-    # True for an upload made through the SOE Explorer's own upload panel --
-    # excluded from the Matching Engine/GRP calculation. See
-    # repositories/uploads.py's list_media_activity_for_matching.
-    soe_only: bool = False
     # Only ever populated on the response to POST .../uploads (this upload's
     # own parse) — GET .../uploads (listing past uploads) always leaves this
     # empty, since it isn't persisted anywhere to look up again later, same

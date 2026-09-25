@@ -35,13 +35,6 @@ class UploadRecord:
     mapped_rows: int
     issue_rows: int
     uploaded_at: datetime
-    # True for an upload made through the SOE Explorer's own upload panel --
-    # its media_activity rows are visible to query_soe()/list_media_activity()
-    # (Activity screen, brand deletion, etc.) exactly like any other upload,
-    # but list_media_activity_for_matching() excludes them, so they never
-    # reach the Matching Engine or a calculated GRP run. False (the default)
-    # for an upload made through the ordinary Project Detail upload form.
-    soe_only: bool = False
 
 
 @dataclass
@@ -62,72 +55,10 @@ class MediaActivityRecord:
     source_file: str
 
 
-@dataclass
-class SoeRow:
-    """One brand's spend/spots aggregated over whatever filters the caller
-    applied -- the raw material for Share of Expenditure (a brand's spend
-    as a % of the filtered set's total spend), computed by the router since
-    that's also where brand names get attached (see routers/runs.py's
-    _brand_names for why that join lives at the router layer, not here)."""
-
-    brand_id: str
-    spend: float
-    spots: int
-
-
-@dataclass
-class SoeFilterOptions:
-    """Distinct values actually present in this project's media_activity,
-    for populating the SOE Explorer's filter dropdowns -- deliberately not
-    a fixed list (e.g. a hardcoded medium enum), since what's filterable
-    is exactly what a given project's uploads happen to contain."""
-
-    mediums: List[str]
-    stations: List[str]
-    regions: List[str]
-    days: List[str]
-
-
 class UploadsRepository(Protocol):
     def list_uploads(self, project_id: str) -> List[UploadRecord]: ...
 
     def list_media_activity(self, project_id: str) -> List[MediaActivityRecord]: ...
-
-    def list_media_activity_for_matching(self, project_id: str) -> List[MediaActivityRecord]:
-        """Like list_media_activity(), but excludes rows belonging to an
-        soe_only upload -- everything the Matching Engine and GRP
-        calculation (compute_run) read, since neither should ever see data
-        uploaded purely for SOE Explorer's own live spend analysis. Every
-        other consumer of media_activity (the Activity screen, brand
-        deletion, export row-labeling) deliberately keeps using the
-        unfiltered list_media_activity() instead."""
-        ...
-
-    def query_soe(
-        self,
-        project_id: str,
-        *,
-        upload_id: Optional[str] = None,
-        mediums: Optional[List[str]] = None,
-        stations: Optional[List[str]] = None,
-        regions: Optional[List[str]] = None,
-        days: Optional[List[str]] = None,
-        date_from: Optional[date] = None,
-        date_to: Optional[date] = None,
-    ) -> List[SoeRow]:
-        """Per-brand spend/spots summed over media_activity rows matching
-        every given filter (an empty/omitted filter matches everything on
-        that dimension). upload_id scopes to a single upload's rows -- the
-        SOE Explorer analyzes one uploaded file at a time rather than
-        pooling every upload a project has ever had, so a competitor's
-        older file doesn't silently blend into this week's numbers. No
-        project-level 'has this been calculated yet' gate -- spend is a
-        fact about the upload itself (see media_activity.cost's column
-        comment), so this works before anyone ever clicks Calculate,
-        unlike brand_shares.soe."""
-        ...
-
-    def list_soe_filter_options(self, project_id: str, *, upload_id: Optional[str] = None) -> SoeFilterOptions: ...
 
     def create_upload_with_activity(
         self,
@@ -137,7 +68,6 @@ class UploadsRepository(Protocol):
         kind: str,
         inserts: List[MediaActivityInsert],
         issue_rows: int = 0,
-        soe_only: bool = False,
     ) -> Tuple[UploadRecord, List[MediaActivityRecord]]: ...
 
     def delete_upload(self, project_id: str, upload_id: str) -> bool: ...
@@ -155,7 +85,6 @@ def _upload_row_to_record(row: dict) -> UploadRecord:
         mapped_rows=row['mapped_rows'],
         issue_rows=row['issue_rows'],
         uploaded_at=row['uploaded_at'],
-        soe_only=bool(row['soe_only']),
     )
 
 
@@ -195,28 +124,15 @@ class PostgresUploadsRepository:
             ).fetchall()
         return [_activity_row_to_record(row) for row in rows]
 
-    def list_media_activity_for_matching(self, project_id):
-        with get_connection() as conn:
-            rows = conn.execute(
-                '''
-                SELECT media_activity.* FROM media_activity
-                JOIN uploads ON uploads.id = media_activity.upload_id
-                WHERE media_activity.project_id = %s AND uploads.soe_only = false
-                ORDER BY media_activity.id
-                ''',
-                [project_id],
-            ).fetchall()
-        return [_activity_row_to_record(row) for row in rows]
-
-    def create_upload_with_activity(self, project_id, brand_id, file_name, kind, inserts, issue_rows=0, soe_only=False):
+    def create_upload_with_activity(self, project_id, brand_id, file_name, kind, inserts, issue_rows=0):
         with get_connection() as conn:
             upload_row = conn.execute(
                 '''
-                INSERT INTO uploads (project_id, brand_id, file_name, kind, mapped_rows, issue_rows, soe_only)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO uploads (project_id, brand_id, file_name, kind, mapped_rows, issue_rows)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING *
                 ''',
-                [project_id, brand_id, file_name, kind, len(inserts), issue_rows, soe_only],
+                [project_id, brand_id, file_name, kind, len(inserts), issue_rows],
             ).fetchone()
             activity_records = []
             if inserts:
@@ -269,64 +185,6 @@ class PostgresUploadsRepository:
                 'DELETE FROM media_activity WHERE project_id = %s AND brand_id = %s', [project_id, brand_id]
             )
 
-    def query_soe(self, project_id, *, upload_id=None, mediums=None, stations=None, regions=None, days=None, date_from=None, date_to=None):
-        clauses = ['project_id = %s']
-        params: list = [project_id]
-        if upload_id:
-            clauses.append('upload_id = %s')
-            params.append(upload_id)
-        if mediums:
-            clauses.append('medium = ANY(%s)')
-            params.append(list(mediums))
-        if stations:
-            clauses.append('station = ANY(%s)')
-            params.append(list(stations))
-        if regions:
-            clauses.append('region = ANY(%s)')
-            params.append(list(regions))
-        if days:
-            clauses.append('day = ANY(%s)')
-            params.append(list(days))
-        if date_from:
-            clauses.append('activity_date >= %s')
-            params.append(date_from)
-        if date_to:
-            clauses.append('activity_date <= %s')
-            params.append(date_to)
-        where = ' AND '.join(clauses)
-        with get_connection() as conn:
-            rows = conn.execute(
-                f'''
-                SELECT brand_id, COALESCE(SUM(cost), 0) AS spend, COALESCE(SUM(spots), 0) AS spots
-                FROM media_activity
-                WHERE {where}
-                GROUP BY brand_id
-                ''',
-                params,
-            ).fetchall()
-        return [SoeRow(brand_id=str(row['brand_id']), spend=float(row['spend']), spots=int(row['spots'])) for row in rows]
-
-    def list_soe_filter_options(self, project_id, *, upload_id=None):
-        def _distinct(column: str) -> List[str]:
-            clause = f"project_id = %s AND {column} IS NOT NULL AND {column} <> ''"
-            params: list = [project_id]
-            if upload_id:
-                clause += ' AND upload_id = %s'
-                params.append(upload_id)
-            with get_connection() as conn:
-                rows = conn.execute(
-                    f'SELECT DISTINCT {column} AS v FROM media_activity WHERE {clause}',
-                    params,
-                ).fetchall()
-            return sorted(row['v'] for row in rows)
-
-        return SoeFilterOptions(
-            mediums=_distinct('medium'),
-            stations=_distinct('station'),
-            regions=_distinct('region'),
-            days=_distinct('day'),
-        )
-
 
 class InMemoryUploadsRepository:
     """Stand-in for tests and DB-free local runs (API_REPOSITORY=memory)."""
@@ -342,17 +200,10 @@ class InMemoryUploadsRepository:
     def list_media_activity(self, project_id):
         return [a for a in self._activity.values() if a.project_id == project_id]
 
-    def list_media_activity_for_matching(self, project_id):
-        return [
-            a for a in self._activity.values()
-            if a.project_id == project_id and not self._uploads[a.upload_id].soe_only
-        ]
-
-    def create_upload_with_activity(self, project_id, brand_id, file_name, kind, inserts, issue_rows=0, soe_only=False):
+    def create_upload_with_activity(self, project_id, brand_id, file_name, kind, inserts, issue_rows=0):
         upload = UploadRecord(
             id=str(uuid.uuid4()), project_id=project_id, brand_id=brand_id, file_name=file_name, kind=kind,
             mapped_rows=len(inserts), issue_rows=issue_rows, uploaded_at=datetime.now(timezone.utc),
-            soe_only=soe_only,
         )
         self._uploads[upload.id] = upload
         activity_records = []
@@ -384,45 +235,6 @@ class InMemoryUploadsRepository:
         ]
         for aid in stale_ids:
             del self._activity[aid]
-
-    def query_soe(self, project_id, *, upload_id=None, mediums=None, stations=None, regions=None, days=None, date_from=None, date_to=None):
-        totals: Dict[str, Dict[str, float]] = {}
-        for activity in self._activity.values():
-            if activity.project_id != project_id:
-                continue
-            if upload_id and activity.upload_id != upload_id:
-                continue
-            if mediums and activity.medium not in mediums:
-                continue
-            if stations and activity.station not in stations:
-                continue
-            if regions and activity.region not in regions:
-                continue
-            if days and activity.day not in days:
-                continue
-            if date_from and (activity.activity_date is None or activity.activity_date < date_from):
-                continue
-            if date_to and (activity.activity_date is None or activity.activity_date > date_to):
-                continue
-            bucket = totals.setdefault(activity.brand_id, {'spend': 0.0, 'spots': 0})
-            bucket['spend'] += activity.cost or 0.0
-            bucket['spots'] += activity.spots
-        return [
-            SoeRow(brand_id=brand_id, spend=bucket['spend'], spots=int(bucket['spots']))
-            for brand_id, bucket in totals.items()
-        ]
-
-    def list_soe_filter_options(self, project_id, *, upload_id=None):
-        rows = [
-            a for a in self._activity.values()
-            if a.project_id == project_id and (upload_id is None or a.upload_id == upload_id)
-        ]
-        return SoeFilterOptions(
-            mediums=sorted({a.medium for a in rows if a.medium}),
-            stations=sorted({a.station for a in rows if a.station}),
-            regions=sorted({a.region for a in rows if a.region}),
-            days=sorted({a.day for a in rows if a.day}),
-        )
 
 
 _memory_repository = InMemoryUploadsRepository()

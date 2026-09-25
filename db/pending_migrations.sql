@@ -1,15 +1,15 @@
--- Pending ALTER TABLE pass for the live Supabase instance.
+-- Pending schema changes for the live Supabase instance.
 --
 -- db/schema.sql is the source of truth and is applied in full on a fresh
 -- database; this file exists only because this project hand-edits
 -- schema.sql in place rather than using a migration tool (see the "Open
--- decisions" section of db/README.md), so columns added to schema.sql
--- after the live instance was first stood up have to be applied here by
--- hand. Every statement below is idempotent (IF NOT EXISTS) and additive
--- (nullable or DEFAULTed, so existing rows never need a backfill) --
--- matches the exact column definition in schema.sql at the time this file
--- was written. Safe to run against a database that already has some or
--- all of these columns.
+-- decisions" section of db/README.md), so columns/tables added to
+-- schema.sql after the live instance was first stood up have to be applied
+-- here by hand. Every statement below is idempotent (IF NOT EXISTS) and
+-- additive (a new column is nullable or DEFAULTed, so existing rows never
+-- need a backfill) -- matches the exact definition in schema.sql at the
+-- time this file was written. Safe to run against a database that already
+-- has some or all of these changes.
 --
 -- Run this in the Supabase SQL editor, or `psql < db/pending_migrations.sql`
 -- against the same DATABASE_URL services/api uses. After it succeeds,
@@ -42,8 +42,34 @@ alter table brand_shares
 alter table brand_shares
   add column if not exists radio_spend numeric(14,2) not null default 0;
 
--- Disconnect SOE Explorer uploads from the Matching Engine/GRP calculation
--- entirely -- services/api PR "Exclude SOE Explorer uploads from matching
--- and GRP calculation".
-alter table uploads
-  add column if not exists soe_only boolean not null default false;
+-- SOE Explorer uploads, made project-less entirely -- services/api PR
+-- "SOE Explorer uploads no longer attach to any project". Supersedes an
+-- earlier attempt (uploads.soe_only, an excluded-from-matching flag on a
+-- still-project-attached upload) that never shipped to this instance --
+-- nothing to roll back, this is the first and only version that applies.
+create table if not exists soe_uploads (
+  id uuid primary key default gen_random_uuid(),
+  file_name text not null,
+  mapped_rows int not null default 0,
+  issue_rows int not null default 0,
+  uploaded_by uuid references users(id) on delete set null,
+  uploaded_at timestamptz not null default now()
+);
+
+create table if not exists soe_activity (
+  id uuid primary key default gen_random_uuid(),
+  upload_id uuid not null references soe_uploads(id) on delete cascade,
+  brand text not null,
+  medium text not null,
+  station text not null,
+  activity_date date,
+  day text not null,
+  programme text not null,
+  spots int not null default 0,
+  cost numeric(14,2),
+  time_band text not null default '',
+  region text not null default '',
+  source_file text not null
+);
+
+create index if not exists soe_activity_upload_idx on soe_activity (upload_id);

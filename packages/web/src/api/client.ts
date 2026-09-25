@@ -19,6 +19,7 @@ import type {
   SoeFilterOptions,
   SoeFilters,
   SoeReport,
+  SoeUpload,
   SpotEfficiency,
   StationShare,
   TrendPoint,
@@ -207,20 +208,43 @@ export function calculateProject(projectId: string): Promise<GrpRunSummary> {
   return request<GrpRunSummary>(`/api/projects/${projectId}/calculate`, { method: 'POST' });
 }
 
-// uploadId scopes to one uploaded file — the SOE Explorer analyzes a
-// single upload at a time rather than pooling everything a project has
-// ever had; omitted, the filter facets span the whole project.
-export function getSoeFilterOptions(projectId: string, uploadId?: string): Promise<SoeFilterOptions> {
-  const suffix = uploadId ? `?upload_id=${encodeURIComponent(uploadId)}` : '';
-  return request<SoeFilterOptions>(`/api/projects/${projectId}/soe/filters${suffix}`);
+// SOE Explorer's own upload panel — deliberately not nested under
+// /api/projects/{projectId}: this data is never attached to any project,
+// brand, or the Matching Engine at all. See SoeUpload/SoeBrand for why.
+export function listSoeUploads(): Promise<SoeUpload[]> {
+  return request<SoeUpload[]>('/api/soe/uploads');
 }
 
-// Live, filterable Share of Expenditure — distinct from listBrandShares
-// above (a fixed snapshot from the last Calculate run): this recomputes on
-// every call from whatever filters are given, works before a project has
-// ever been calculated, and isn't limited to the three TV/Cable TV/Radio
+export interface UploadSoeFileInput {
+  defaultMedium: string;
+  file: File;
+}
+
+export function uploadSoeFile(input: UploadSoeFileInput): Promise<SoeUpload> {
+  const formData = new FormData();
+  formData.append('default_medium', input.defaultMedium);
+  formData.append('file', input.file);
+  return request<SoeUpload>('/api/soe/uploads', { method: 'POST', body: formData });
+}
+
+export function deleteSoeUpload(uploadId: string): Promise<void> {
+  return request<void>(`/api/soe/uploads/${uploadId}`, { method: 'DELETE' });
+}
+
+// uploadId scopes to one uploaded file — the SOE Explorer analyzes a
+// single upload at a time rather than pooling everything ever uploaded;
+// omitted, the filter facets span every SOE upload.
+export function getSoeFilterOptions(uploadId?: string): Promise<SoeFilterOptions> {
+  const suffix = uploadId ? `?upload_id=${encodeURIComponent(uploadId)}` : '';
+  return request<SoeFilterOptions>(`/api/soe/filters${suffix}`);
+}
+
+// Live, filterable Share of Expenditure over SOE Explorer's own uploads —
+// unrelated to listBrandShares above (a per-project, fixed snapshot from
+// the last Calculate run): this recomputes on every call from whatever
+// filters are given, and isn't limited to the three TV/Cable TV/Radio
 // buckets brand_shares stores.
-export function getSoe(projectId: string, filters: Partial<SoeFilters> = {}): Promise<SoeReport> {
+export function getSoe(filters: Partial<SoeFilters> = {}): Promise<SoeReport> {
   const query = new URLSearchParams();
   if (filters.uploadId) query.set('upload_id', filters.uploadId);
   for (const value of filters.medium ?? []) query.append('medium', value);
@@ -230,7 +254,7 @@ export function getSoe(projectId: string, filters: Partial<SoeFilters> = {}): Pr
   if (filters.dateFrom) query.set('date_from', filters.dateFrom);
   if (filters.dateTo) query.set('date_to', filters.dateTo);
   const suffix = query.toString() ? `?${query.toString()}` : '';
-  return request<SoeReport>(`/api/projects/${projectId}/soe${suffix}`);
+  return request<SoeReport>(`/api/soe${suffix}`);
 }
 
 export function startCalculationJob(projectId: string): Promise<CalculationJob> {
@@ -290,12 +314,6 @@ export interface UploadMediaReportInput {
   // is how a stale template actually gets worked around instead of just
   // pointed at.
   ignoreSavedTemplate?: boolean;
-  // Marks every row this upload produces as excluded from the Matching
-  // Engine and GRP calculation — set only by the SOE Explorer's own upload
-  // panel, never by the ordinary Project Detail upload form. See
-  // services/api/app/repositories/uploads.py's
-  // list_media_activity_for_matching.
-  soeOnly?: boolean;
 }
 
 export function uploadMediaReport(projectId: string, input: UploadMediaReportInput): Promise<UploadBatch> {
@@ -306,7 +324,6 @@ export function uploadMediaReport(projectId: string, input: UploadMediaReportInp
   if (input.sourceLabel) formData.append('source_label', input.sourceLabel);
   if (input.saveAsTemplate) formData.append('save_as_template', 'true');
   if (input.ignoreSavedTemplate) formData.append('ignore_saved_template', 'true');
-  if (input.soeOnly) formData.append('soe_only', 'true');
   formData.append('file', input.file);
   return request<UploadBatch>(`/api/projects/${projectId}/uploads`, { method: 'POST', body: formData });
 }

@@ -246,14 +246,7 @@ create table uploads (
   mapped_rows int not null default 0,
   issue_rows int not null default 0,
   uploaded_by uuid references users(id) on delete set null,
-  uploaded_at timestamptz not null default now(),
-  -- True for an upload made through the SOE Explorer's own upload panel --
-  -- its media_activity rows are meant purely for live Share of Expenditure
-  -- analysis of that one file, never for the Matching Engine or a
-  -- calculated GRP run. False (the default) for an upload made through the
-  -- ordinary Project Detail upload form, which behaves exactly as before.
-  -- See services/api/app/repositories/uploads.py's list_media_activity_for_matching.
-  soe_only boolean not null default false
+  uploaded_at timestamptz not null default now()
 );
 
 create index uploads_project_idx on uploads (project_id);
@@ -321,6 +314,47 @@ create trigger media_activity_set_match_key_trigger
 create index media_activity_project_idx on media_activity (project_id);
 create index media_activity_brand_idx on media_activity (brand_id);
 create index media_activity_match_key_idx on media_activity (match_key);
+
+-- ---------------------------------------------------------------------------
+-- soe_uploads / soe_activity
+-- ---------------------------------------------------------------------------
+-- Data uploaded through the SOE Explorer's own upload panel -- deliberately
+-- NOT scoped to any project, brand, or the Matching Engine at all, not even
+-- disconnected-but-attached: this data was asked to never be attached to a
+-- project in the first place (superseding an earlier attempt that flagged
+-- project-attached uploads.soe_only instead and excluded them from matching
+-- -- see CHANGELOG.md). `brand` is a plain text column here, not a foreign
+-- key to `brands`, since brands are project-scoped and this data has none.
+-- No audit-trail obligation applies (the "Audit Rule" in API_CONTRACT.md is
+-- about calculated GRP rows, which this data can never become -- it only
+-- ever feeds live Share of Expenditure queries).
+
+create table soe_uploads (
+  id uuid primary key default gen_random_uuid(),
+  file_name text not null,
+  mapped_rows int not null default 0,
+  issue_rows int not null default 0,
+  uploaded_by uuid references users(id) on delete set null,
+  uploaded_at timestamptz not null default now()
+);
+
+create table soe_activity (
+  id uuid primary key default gen_random_uuid(),
+  upload_id uuid not null references soe_uploads(id) on delete cascade,
+  brand text not null,
+  medium text not null,
+  station text not null,
+  activity_date date,
+  day text not null,
+  programme text not null,
+  spots int not null default 0,
+  cost numeric(14,2),
+  time_band text not null default '',
+  region text not null default '',
+  source_file text not null
+);
+
+create index soe_activity_upload_idx on soe_activity (upload_id);
 
 -- ---------------------------------------------------------------------------
 -- rating_matches

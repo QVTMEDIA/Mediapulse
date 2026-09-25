@@ -36,7 +36,6 @@ def _upload_to_out(record: UploadRecord, mapping_warnings: 'list[MappingWarning]
         mapped_rows=record.mapped_rows,
         issue_rows=record.issue_rows,
         uploaded_at=record.uploaded_at,
-        soe_only=record.soe_only,
         mapping_warnings=[
             MappingWarningOut(field=w.field, template_column=w.template_column, detected_column=w.detected_column)
             for w in (mapping_warnings or [])
@@ -92,14 +91,6 @@ async def create_upload(
     # only thing that overwrites it, so checking both together is the
     # one-shot "fix this stale template" workflow.
     ignore_saved_template: bool = Form(False),
-    # Set only by the SOE Explorer's own upload panel -- marks every row this
-    # upload produces as excluded from the Matching Engine and GRP
-    # calculation (see repositories/uploads.py's
-    # list_media_activity_for_matching), so a file uploaded purely for live
-    # spend analysis never silently participates in a project's real
-    # calculated run. False (the default) for the ordinary Project Detail
-    # upload form -- unchanged behavior.
-    soe_only: bool = Form(False),
     file: UploadFile = File(...),
     repo: UploadsRepository = Depends(get_uploads_repository),
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
@@ -185,7 +176,7 @@ async def create_upload(
         templates_repo.touch_used(source_label)
 
     upload_record, _activity_records = repo.create_upload_with_activity(
-        project_id, upload_brand_id, file_name, kind, inserts, issue_rows=issue_rows, soe_only=soe_only
+        project_id, upload_brand_id, file_name, kind, inserts, issue_rows=issue_rows
     )
     return _upload_to_out(upload_record, mapping_warnings)
 

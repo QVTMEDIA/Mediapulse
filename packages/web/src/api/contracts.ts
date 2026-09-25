@@ -110,10 +110,6 @@ export interface UploadBatch {
   mappedRows: number;
   issueRows: number;
   uploadedAt: string;
-  // True for an upload made through the SOE Explorer's own upload panel —
-  // excluded from the Matching Engine/GRP calculation entirely, never just
-  // from this project's "active" numbers.
-  soeOnly: boolean;
   // Only ever populated on the response to POST .../uploads (this
   // upload's own parse) — GET .../uploads (listing past uploads) always
   // leaves this empty. See MappingWarning.
@@ -175,9 +171,21 @@ export interface BrandShare {
   radioSpend: number;
 }
 
-// Distinct values actually present in a project's media_activity — what
-// the SOE Explorer's filter dropdowns are populated from. Not a fixed
-// enum: what's filterable is exactly what a project's uploads contain.
+// A file uploaded through the SOE Explorer's own upload panel — never
+// attached to any project, brand, or the Matching Engine at all (not even
+// disconnected-but-attached). See SoeBrand.brand for why there's no
+// brandId: there's no project here to scope a Brand entity to.
+export interface SoeUpload {
+  uploadId: string;
+  fileName: string;
+  mappedRows: number;
+  issueRows: number;
+  uploadedAt: string;
+}
+
+// Distinct values actually present in soe_activity — what the SOE
+// Explorer's filter dropdowns are populated from. Not a fixed enum:
+// what's filterable is exactly what an uploaded file contains.
 export interface SoeFilterOptions {
   mediums: string[];
   stations: string[];
@@ -196,13 +204,14 @@ export interface SoeFilters {
 }
 
 export interface SoeBrand {
-  brandId: string;
+  // The vendor's own text from the uploaded file's Brand column, taken
+  // as-is — never a brandId, since this data has no project and so no
+  // Brand entity to point at.
   brand: string;
   spend: number;
   spots: number;
-  // Percent of the *filtered* set's total spend, not the whole project's
-  // — recomputed live against whatever filters are applied, unlike
-  // BrandShare.soe (fixed at the last Calculate run).
+  // Percent of the *filtered* set's total spend — recomputed live against
+  // whatever filters are applied.
   soe: number;
 }
 
@@ -471,7 +480,6 @@ export const sampleWorkspace: MediapulseWorkspace = {
       mappedRows: 202,
       issueRows: 1,
       uploadedAt: '2026-08-19 15:05:00',
-      soeOnly: false,
       mappingWarnings: [],
     },
     {
@@ -483,7 +491,6 @@ export const sampleWorkspace: MediapulseWorkspace = {
       mappedRows: 202,
       issueRows: 0,
       uploadedAt: '2026-08-19 15:18:00',
-      soeOnly: false,
       mappingWarnings: [],
     },
   ],

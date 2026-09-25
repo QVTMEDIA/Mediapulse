@@ -96,7 +96,7 @@ def calculate(
     if projects_repo.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail='Project not found')
 
-    media_activity = uploads_repo.list_media_activity_for_matching(project_id)
+    media_activity = uploads_repo.list_media_activity(project_id)
     rating_rows = ratings_repo.list_project_rating_rows(project_id)
     match_records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows)
 

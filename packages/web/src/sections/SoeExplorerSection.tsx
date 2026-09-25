@@ -262,10 +262,14 @@ export default function SoeExplorerSection({ projects }: { projects: Project[] }
               type="submit"
               className="secondary-button"
               disabled={isUploading || !uploadFile || !uploadTargetProjectId}
+              title={!uploadTargetProjectId ? 'Choose a project above first' : undefined}
             >
               {isUploading ? 'Uploading…' : 'Upload'}
             </button>
           </div>
+        )}
+        {!uploadTargetProjectId && uploadFile && (
+          <p className="empty-state">Choose a project above to enable Upload.</p>
         )}
         {uploadError && <p className="inline-error">{uploadError}</p>}
         {uploadSuccess && <p className="inline-success">{uploadSuccess}</p>}

@@ -56,7 +56,7 @@ def _increment_processed(job_id: str) -> None:
 def _run_ensure(job_id, project_id, matches_repo, uploads_repo, ratings_repo):
     _set_status(job_id, 'running')
     try:
-        media_activity = uploads_repo.list_media_activity_for_matching(project_id)
+        media_activity = uploads_repo.list_media_activity(project_id)
         rating_rows = ratings_repo.list_project_rating_rows(project_id)
         matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows)
         _set_status(job_id, 'completed')
@@ -71,7 +71,7 @@ def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo,
         unmatched_by_activity_id = {m.media_activity_id: m for m in existing if m.match_status == 'unmatched'}
         _set_total(job_id, len(unmatched_by_activity_id))
         if unmatched_by_activity_id:
-            media_activity = uploads_repo.list_media_activity_for_matching(project_id)
+            media_activity = uploads_repo.list_media_activity(project_id)
             unmatched_activity = [a for a in media_activity if a.id in unmatched_by_activity_id]
             rating_rows = ratings_repo.list_project_rating_rows(project_id)
             # Collected and written in one batch at the end via

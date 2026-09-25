@@ -949,11 +949,11 @@ def test_matches_without_any_ratings_are_all_unmatched(client, project, brand):
     assert all(m['matchedRatingId'] is None for m in matches)
 
 
-def test_soe_only_upload_never_gets_a_match_record(client, project, brand):
-    # An SOE Explorer upload (soe_only=true) must never reach the Matching
-    # Engine at all -- not "unmatched", not a suggestion, no rating_matches
-    # row whatsoever, even when a ratings row exists that would otherwise
-    # match it exactly.
+def test_soe_explorer_uploads_are_invisible_to_matches(client, project, brand):
+    # SOE Explorer uploads go through /api/soe/uploads entirely, never
+    # /api/projects/{projectId}/uploads -- they can't reach this project's
+    # Matches at all, not because of a flag, but because they were never
+    # attached to it in the first place.
     dataset = client.post(
         '/api/ratings-datasets',
         json={'provider': 'Nielsen', 'rows': [{
@@ -962,47 +962,12 @@ def test_soe_only_upload_never_gets_a_match_record(client, project, brand):
     ).json()
     client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
 
-    media = b'Channel,Programme,Day,Spots\nTVC,Prime Time,Monday,3\n'
-    files = {'file': ('soe.csv', io.BytesIO(media), 'text/csv')}
-    response = client.post(
-        f"/api/projects/{project['projectId']}/uploads",
-        files=files,
-        data={'brand_id': brand['brandId'], 'soe_only': 'true'},
-    )
-    assert response.status_code == 201
-    assert response.json()['soeOnly'] is True
+    soe_media = b'Brand,Channel,Programme,Day,Spots\nBrand X,TVC,Prime Time,Monday,7\n'
+    soe_response = client.post('/api/soe/uploads', files={'file': ('soe.csv', io.BytesIO(soe_media), 'text/csv')})
+    assert soe_response.status_code == 201
 
     matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
     assert matches == []
-
-
-def test_normal_upload_still_matches_alongside_an_soe_only_upload(client, project, brand):
-    # Disconnecting soe_only uploads from matching must not be project-wide
-    # -- an ordinary upload in the same project matches exactly as before.
-    dataset = client.post(
-        '/api/ratings-datasets',
-        json={'provider': 'Nielsen', 'rows': [{
-            'medium': 'TV', 'station': 'TVC', 'day': 'Monday', 'programme': 'Prime Time', 'rating': 1.2,
-        }]},
-    ).json()
-    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
-
-    normal_media = b'Channel,Programme,Day,Spots\nTVC,Prime Time,Monday,3\n'
-    client.post(
-        f"/api/projects/{project['projectId']}/uploads",
-        files={'file': ('normal.csv', io.BytesIO(normal_media), 'text/csv')},
-        data={'brand_id': brand['brandId']},
-    )
-    soe_media = b'Channel,Programme,Day,Spots\nTVC,Prime Time,Monday,7\n'
-    client.post(
-        f"/api/projects/{project['projectId']}/uploads",
-        files={'file': ('soe.csv', io.BytesIO(soe_media), 'text/csv')},
-        data={'brand_id': brand['brandId'], 'soe_only': 'true'},
-    )
-
-    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
-    assert len(matches) == 1
-    assert matches[0]['matchStatus'] == 'exact'
 
 
 def test_correct_match_sets_manual_status(client, project, brand):

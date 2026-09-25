@@ -42,7 +42,7 @@ def _set_status(
 def _run_calculation(job_id, project_id, uploads_repo, ratings_repo, matches_repo, calculations_repo):
     _set_status(job_id, 'running')
     try:
-        media_activity = uploads_repo.list_media_activity_for_matching(project_id)
+        media_activity = uploads_repo.list_media_activity(project_id)
         rating_rows = ratings_repo.list_project_rating_rows(project_id)
         match_records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows)
 

@@ -1,35 +1,73 @@
 from datetime import date
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 
-from ..auth import get_current_user
-from ..repositories.brands import BrandsRepository, get_brands_repository
-from ..repositories.projects import ProjectsRepository, get_projects_repository
-from ..repositories.uploads import UploadsRepository, get_uploads_repository
-from ..schemas.soe import SoeBrandOut, SoeFilterOptionsOut, SoeReportOut
+from ..auth import get_current_user, require_role
+from ..parsing import parse_composite_report
+from ..repositories.soe import SoeRepository, SoeUploadRecord, get_soe_repository
+from ..schemas.soe import SoeBrandOut, SoeFilterOptionsOut, SoeReportOut, SoeUploadOut
 
-router = APIRouter(prefix='/api/projects/{project_id}/soe', tags=['soe'], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix='/api/soe', tags=['soe'], dependencies=[Depends(get_current_user)])
 
 
-def _brand_names(brands_repo: BrandsRepository, project_id: str) -> dict:
-    """{brand_id: name} for every brand in the project -- one list_brands()
-    call rather than one get_brand() per row; see routers/runs.py's
-    identical helper for the full reasoning (found live: a project with a
-    few thousand rows meant a few thousand sequential connections)."""
-    return {brand.id: brand.name for brand in brands_repo.list_brands(project_id)}
+def _upload_to_out(record: SoeUploadRecord) -> SoeUploadOut:
+    return SoeUploadOut(
+        upload_id=record.id,
+        file_name=record.file_name,
+        mapped_rows=record.mapped_rows,
+        issue_rows=record.issue_rows,
+        uploaded_at=record.uploaded_at,
+    )
+
+
+@router.get('/uploads', response_model=list[SoeUploadOut])
+def list_soe_uploads(repo: SoeRepository = Depends(get_soe_repository)):
+    return [_upload_to_out(record) for record in repo.list_uploads()]
+
+
+@router.post('/uploads', response_model=SoeUploadOut, status_code=201)
+async def create_soe_upload(
+    default_medium: str = Form('TV'),
+    file: UploadFile = File(...),
+    repo: SoeRepository = Depends(get_soe_repository),
+):
+    """Deliberately not nested under /api/projects/{project_id} -- this data
+    is never attached to a project (or a brand, beyond the plain text a
+    file's own Brand column supplies), so it never feeds the Matching
+    Engine or a calculated GRP run. Reuses parse_composite_report() as-is:
+    it already reads a per-row Brand column as plain text (with a
+    filename-derived fallback when a row's Brand is blank), never resolving
+    a Brand entity — exactly the shape this needs."""
+    data = await file.read()
+    file_name = file.filename or 'uploaded_file'
+    try:
+        parsed = parse_composite_report(data, file_name, default_medium)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    upload_record, _activity_records = repo.create_upload_with_activity(
+        file_name, parsed.rows, issue_rows=parsed.issue_rows
+    )
+    return _upload_to_out(upload_record)
+
+
+@router.delete('/uploads/{upload_id}', status_code=204)
+def delete_soe_upload(
+    upload_id: str,
+    repo: SoeRepository = Depends(get_soe_repository),
+    _current_user=Depends(require_role('owner', 'admin')),
+):
+    if not repo.delete_upload(upload_id):
+        raise HTTPException(status_code=404, detail='Upload not found')
 
 
 @router.get('/filters', response_model=SoeFilterOptionsOut)
 def get_soe_filters(
-    project_id: str,
     upload_id: Optional[str] = Query(default=None),
-    repo: UploadsRepository = Depends(get_uploads_repository),
-    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+    repo: SoeRepository = Depends(get_soe_repository),
 ):
-    if projects_repo.get_project(project_id) is None:
-        raise HTTPException(status_code=404, detail='Project not found')
-    options = repo.list_soe_filter_options(project_id, upload_id=upload_id)
+    options = repo.list_filter_options(upload_id=upload_id)
     return SoeFilterOptionsOut(
         mediums=options.mediums, stations=options.stations, regions=options.regions, days=options.days
     )
@@ -37,7 +75,6 @@ def get_soe_filters(
 
 @router.get('', response_model=SoeReportOut)
 def get_soe(
-    project_id: str,
     upload_id: Optional[str] = Query(default=None),
     medium: List[str] = Query(default_factory=list),
     station: List[str] = Query(default_factory=list),
@@ -45,24 +82,14 @@ def get_soe(
     day: List[str] = Query(default_factory=list),
     date_from: Optional[date] = Query(default=None),
     date_to: Optional[date] = Query(default=None),
-    repo: UploadsRepository = Depends(get_uploads_repository),
-    brands_repo: BrandsRepository = Depends(get_brands_repository),
-    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+    repo: SoeRepository = Depends(get_soe_repository),
 ):
-    """Share of Expenditure, filterable and computed live from
-    media_activity -- distinct from Spend Intelligence's brand_shares
-    snapshot (fixed at the last Calculate run, only three medium buckets):
-    this recomputes on every request from whatever filters are given, so
-    it works before a project has ever been calculated and supports
-    arbitrary filter combinations rather than three fixed ones. Each
-    repeated query param (e.g. ?medium=TV&medium=Radio) is OR'd within its
-    own dimension; different dimensions AND together. upload_id scopes to
-    one uploaded file -- the SOE Explorer analyzes a single upload at a
-    time, never pools every upload a project has ever had."""
-    if projects_repo.get_project(project_id) is None:
-        raise HTTPException(status_code=404, detail='Project not found')
+    """Share of Expenditure, filterable and computed live from soe_activity.
+    Each repeated query param (e.g. ?medium=TV&medium=Radio) is OR'd within
+    its own dimension; different dimensions AND together. upload_id scopes
+    to one uploaded file -- the SOE Explorer analyzes a single upload at a
+    time, never pools every upload ever made."""
     rows = repo.query_soe(
-        project_id,
         upload_id=upload_id,
         mediums=medium or None,
         stations=station or None,
@@ -71,13 +98,11 @@ def get_soe(
         date_from=date_from,
         date_to=date_to,
     )
-    brand_names = _brand_names(brands_repo, project_id)
     total_spend = sum(row.spend for row in rows)
     brands = sorted(
         (
             SoeBrandOut(
-                brand_id=row.brand_id,
-                brand=brand_names.get(row.brand_id, 'Unknown brand'),
+                brand=row.brand,
                 spend=row.spend,
                 spots=row.spots,
                 soe=(row.spend / total_spend * 100) if total_spend > 0 else 0.0,

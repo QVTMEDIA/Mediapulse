@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { SlidersHorizontal, Upload } from 'lucide-react';
 import { ApiError, deleteSoeUpload, getSoe, getSoeFilterOptions, listSoeUploads, uploadSoeFile } from '../api/client';
 import type { SoeFilterOptions, SoeReport, SoeUpload } from '../api/contracts';
@@ -6,6 +6,49 @@ import { formatNumber } from './SpendIntelligenceSection';
 
 const EMPTY_FILTER_OPTIONS: SoeFilterOptions = { mediums: [], stations: [], regions: [], states: [], days: [] };
 const EMPTY_REPORT: SoeReport = { totalSpend: 0, brands: [] };
+
+// This section's own file/filter picks used to live only in React state, so
+// switching to any other tab and back unmounted the component and reset
+// everything -- reported directly ("everything seem to refresh once user
+// leaves the page"). sessionStorage survives that unmount/remount (and a
+// page reload) while still clearing itself when the tab actually closes, so
+// a stale pick from days ago doesn't resurface in an unrelated session.
+const SOE_EXPLORER_STATE_KEY = 'mediapulse.soeExplorer.state';
+
+type PersistedSoeExplorerState = {
+  selectedUploadId: string;
+  mediums: string[];
+  stations: string[];
+  regions: string[];
+  states: string[];
+  days: string[];
+  dateFrom: string;
+  dateTo: string;
+};
+
+function loadPersistedSoeExplorerState(): PersistedSoeExplorerState | null {
+  try {
+    const raw = sessionStorage.getItem(SOE_EXPLORER_STATE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const asStringArray = (value: unknown) => (Array.isArray(value) ? value.filter((entry) => typeof entry === 'string') : []);
+    return {
+      selectedUploadId: typeof parsed.selectedUploadId === 'string' ? parsed.selectedUploadId : '',
+      mediums: asStringArray(parsed.mediums),
+      stations: asStringArray(parsed.stations),
+      regions: asStringArray(parsed.regions),
+      states: asStringArray(parsed.states),
+      days: asStringArray(parsed.days),
+      dateFrom: typeof parsed.dateFrom === 'string' ? parsed.dateFrom : '',
+      dateTo: typeof parsed.dateTo === 'string' ? parsed.dateTo : '',
+    };
+  } catch {
+    // Corrupt JSON, or sessionStorage unavailable (private-browsing/storage
+    // restrictions) -- fall back to the ordinary empty-state behavior.
+    return null;
+  }
+}
 
 function toggleValue(list: string[], value: string): string[] {
   return list.includes(value) ? list.filter((entry) => entry !== value) : [...list, value];
@@ -82,22 +125,24 @@ function FilterGroup({
 // permanently, not just excluded from matching while still attached to a
 // project the way an earlier version of this feature worked.
 export default function SoeExplorerSection() {
+  const [initialPersisted] = useState(() => loadPersistedSoeExplorerState());
+
   const [uploads, setUploads] = useState<SoeUpload[]>([]);
   const [uploadsLoading, setUploadsLoading] = useState(false);
   const [uploadsError, setUploadsError] = useState<string | null>(null);
-  const [selectedUploadId, setSelectedUploadId] = useState('');
+  const [selectedUploadId, setSelectedUploadId] = useState(initialPersisted?.selectedUploadId ?? '');
 
   const [filterOptions, setFilterOptions] = useState<SoeFilterOptions>(EMPTY_FILTER_OPTIONS);
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [optionsError, setOptionsError] = useState<string | null>(null);
 
-  const [mediums, setMediums] = useState<string[]>([]);
-  const [stations, setStations] = useState<string[]>([]);
-  const [regions, setRegions] = useState<string[]>([]);
-  const [states, setStates] = useState<string[]>([]);
-  const [days, setDays] = useState<string[]>([]);
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [mediums, setMediums] = useState<string[]>(initialPersisted?.mediums ?? []);
+  const [stations, setStations] = useState<string[]>(initialPersisted?.stations ?? []);
+  const [regions, setRegions] = useState<string[]>(initialPersisted?.regions ?? []);
+  const [states, setStates] = useState<string[]>(initialPersisted?.states ?? []);
+  const [days, setDays] = useState<string[]>(initialPersisted?.days ?? []);
+  const [dateFrom, setDateFrom] = useState(initialPersisted?.dateFrom ?? '');
+  const [dateTo, setDateTo] = useState(initialPersisted?.dateTo ?? '');
 
   const [report, setReport] = useState<SoeReport>(EMPTY_REPORT);
   const [reportLoading, setReportLoading] = useState(false);
@@ -135,14 +180,28 @@ export default function SoeExplorerSection() {
       .finally(() => setOptionsLoading(false));
   }, []);
 
+  // Only an actual change of the uploaded file should clear the filters --
+  // not this effect's unavoidable first run on mount, where selectedUploadId
+  // may already be a file restored from sessionStorage (see
+  // loadPersistedSoeExplorerState above) whose filters were restored right
+  // alongside it. Comparing against the previous id (rather than a "have I
+  // run yet" flag) makes this correct even under StrictMode's dev-only
+  // double-invocation of effects, which would otherwise see a one-shot flag
+  // already flipped on its second call and wipe the just-restored filters.
+  const previousUploadIdRef = useRef(selectedUploadId);
+
   useEffect(() => {
-    setMediums([]);
-    setStations([]);
-    setRegions([]);
-    setStates([]);
-    setDays([]);
-    setDateFrom('');
-    setDateTo('');
+    const uploadChanged = previousUploadIdRef.current !== selectedUploadId;
+    previousUploadIdRef.current = selectedUploadId;
+    if (uploadChanged) {
+      setMediums([]);
+      setStations([]);
+      setRegions([]);
+      setStates([]);
+      setDays([]);
+      setDateFrom('');
+      setDateTo('');
+    }
     if (!selectedUploadId) {
       setFilterOptions(EMPTY_FILTER_OPTIONS);
       setReport(EMPTY_REPORT);
@@ -150,6 +209,16 @@ export default function SoeExplorerSection() {
     }
     void loadFilterOptions(selectedUploadId);
   }, [selectedUploadId, loadFilterOptions]);
+
+  useEffect(() => {
+    const toPersist: PersistedSoeExplorerState = { selectedUploadId, mediums, stations, regions, states, days, dateFrom, dateTo };
+    try {
+      sessionStorage.setItem(SOE_EXPLORER_STATE_KEY, JSON.stringify(toPersist));
+    } catch {
+      // sessionStorage can throw under storage restrictions (private
+      // browsing, quota) -- losing persistence there is a harmless degrade.
+    }
+  }, [selectedUploadId, mediums, stations, regions, states, days, dateFrom, dateTo]);
 
   const refreshReport = useCallback(() => {
     if (!selectedUploadId) return;

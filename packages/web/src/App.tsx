@@ -46,7 +46,7 @@ import ProjectManagePanel from './sections/ProjectManagePanel';
 import QualitySection from './sections/QualitySection';
 import RatingsSection from './sections/RatingsSection';
 import ReportsSection from './sections/ReportsSection';
-import SettingsSection from './sections/SettingsSection';
+import SettingsSection, { AvatarCircle } from './sections/SettingsSection';
 import SoeExplorerSection from './sections/SoeExplorerSection';
 import SpendIntelligenceSection from './sections/SpendIntelligenceSection';
 import { LimitedRowsControls, useLimitedRows } from './components/LimitedRows';
@@ -457,9 +457,12 @@ function Workspace({
         </div>
 
         <div className="sidebar-user">
-          <div>
-            <strong>{currentUser.displayName || currentUser.email}</strong>
-            <small>{currentUser.role}</small>
+          <div className="sidebar-user-identity">
+            <AvatarCircle user={currentUser} size={32} />
+            <div>
+              <strong>{currentUser.displayName || currentUser.email}</strong>
+              <small>{currentUser.role}</small>
+            </div>
           </div>
           <button type="button" className="icon-button" title="Sign out" aria-label="Sign out" onClick={onSignOut}>
             <LogOut size={16} aria-hidden />

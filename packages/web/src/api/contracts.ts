@@ -10,6 +10,7 @@ export interface User {
   displayName: string;
   role: UserRole;
   createdAt: string;
+  avatarUrl: string | null;
 }
 
 export interface AuthSession {

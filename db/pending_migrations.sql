@@ -81,3 +81,9 @@ create index if not exists soe_activity_upload_idx on soe_activity (upload_id);
 -- earlier run of this file, before `state` existed here.
 alter table soe_activity
   add column if not exists state text not null default '';
+
+-- Profile photo -- services/api PR "Redesign the User Profile page, with a
+-- real profile-photo upload and crop". Stores a full data URI directly
+-- (no object-storage bucket) -- see the column's own comment in schema.sql.
+alter table users
+  add column if not exists avatar_data_url text;

@@ -79,6 +79,13 @@ create table users (
   display_name text,
   password_hash text,
   role text not null default 'member', -- 'owner' | 'admin' | 'member'
+  -- A full "data:image/...;base64,..." URI, stored as-is so the frontend can
+  -- use it directly as an <img src>. Deliberately not a separate object-
+  -- storage bucket (S3/Supabase Storage) -- this service only assumes "a
+  -- DATABASE_URL pointing at Postgres" (see README's Design notes), and a
+  -- cropped avatar is small enough (a few hundred KB at most) that adding a
+  -- whole new storage dependency for it isn't worth it at this app's scale.
+  avatar_data_url text,
   created_at timestamptz not null default now()
 );
 

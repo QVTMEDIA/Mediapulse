@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..auth import get_current_user
 from ..config import get_settings
 from ..repositories.users import UserRecord, UsersRepository, get_users_repository
-from ..schemas.users import LoginIn, RegisterIn, TokenOut, UpdateProfileIn, UserOut
+from ..schemas.users import LoginIn, RegisterIn, TokenOut, UpdateAvatarIn, UpdateProfileIn, UserOut
 from ..security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix='/api/auth', tags=['auth'])
@@ -16,6 +16,7 @@ def _to_out(record: UserRecord) -> UserOut:
         display_name=record.display_name,
         role=record.role,
         created_at=record.created_at,
+        avatar_url=record.avatar_data_url,
     )
 
 
@@ -81,4 +82,23 @@ def update_me(
             raise HTTPException(status_code=401, detail='Incorrect current password.')
     password_hash = hash_password(payload.new_password) if payload.new_password is not None else None
     record = users_repo.update_profile(current_user.id, display_name=payload.display_name, password_hash=password_hash)
+    return _to_out(record)
+
+
+@router.put('/me/avatar', response_model=UserOut)
+def update_avatar(
+    payload: UpdateAvatarIn,
+    current_user: UserRecord = Depends(get_current_user),
+    users_repo: UsersRepository = Depends(get_users_repository),
+):
+    record = users_repo.update_avatar(current_user.id, payload.avatar_data_url)
+    return _to_out(record)
+
+
+@router.delete('/me/avatar', response_model=UserOut)
+def remove_avatar(
+    current_user: UserRecord = Depends(get_current_user),
+    users_repo: UsersRepository = Depends(get_users_repository),
+):
+    record = users_repo.update_avatar(current_user.id, None)
     return _to_out(record)

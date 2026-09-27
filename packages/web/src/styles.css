@@ -143,6 +143,17 @@ button:disabled {
   background: #103633;
 }
 
+.sidebar-user-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sidebar-user-identity > div {
+  min-width: 0;
+}
+
 .sidebar-user strong {
   display: block;
   overflow: hidden;
@@ -1346,6 +1357,201 @@ h3.subsection {
   }
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Profile photo (Settings) */
+
+.avatar-circle {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  object-fit: cover;
+}
+
+.avatar-circle-photo {
+  border: 1px solid var(--border);
+}
+
+.avatar-circle-initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  background: var(--green);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.avatar-photo-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.avatar-photo-actions {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.avatar-photo-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.avatar-photo-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Crop modal */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgb(23 33 31 / 0.5);
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 420px;
+  padding: 20px;
+  background: var(--panel);
+  border-radius: 12px;
+  box-shadow: 0 20px 50px rgb(16 54 51 / 0.25);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.modal-header h2 {
+  margin: 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.avatar-crop-frame {
+  position: relative;
+  overflow: hidden;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.avatar-crop-frame:active {
+  cursor: grabbing;
+}
+
+.avatar-crop-frame img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  user-select: none;
+}
+
+.avatar-crop-zoom {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Personal information rows (Settings) */
+
+.profile-info-rows {
+  display: grid;
+}
+
+.profile-info-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+
+.profile-info-row:first-child {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.profile-info-row-label {
+  display: grid;
+  gap: 2px;
+  min-width: 200px;
+}
+
+.profile-info-row-label small {
+  color: var(--muted);
+}
+
+.profile-info-row-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-info-row-control input {
+  height: 40px;
+  min-width: 260px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+}
+
+.profile-info-row-control input:disabled {
+  color: var(--muted);
+  background: var(--surface);
+}
+
+.profile-info-row .inline-success,
+.profile-info-row .inline-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.password-panel-actions {
+  display: flex;
+  gap: 10px;
+}
+
 @media (max-width: 760px) {
   .workspace {
     padding: 16px;
@@ -1374,5 +1580,29 @@ h3.subsection {
 
   .dataset-stat {
     text-align: left;
+  }
+
+  .avatar-photo-row {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .avatar-photo-buttons {
+    justify-content: center;
+  }
+
+  .profile-info-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .profile-info-row-control {
+    width: 100%;
+  }
+
+  .profile-info-row-control input {
+    width: 100%;
+    min-width: 0;
   }
 }

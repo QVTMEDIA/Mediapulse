@@ -19,6 +19,7 @@ class UserRecord:
     password_hash: Optional[str]
     role: str
     created_at: datetime
+    avatar_data_url: Optional[str] = None
 
 
 class UsersRepository(Protocol):
@@ -43,6 +44,13 @@ class UsersRepository(Protocol):
         to their own account via PATCH /api/auth/me."""
         ...
 
+    def update_avatar(self, user_id: str, avatar_data_url: Optional[str]) -> Optional[UserRecord]:
+        """Sets avatar_data_url to exactly the given value, including None to
+        clear it -- a separate method from update_profile rather than one
+        more COALESCE-guarded field, since update_profile's None means
+        "leave unchanged," which can't also represent "clear this one"."""
+        ...
+
 
 def _row_to_record(row: dict) -> UserRecord:
     return UserRecord(
@@ -52,6 +60,7 @@ def _row_to_record(row: dict) -> UserRecord:
         password_hash=row['password_hash'],
         role=row['role'],
         created_at=row['created_at'],
+        avatar_data_url=row['avatar_data_url'],
     )
 
 
@@ -110,6 +119,13 @@ class PostgresUsersRepository:
             ).fetchone()
         return _row_to_record(row) if row else None
 
+    def update_avatar(self, user_id: str, avatar_data_url: Optional[str]):
+        with get_connection() as conn:
+            row = conn.execute(
+                'UPDATE users SET avatar_data_url = %s WHERE id = %s RETURNING *', [avatar_data_url, user_id]
+            ).fetchone()
+        return _row_to_record(row) if row else None
+
 
 class InMemoryUsersRepository:
     """Stand-in for tests and for local exploration without Postgres running
@@ -161,6 +177,13 @@ class InMemoryUsersRepository:
             record.display_name = display_name
         if password_hash is not None:
             record.password_hash = password_hash
+        return record
+
+    def update_avatar(self, user_id: str, avatar_data_url: Optional[str]):
+        record = self._rows.get(user_id)
+        if record is None:
+            return None
+        record.avatar_data_url = avatar_data_url
         return record
 
 

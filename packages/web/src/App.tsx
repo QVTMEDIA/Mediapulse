@@ -89,7 +89,7 @@ const SECTION_DESCRIPTIONS: Partial<Record<SectionKey, string>> = {
   activity: 'Every calculated row, traceable back to its spot — the audit trail behind the brand totals.',
   reports: 'Station and programme contribution, weekly trend, and brand-vs-brand comparison.',
   spendIntelligence: 'Media spend, Share of Expenditure, and cost-per-GRP efficiency by brand.',
-  soeExplorer: 'Filter Share of Expenditure by medium, station, region, day, or date range.',
+  soeExplorer: 'Filter Share of Expenditure by brand, medium, station, region, day, or date range.',
   quality: 'Missing ratings, duplicate keys, and skipped upload rows for this project.',
   settings: 'Your account, and — for owners and admins — everyone else on this deployment.',
   exports: 'Generate and download the full Excel workbook for this project.',

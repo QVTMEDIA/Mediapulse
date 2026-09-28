@@ -55,6 +55,7 @@ class SoeFilterOptions:
     SOE Explorer's filter dropdowns -- deliberately not a fixed list, since
     what's filterable is exactly what a given upload happens to contain."""
 
+    brands: List[str]
     mediums: List[str]
     stations: List[str]
     regions: List[str]
@@ -75,6 +76,7 @@ class SoeRepository(Protocol):
         self,
         *,
         upload_id: Optional[str] = None,
+        brands: Optional[List[str]] = None,
         mediums: Optional[List[str]] = None,
         stations: Optional[List[str]] = None,
         regions: Optional[List[str]] = None,
@@ -175,12 +177,15 @@ class PostgresSoeRepository:
             row = conn.execute('DELETE FROM soe_uploads WHERE id = %s RETURNING id', [upload_id]).fetchone()
         return row is not None
 
-    def query_soe(self, *, upload_id=None, mediums=None, stations=None, regions=None, states=None, days=None, date_from=None, date_to=None):
+    def query_soe(self, *, upload_id=None, brands=None, mediums=None, stations=None, regions=None, states=None, days=None, date_from=None, date_to=None):
         clauses = ['true']
         params: list = []
         if upload_id:
             clauses.append('upload_id = %s')
             params.append(upload_id)
+        if brands:
+            clauses.append('brand = ANY(%s)')
+            params.append(list(brands))
         if mediums:
             clauses.append('medium = ANY(%s)')
             params.append(list(mediums))
@@ -227,6 +232,7 @@ class PostgresSoeRepository:
             return sorted(row['v'] for row in rows)
 
         return SoeFilterOptions(
+            brands=_distinct('brand'),
             mediums=_distinct('medium'),
             stations=_distinct('station'),
             regions=_distinct('region'),
@@ -272,10 +278,12 @@ class InMemorySoeRepository:
         del self._uploads[upload_id]
         return True
 
-    def query_soe(self, *, upload_id=None, mediums=None, stations=None, regions=None, states=None, days=None, date_from=None, date_to=None):
+    def query_soe(self, *, upload_id=None, brands=None, mediums=None, stations=None, regions=None, states=None, days=None, date_from=None, date_to=None):
         totals: Dict[str, Dict[str, float]] = {}
         for activity in self._activity.values():
             if upload_id and activity.upload_id != upload_id:
+                continue
+            if brands and activity.brand not in brands:
                 continue
             if mediums and activity.medium not in mediums:
                 continue
@@ -302,6 +310,7 @@ class InMemorySoeRepository:
     def list_filter_options(self, *, upload_id=None):
         rows = [a for a in self._activity.values() if upload_id is None or a.upload_id == upload_id]
         return SoeFilterOptions(
+            brands=sorted({a.brand for a in rows if a.brand}),
             mediums=sorted({a.medium for a in rows if a.medium}),
             stations=sorted({a.station for a in rows if a.station}),
             regions=sorted({a.region for a in rows if a.region}),

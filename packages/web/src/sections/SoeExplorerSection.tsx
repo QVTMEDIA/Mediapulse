@@ -4,7 +4,7 @@ import { ApiError, deleteSoeUpload, getSoe, getSoeFilterOptions, listSoeUploads,
 import type { SoeFilterOptions, SoeReport, SoeUpload } from '../api/contracts';
 import { formatNumber } from './SpendIntelligenceSection';
 
-const EMPTY_FILTER_OPTIONS: SoeFilterOptions = { mediums: [], stations: [], regions: [], states: [], days: [] };
+const EMPTY_FILTER_OPTIONS: SoeFilterOptions = { brands: [], mediums: [], stations: [], regions: [], states: [], days: [] };
 const EMPTY_REPORT: SoeReport = { totalSpend: 0, brands: [] };
 
 // This section's own file/filter picks used to live only in React state, so
@@ -17,6 +17,7 @@ const SOE_EXPLORER_STATE_KEY = 'mediapulse.soeExplorer.state';
 
 type PersistedSoeExplorerState = {
   selectedUploadId: string;
+  brands: string[];
   mediums: string[];
   stations: string[];
   regions: string[];
@@ -35,6 +36,7 @@ function loadPersistedSoeExplorerState(): PersistedSoeExplorerState | null {
     const asStringArray = (value: unknown) => (Array.isArray(value) ? value.filter((entry) => typeof entry === 'string') : []);
     return {
       selectedUploadId: typeof parsed.selectedUploadId === 'string' ? parsed.selectedUploadId : '',
+      brands: asStringArray(parsed.brands),
       mediums: asStringArray(parsed.mediums),
       stations: asStringArray(parsed.stations),
       regions: asStringArray(parsed.regions),
@@ -136,6 +138,7 @@ export default function SoeExplorerSection() {
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [optionsError, setOptionsError] = useState<string | null>(null);
 
+  const [brands, setBrands] = useState<string[]>(initialPersisted?.brands ?? []);
   const [mediums, setMediums] = useState<string[]>(initialPersisted?.mediums ?? []);
   const [stations, setStations] = useState<string[]>(initialPersisted?.stations ?? []);
   const [regions, setRegions] = useState<string[]>(initialPersisted?.regions ?? []);
@@ -194,6 +197,7 @@ export default function SoeExplorerSection() {
     const uploadChanged = previousUploadIdRef.current !== selectedUploadId;
     previousUploadIdRef.current = selectedUploadId;
     if (uploadChanged) {
+      setBrands([]);
       setMediums([]);
       setStations([]);
       setRegions([]);
@@ -211,14 +215,14 @@ export default function SoeExplorerSection() {
   }, [selectedUploadId, loadFilterOptions]);
 
   useEffect(() => {
-    const toPersist: PersistedSoeExplorerState = { selectedUploadId, mediums, stations, regions, states, days, dateFrom, dateTo };
+    const toPersist: PersistedSoeExplorerState = { selectedUploadId, brands, mediums, stations, regions, states, days, dateFrom, dateTo };
     try {
       sessionStorage.setItem(SOE_EXPLORER_STATE_KEY, JSON.stringify(toPersist));
     } catch {
       // sessionStorage can throw under storage restrictions (private
       // browsing, quota) -- losing persistence there is a harmless degrade.
     }
-  }, [selectedUploadId, mediums, stations, regions, states, days, dateFrom, dateTo]);
+  }, [selectedUploadId, brands, mediums, stations, regions, states, days, dateFrom, dateTo]);
 
   const refreshReport = useCallback(() => {
     if (!selectedUploadId) return;
@@ -226,6 +230,7 @@ export default function SoeExplorerSection() {
     setReportError(null);
     getSoe({
       uploadId: selectedUploadId,
+      brand: brands,
       medium: mediums,
       station: stations,
       region: regions,
@@ -237,7 +242,7 @@ export default function SoeExplorerSection() {
       .then(setReport)
       .catch((error) => setReportError(error instanceof ApiError ? error.message : 'Could not load Share of Expenditure.'))
       .finally(() => setReportLoading(false));
-  }, [selectedUploadId, mediums, stations, regions, states, days, dateFrom, dateTo]);
+  }, [selectedUploadId, brands, mediums, stations, regions, states, days, dateFrom, dateTo]);
 
   useEffect(() => {
     void refreshReport();
@@ -287,10 +292,11 @@ export default function SoeExplorerSection() {
   }
 
   const hasActiveFilters =
-    mediums.length > 0 || stations.length > 0 || regions.length > 0 || states.length > 0 || days.length > 0 ||
-    !!dateFrom || !!dateTo;
+    brands.length > 0 || mediums.length > 0 || stations.length > 0 || regions.length > 0 || states.length > 0 ||
+    days.length > 0 || !!dateFrom || !!dateTo;
 
   function clearFilters() {
+    setBrands([]);
     setMediums([]);
     setStations([]);
     setRegions([]);
@@ -398,6 +404,12 @@ export default function SoeExplorerSection() {
               <SlidersHorizontal size={20} aria-hidden />
             </div>
             <div className="soe-filters">
+              <FilterGroup
+                label="Brand"
+                options={filterOptions.brands}
+                selected={brands}
+                onToggle={(value) => setBrands((current) => toggleValue(current, value))}
+              />
               <FilterGroup
                 label="Medium"
                 options={filterOptions.mediums}

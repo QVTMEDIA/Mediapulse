@@ -67,6 +67,7 @@ def test_soe_filters_returns_distinct_values_present(client):
     response = client.get('/api/soe/filters')
     assert response.status_code == 200
     body = response.json()
+    assert body['brands'] == ['Brand A', 'Brand B']
     assert body['mediums'] == ['Radio', 'TV']
     assert body['stations'] == ['Channels', 'Cool FM', 'NTA']
     assert body['regions'] == ['Abuja', 'Kano', 'Lagos']
@@ -118,6 +119,27 @@ def test_soe_combined_filters_and_together(client):
     by_brand = {row['brand']: row for row in body['brands']}
     assert set(by_brand) == {'Brand B'}
     assert by_brand['Brand B']['soe'] == pytest.approx(100.0)
+
+
+def test_soe_brand_filter_isolates_that_brand(client):
+    _upload_soe_csv(client)
+    response = client.get('/api/soe', params={'brand': 'Brand A'})
+    assert response.status_code == 200
+    body = response.json()
+    assert body['totalSpend'] == pytest.approx(350_000)
+    by_brand = {row['brand']: row for row in body['brands']}
+    assert set(by_brand) == {'Brand A'}
+    assert by_brand['Brand A']['soe'] == pytest.approx(100.0)
+
+
+def test_soe_brand_filter_accepts_multiple_values_ored_together(client):
+    _upload_soe_csv(client)
+    _upload_second_csv(client)
+    response = client.get('/api/soe', params={'brand': ['Brand A', 'Brand C']})
+    assert response.status_code == 200
+    body = response.json()
+    by_brand = {row['brand']: row for row in body['brands']}
+    assert set(by_brand) == {'Brand A', 'Brand C'}
 
 
 def test_soe_state_filter_isolates_that_state(client):
@@ -211,6 +233,7 @@ def test_soe_filters_upload_id_scopes_facets_to_that_upload_only(client):
     response = client.get('/api/soe/filters', params={'upload_id': first_upload['uploadId']})
     assert response.status_code == 200
     body = response.json()
+    assert body['brands'] == ['Brand A', 'Brand B']  # Brand C (second upload) excluded
     assert body['regions'] == ['Abuja', 'Kano', 'Lagos']  # Rivers (second upload) excluded
     assert body['states'] == ['Garki', 'Ikeja', 'Sabon Gari', 'Surulere']  # Port Harcourt excluded
     assert 'Wazobia' not in body['stations']

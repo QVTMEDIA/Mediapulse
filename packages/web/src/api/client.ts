@@ -255,6 +255,7 @@ export function getSoeFilterOptions(uploadId?: string): Promise<SoeFilterOptions
 export function getSoe(filters: Partial<SoeFilters> = {}): Promise<SoeReport> {
   const query = new URLSearchParams();
   if (filters.uploadId) query.set('upload_id', filters.uploadId);
+  for (const value of filters.brand ?? []) query.append('brand', value);
   for (const value of filters.medium ?? []) query.append('medium', value);
   for (const value of filters.station ?? []) query.append('station', value);
   for (const value of filters.region ?? []) query.append('region', value);

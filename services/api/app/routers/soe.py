@@ -69,7 +69,7 @@ def get_soe_filters(
 ):
     options = repo.list_filter_options(upload_id=upload_id)
     return SoeFilterOptionsOut(
-        mediums=options.mediums, stations=options.stations, regions=options.regions,
+        brands=options.brands, mediums=options.mediums, stations=options.stations, regions=options.regions,
         states=options.states, days=options.days,
     )
 
@@ -77,6 +77,7 @@ def get_soe_filters(
 @router.get('', response_model=SoeReportOut)
 def get_soe(
     upload_id: Optional[str] = Query(default=None),
+    brand: List[str] = Query(default_factory=list),
     medium: List[str] = Query(default_factory=list),
     station: List[str] = Query(default_factory=list),
     region: List[str] = Query(default_factory=list),
@@ -93,6 +94,7 @@ def get_soe(
     time, never pools every upload ever made."""
     rows = repo.query_soe(
         upload_id=upload_id,
+        brands=brand or None,
         mediums=medium or None,
         stations=station or None,
         regions=region or None,

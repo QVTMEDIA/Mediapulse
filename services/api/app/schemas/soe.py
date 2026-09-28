@@ -8,6 +8,7 @@ class SoeFilterOptionsOut(CamelModel):
     """Distinct values actually present in soe_activity -- what the SOE
     Explorer's filter dropdowns are populated from."""
 
+    brands: List[str]
     mediums: List[str]
     stations: List[str]
     regions: List[str]

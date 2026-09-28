@@ -188,6 +188,7 @@ export interface SoeUpload {
 // Explorer's filter dropdowns are populated from. Not a fixed enum:
 // what's filterable is exactly what an uploaded file contains.
 export interface SoeFilterOptions {
+  brands: string[];
   mediums: string[];
   stations: string[];
   regions: string[];
@@ -197,6 +198,7 @@ export interface SoeFilterOptions {
 
 export interface SoeFilters {
   uploadId: string | null;
+  brand: string[];
   medium: string[];
   station: string[];
   region: string[];

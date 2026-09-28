@@ -29,6 +29,7 @@ Role is global, not per-project — see the comment on the `users` table in `db/
 - `displayName`
 - `role` (`owner` | `admin` | `member`)
 - `createdAt`
+- `avatarUrl` — a full `data:image/(png|jpeg|webp|gif);base64,...` URI (the frontend crops it to a square client-side before sending, so this is always a small, already-processed image, not a raw upload straight off disk), or `null` when no photo is set. Stored directly on the `users` row rather than in a separate object-storage bucket — see the column's own comment in `db/schema.sql`. Only present on `GET`/`PATCH /api/auth/me` and the two avatar routes below; `GET /api/users`' team roster omits it, to keep that response small. Not in this contract's original field list.
 
 ### AuthSession
 
@@ -40,6 +41,8 @@ Returned by `POST /api/auth/register` and `POST /api/auth/login`. `accessToken` 
 
 - `displayName` — renames the account. Sent alone to change just the name.
 - `currentPassword` + `newPassword` — changes the password; both required together (`401` if `currentPassword` is missing or wrong, `422` if `newPassword` is under 8 characters). Requiring the current password even with a valid bearer token in hand is deliberate — an already-authenticated session shouldn't be enough by itself to lock the real account owner out from a hijacked or shared browser.
+
+**`PUT /api/auth/me/avatar`** / **`DELETE /api/auth/me/avatar`** — not in this contract's original route list. `PUT` takes `{avatarDataUrl}` (rejected with `422` when it isn't a `data:image/(png|jpeg|webp|gif);base64,...` URI, or when the decoded image exceeds 3MB — generous headroom for a cropped avatar, not a limit meant to ever legitimately bind); `DELETE` clears it back to `null`. Both return the updated `User`.
 
 Not in this contract's original route list.
 

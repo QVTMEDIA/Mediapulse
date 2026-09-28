@@ -1,3 +1,5 @@
+import base64
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -318,6 +320,91 @@ def test_change_password_rejects_short_new_password(client):
         headers={'Authorization': f'Bearer {token}'},
     )
     assert response.status_code == 422
+
+
+# A real, minimal 1x1 transparent PNG -- small enough to keep the test file
+# readable, but a genuinely valid image, not just placeholder bytes.
+_VALID_AVATAR_DATA_URL = (
+    'data:image/png;base64,'
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+)
+
+
+def test_user_can_set_and_clear_avatar(client):
+    token = _register(client, email='avatar@example.com').json()['accessToken']
+    headers = {'Authorization': f'Bearer {token}'}
+
+    set_response = client.put('/api/auth/me/avatar', json={'avatarDataUrl': _VALID_AVATAR_DATA_URL}, headers=headers)
+    assert set_response.status_code == 200
+    assert set_response.json()['avatarUrl'] == _VALID_AVATAR_DATA_URL
+
+    me_response = client.get('/api/auth/me', headers=headers)
+    assert me_response.json()['avatarUrl'] == _VALID_AVATAR_DATA_URL
+
+    clear_response = client.delete('/api/auth/me/avatar', headers=headers)
+    assert clear_response.status_code == 200
+    assert clear_response.json()['avatarUrl'] is None
+
+    me_after_clear = client.get('/api/auth/me', headers=headers)
+    assert me_after_clear.json()['avatarUrl'] is None
+
+
+def test_avatar_is_null_by_default(client):
+    token = _register(client, email='noavatar@example.com').json()['accessToken']
+    response = client.get('/api/auth/me', headers={'Authorization': f'Bearer {token}'})
+    assert response.json()['avatarUrl'] is None
+
+
+def test_update_avatar_requires_authentication(client):
+    put_response = client.put('/api/auth/me/avatar', json={'avatarDataUrl': _VALID_AVATAR_DATA_URL})
+    assert put_response.status_code == 401
+    delete_response = client.delete('/api/auth/me/avatar')
+    assert delete_response.status_code == 401
+
+
+def test_update_avatar_rejects_non_data_url(client):
+    token = _register(client, email='badavatar1@example.com').json()['accessToken']
+    response = client.put(
+        '/api/auth/me/avatar',
+        json={'avatarDataUrl': 'https://example.com/photo.png'},
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    assert response.status_code == 422
+
+
+def test_update_avatar_rejects_disallowed_mime_type(client):
+    token = _register(client, email='badavatar2@example.com').json()['accessToken']
+    # image/svg+xml can carry an embedded <script> -- deliberately not in
+    # the allowed list, even though it's a real base64 encoding.
+    response = client.put(
+        '/api/auth/me/avatar',
+        json={'avatarDataUrl': 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4='},
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    assert response.status_code == 422
+
+
+def test_update_avatar_rejects_oversized_image(client):
+    token = _register(client, email='badavatar3@example.com').json()['accessToken']
+    oversized = base64.b64encode(b'\x00' * (3 * 1024 * 1024 + 1)).decode()
+    response = client.put(
+        '/api/auth/me/avatar',
+        json={'avatarDataUrl': f'data:image/png;base64,{oversized}'},
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    assert response.status_code == 422
+
+
+def test_team_roster_omits_avatar_data(client):
+    owner_body = _register(client, email='owner-avatar@example.com').json()
+    owner_token = owner_body['accessToken']
+    client.put('/api/auth/me/avatar', json={'avatarDataUrl': _VALID_AVATAR_DATA_URL}, headers={'Authorization': f'Bearer {owner_token}'})
+
+    response = client.get('/api/users', headers={'Authorization': f'Bearer {owner_token}'})
+    assert response.status_code == 200
+    # The roster is meant to stay small -- it never carries the (much
+    # larger) avatar payload, unlike the single-user /auth/me response.
+    assert all(user.get('avatarUrl') is None for user in response.json())
 
 
 def test_update_role_rejects_unknown_role(client):

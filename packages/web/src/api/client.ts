@@ -123,6 +123,14 @@ export function updateProfile(
   return request<User>('/api/auth/me', { method: 'PATCH', body: JSON.stringify(input) });
 }
 
+export function updateAvatar(avatarDataUrl: string): Promise<User> {
+  return request<User>('/api/auth/me/avatar', { method: 'PUT', body: JSON.stringify({ avatarDataUrl }) });
+}
+
+export function removeAvatar(): Promise<User> {
+  return request<User>('/api/auth/me/avatar', { method: 'DELETE' });
+}
+
 export function listUsers(): Promise<User[]> {
   return request<User[]>('/api/users');
 }

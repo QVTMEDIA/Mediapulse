@@ -142,6 +142,69 @@ def test_soe_brand_filter_accepts_multiple_values_ored_together(client):
     assert set(by_brand) == {'Brand A', 'Brand C'}
 
 
+def test_soe_brand_detail_breaks_down_that_brands_spend_by_station(client):
+    _upload_soe_csv(client)
+    response = client.get('/api/soe/brand-detail', params={'brand': 'Brand A'})
+    assert response.status_code == 200
+    body = response.json()
+    assert body['brand'] == 'Brand A'
+    assert body['totalSpend'] == pytest.approx(350_000)
+    assert body['totalSpots'] == 5
+    by_station = {row['station']: row for row in body['stations']}
+    assert set(by_station) == {'NTA', 'Cool FM'}
+    assert by_station['NTA']['medium'] == 'TV'
+    assert by_station['NTA']['spend'] == pytest.approx(200_000)
+    assert by_station['NTA']['spots'] == 2
+    assert by_station['NTA']['share'] == pytest.approx(57.1429, rel=1e-3)
+    assert by_station['Cool FM']['medium'] == 'Radio'
+    assert by_station['Cool FM']['spend'] == pytest.approx(150_000)
+    assert by_station['Cool FM']['share'] == pytest.approx(42.8571, rel=1e-3)
+
+
+def test_soe_brand_detail_never_mixes_in_another_brands_spend(client):
+    _upload_soe_csv(client)
+    # Brand B also has a row on NTA -- proves the breakdown is scoped to just
+    # the requested brand, not every brand that happens to share a station.
+    response = client.get('/api/soe/brand-detail', params={'brand': 'Brand B'})
+    assert response.status_code == 200
+    body = response.json()
+    assert body['totalSpend'] == pytest.approx(250_000)
+    by_station = {row['station']: row for row in body['stations']}
+    assert set(by_station) == {'NTA', 'Channels'}
+    assert by_station['NTA']['spend'] == pytest.approx(90_000)  # not Brand A's 200k on the same station
+
+
+def test_soe_brand_detail_respects_other_active_filters(client):
+    _upload_soe_csv(client)
+    # Brand A's only Radio row is Cool FM -- filtering to TV should drop it,
+    # leaving just the NTA row.
+    response = client.get('/api/soe/brand-detail', params={'brand': 'Brand A', 'medium': 'TV'})
+    assert response.status_code == 200
+    body = response.json()
+    assert body['totalSpend'] == pytest.approx(200_000)
+    assert [row['station'] for row in body['stations']] == ['NTA']
+
+
+def test_soe_brand_detail_requires_brand_param(client):
+    response = client.get('/api/soe/brand-detail')
+    assert response.status_code == 422
+
+
+def test_soe_brand_detail_requires_authentication():
+    with TestClient(app) as anon_client:
+        response = anon_client.get('/api/soe/brand-detail', params={'brand': 'Brand A'})
+        assert response.status_code == 401
+
+
+def test_soe_brand_detail_empty_for_unknown_brand(client):
+    _upload_soe_csv(client)
+    response = client.get('/api/soe/brand-detail', params={'brand': 'Not A Real Brand'})
+    assert response.status_code == 200
+    body = response.json()
+    assert body['totalSpend'] == 0
+    assert body['stations'] == []
+
+
 def test_soe_state_filter_isolates_that_state(client):
     _upload_soe_csv(client)
     response = client.get('/api/soe', params={'state': 'Ikeja'})

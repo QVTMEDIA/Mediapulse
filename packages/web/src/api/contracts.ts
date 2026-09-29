@@ -225,6 +225,25 @@ export interface SoeReport {
   brands: SoeBrand[];
 }
 
+// One row of a brand's "media buy details" drill-down — what clicking a
+// SoeBrand row opens.
+export interface SoeStationRow {
+  station: string;
+  medium: string;
+  spend: number;
+  spots: number;
+  // Percent of this brand's own (filtered) total spend at this station —
+  // distinct from SoeBrand.soe, which is share of every brand's spend.
+  share: number;
+}
+
+export interface SoeBrandDetail {
+  brand: string;
+  totalSpend: number;
+  totalSpots: number;
+  stations: SoeStationRow[];
+}
+
 export interface StationShare {
   runId: string;
   brandId: string;

@@ -16,6 +16,7 @@ import type {
   RatingMatch,
   RatingRow,
   RatingsDataset,
+  SoeBrandDetail,
   SoeFilterOptions,
   SoeFilters,
   SoeReport,
@@ -265,6 +266,24 @@ export function getSoe(filters: Partial<SoeFilters> = {}): Promise<SoeReport> {
   if (filters.dateTo) query.set('date_to', filters.dateTo);
   const suffix = query.toString() ? `?${query.toString()}` : '';
   return request<SoeReport>(`/api/soe${suffix}`);
+}
+
+// The "media buy details" behind one brand row on the Share of Expenditure
+// list -- takes the same filters as getSoe (minus `brand`, which is a single
+// required value here rather than a repeatable filter) so a click respects
+// whatever else was already active.
+export function getSoeBrandDetail(brand: string, filters: Omit<Partial<SoeFilters>, 'brand'> = {}): Promise<SoeBrandDetail> {
+  const query = new URLSearchParams();
+  query.set('brand', brand);
+  if (filters.uploadId) query.set('upload_id', filters.uploadId);
+  for (const value of filters.medium ?? []) query.append('medium', value);
+  for (const value of filters.station ?? []) query.append('station', value);
+  for (const value of filters.region ?? []) query.append('region', value);
+  for (const value of filters.state ?? []) query.append('state', value);
+  for (const value of filters.day ?? []) query.append('day', value);
+  if (filters.dateFrom) query.set('date_from', filters.dateFrom);
+  if (filters.dateTo) query.set('date_to', filters.dateTo);
+  return request<SoeBrandDetail>(`/api/soe/brand-detail?${query.toString()}`);
 }
 
 export function startCalculationJob(projectId: string): Promise<CalculationJob> {

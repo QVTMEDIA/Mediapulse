@@ -33,6 +33,26 @@ class SoeReportOut(CamelModel):
     brands: List[SoeBrandOut]
 
 
+class SoeStationRowOut(CamelModel):
+    """One row of a brand's "media buy details" drill-down -- what a click
+    on a SoeBrandOut row opens."""
+
+    station: str
+    medium: str
+    spend: float
+    spots: int
+    # Percent of this brand's own (filtered) total spend at this station --
+    # distinct from SoeBrandOut.soe, which is share of every brand's spend.
+    share: float
+
+
+class SoeBrandDetailOut(CamelModel):
+    brand: str
+    total_spend: float
+    total_spots: int
+    stations: List[SoeStationRowOut]
+
+
 class SoeUploadOut(CamelModel):
     upload_id: str
     file_name: str

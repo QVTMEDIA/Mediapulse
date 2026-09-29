@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { SlidersHorizontal, Upload } from 'lucide-react';
-import { ApiError, deleteSoeUpload, getSoe, getSoeFilterOptions, listSoeUploads, uploadSoeFile } from '../api/client';
-import type { SoeFilterOptions, SoeReport, SoeUpload } from '../api/contracts';
+import { SlidersHorizontal, Upload, X } from 'lucide-react';
+import { ApiError, deleteSoeUpload, getSoe, getSoeBrandDetail, getSoeFilterOptions, listSoeUploads, uploadSoeFile } from '../api/client';
+import type { SoeBrandDetail, SoeFilterOptions, SoeFilters, SoeReport, SoeUpload } from '../api/contracts';
 import { formatNumber } from './SpendIntelligenceSection';
 
 const EMPTY_FILTER_OPTIONS: SoeFilterOptions = { brands: [], mediums: [], stations: [], regions: [], states: [], days: [] };
@@ -119,6 +119,107 @@ function FilterGroup({
   );
 }
 
+// The "media buy details" behind one brand row on the Share of Expenditure
+// list -- opened by clicking it. Filters is whatever's currently active on
+// the page (minus brand itself, which this always scopes to one value), so
+// the breakdown honors the same cut of the data the aggregate row did.
+function SoeBrandDetailModal({
+  brand,
+  filters,
+  onClose,
+}: {
+  brand: string;
+  filters: Omit<Partial<SoeFilters>, 'brand'>;
+  onClose: () => void;
+}) {
+  const [detail, setDetail] = useState<SoeBrandDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getSoeBrandDetail(brand, filters)
+      .then((result) => {
+        if (!cancelled) setDetail(result);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : "Could not load this brand's media buy details.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // filters is a fresh object identity from the parent every render --
+    // depend on its actual values instead, so this only refetches when a
+    // filter that matters here actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    brand,
+    filters.uploadId,
+    filters.medium?.join(','),
+    filters.station?.join(','),
+    filters.region?.join(','),
+    filters.state?.join(','),
+    filters.day?.join(','),
+    filters.dateFrom,
+    filters.dateTo,
+  ]);
+
+  const maxSpend = Math.max(1, ...(detail?.stations.map((row) => row.spend) ?? []));
+
+  return (
+    <div className="modal-overlay" role="dialog" aria-modal="true" aria-label={`${brand}'s media buy details`}>
+      <div className="modal-card soe-brand-detail-card">
+        <div className="modal-header">
+          <div>
+            <h2>{brand}</h2>
+            <p>Media buy details — spend broken down by station.</p>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
+            <X size={18} aria-hidden />
+          </button>
+        </div>
+        {loading && <p className="empty-state">Loading…</p>}
+        {error && <p className="inline-error">{error}</p>}
+        {!loading && !error && detail && (
+          <>
+            <p className="soe-brand-detail-total">
+              {formatNumber(detail.totalSpend)} spend · {detail.totalSpots} spot{detail.totalSpots === 1 ? '' : 's'} across{' '}
+              {detail.stations.length} station{detail.stations.length === 1 ? '' : 's'}
+            </p>
+            {detail.stations.length === 0 ? (
+              <p className="empty-state">No spend matches these filters.</p>
+            ) : (
+              <div className="brand-list soe-brand-detail-stations">
+                {detail.stations.map((row) => (
+                  <div className="brand-row" key={`${row.station}-${row.medium}`}>
+                    <div className="brand-line">
+                      <span>
+                        {row.station} <small className="soe-brand-detail-medium">({row.medium})</small>
+                      </span>
+                      <strong className="soe-value">{row.share.toFixed(1)}%</strong>
+                    </div>
+                    <div className="bar-track" aria-label={`${row.station} spend contribution`}>
+                      <div className="bar-fill" style={{ width: `${Math.max((row.spend / maxSpend) * 100, 3)}%` }} />
+                    </div>
+                    <small>
+                      {formatNumber(row.spend)} spend · {row.spots} spot{row.spots === 1 ? '' : 's'}
+                    </small>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // SOE Explorer's data is entirely its own -- never attached to any
 // project, brand, or the Matching Engine. There's nothing to pick before
 // uploading or browsing: the upload form and the file list are both
@@ -160,6 +261,8 @@ export default function SoeExplorerSection() {
 
   const [deletingUploadId, setDeletingUploadId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const [brandDetailFor, setBrandDetailFor] = useState<string | null>(null);
 
   const loadUploads = useCallback(() => {
     setUploadsLoading(true);
@@ -490,7 +593,12 @@ export default function SoeExplorerSection() {
             {report.brands.length > 0 && (
               <div className="brand-list">
                 {report.brands.map((brand) => (
-                  <div className="brand-row" key={brand.brand}>
+                  <button
+                    type="button"
+                    className="brand-row brand-row-clickable"
+                    key={brand.brand}
+                    onClick={() => setBrandDetailFor(brand.brand)}
+                  >
                     <div className="brand-line">
                       <span>{brand.brand}</span>
                       <strong className="soe-value">{brand.soe.toFixed(1)}% SOE</strong>
@@ -501,12 +609,20 @@ export default function SoeExplorerSection() {
                     <small>
                       {formatNumber(brand.spend)} spend · {brand.spots} spot{brand.spots === 1 ? '' : 's'}
                     </small>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
           </div>
         </>
+      )}
+
+      {brandDetailFor && (
+        <SoeBrandDetailModal
+          brand={brandDetailFor}
+          filters={{ uploadId: selectedUploadId, medium: mediums, station: stations, region: regions, state: states, day: days, dateFrom: dateFrom || null, dateTo: dateTo || null }}
+          onClose={() => setBrandDetailFor(null)}
+        />
       )}
     </>
   );

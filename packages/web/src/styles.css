@@ -592,6 +592,23 @@ button:disabled {
   gap: 8px;
 }
 
+.brand-row-clickable {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.brand-row-clickable:hover {
+  border-color: var(--green);
+}
+
+.brand-row-clickable:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
 .brand-line span,
 .brand-line strong {
   font-size: 14px;
@@ -1447,6 +1464,40 @@ h3.subsection {
 
 .modal-header h2 {
   margin: 0;
+}
+
+.soe-brand-detail-card {
+  max-width: 560px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.soe-brand-detail-total {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.soe-brand-detail-medium {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.soe-brand-detail-stations {
+  overflow-y: auto;
+  /* Same reasoning as .soe-filter-options: a visible scrollbar here has
+     twice now turned out to render as the platform's own wide, arrow-
+     button control on some browser/OS combinations rather than anything
+     CSS can restyle reliably -- hide it outright instead of risking a
+     third round of that bug. The list still scrolls fine with a wheel,
+     trackpad, touch, or arrow keys. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.soe-brand-detail-stations::-webkit-scrollbar {
+  display: none;
 }
 
 .modal-actions {

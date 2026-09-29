@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from ..auth import get_current_user, require_role
 from ..parsing import parse_composite_report
 from ..repositories.soe import SoeRepository, SoeUploadRecord, get_soe_repository
-from ..schemas.soe import SoeBrandOut, SoeFilterOptionsOut, SoeReportOut, SoeUploadOut
+from ..schemas.soe import SoeBrandDetailOut, SoeBrandOut, SoeFilterOptionsOut, SoeReportOut, SoeStationRowOut, SoeUploadOut
 
 router = APIRouter(prefix='/api/soe', tags=['soe'], dependencies=[Depends(get_current_user)])
 
@@ -118,3 +118,51 @@ def get_soe(
         reverse=True,
     )
     return SoeReportOut(total_spend=total_spend, brands=brands)
+
+
+@router.get('/brand-detail', response_model=SoeBrandDetailOut)
+def get_soe_brand_detail(
+    brand: str = Query(...),
+    upload_id: Optional[str] = Query(default=None),
+    medium: List[str] = Query(default_factory=list),
+    station: List[str] = Query(default_factory=list),
+    region: List[str] = Query(default_factory=list),
+    state: List[str] = Query(default_factory=list),
+    day: List[str] = Query(default_factory=list),
+    date_from: Optional[date] = Query(default=None),
+    date_to: Optional[date] = Query(default=None),
+    repo: SoeRepository = Depends(get_soe_repository),
+):
+    """The "media buy details" behind one brand row on the Share of
+    Expenditure list -- what stations/mediums this one brand's spend
+    actually breaks down into, under whatever other filters were already
+    active. Same query params as GET /api/soe minus `brand`, which here is
+    a single required value rather than a repeatable filter."""
+    rows = repo.query_soe_by_station(
+        brand=brand,
+        upload_id=upload_id,
+        mediums=medium or None,
+        stations=station or None,
+        regions=region or None,
+        states=state or None,
+        days=day or None,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    total_spend = sum(row.spend for row in rows)
+    total_spots = sum(row.spots for row in rows)
+    stations = sorted(
+        (
+            SoeStationRowOut(
+                station=row.station,
+                medium=row.medium,
+                spend=row.spend,
+                spots=row.spots,
+                share=(row.spend / total_spend * 100) if total_spend > 0 else 0.0,
+            )
+            for row in rows
+        ),
+        key=lambda s: s.spend,
+        reverse=True,
+    )
+    return SoeBrandDetailOut(brand=brand, total_spend=total_spend, total_spots=total_spots, stations=stations)

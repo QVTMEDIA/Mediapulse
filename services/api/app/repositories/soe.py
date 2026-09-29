@@ -50,6 +50,19 @@ class SoeBrandRow:
 
 
 @dataclass
+class SoeStationRow:
+    """One brand's spend/spots at one station+medium -- the "what media is
+    this brand buying" breakdown behind a brand row's detail view. Always
+    scoped to exactly one brand (see query_soe_by_station), unlike
+    SoeBrandRow which pools every brand."""
+
+    station: str
+    medium: str
+    spend: float
+    spots: int
+
+
+@dataclass
 class SoeFilterOptions:
     """Distinct values actually present in soe_activity, for populating the
     SOE Explorer's filter dropdowns -- deliberately not a fixed list, since
@@ -91,6 +104,26 @@ class SoeRepository(Protocol):
         SOE Explorer analyzes one uploaded file at a time rather than
         pooling every upload ever made, so an older file doesn't silently
         blend into this week's numbers."""
+        ...
+
+    def query_soe_by_station(
+        self,
+        *,
+        brand: str,
+        upload_id: Optional[str] = None,
+        mediums: Optional[List[str]] = None,
+        stations: Optional[List[str]] = None,
+        regions: Optional[List[str]] = None,
+        states: Optional[List[str]] = None,
+        days: Optional[List[str]] = None,
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None,
+    ) -> List[SoeStationRow]:
+        """The "media buy details" behind one brand row: spend/spots for
+        `brand` alone, broken down by station+medium rather than pooled
+        into one total. Same filter semantics as query_soe otherwise --
+        `brand` is a single required value, not a repeatable list, since
+        this is always entered by clicking one specific brand's row."""
         ...
 
     def list_filter_options(self, *, upload_id: Optional[str] = None) -> SoeFilterOptions: ...
@@ -177,15 +210,17 @@ class PostgresSoeRepository:
             row = conn.execute('DELETE FROM soe_uploads WHERE id = %s RETURNING id', [upload_id]).fetchone()
         return row is not None
 
-    def query_soe(self, *, upload_id=None, brands=None, mediums=None, stations=None, regions=None, states=None, days=None, date_from=None, date_to=None):
+    @staticmethod
+    def _where_clauses(*, upload_id=None, mediums=None, stations=None, regions=None, states=None, days=None, date_from=None, date_to=None):
+        """Shared filter-building for query_soe/query_soe_by_station -- every
+        dimension both share (everything except brand, which each applies
+        its own way: an optional multi-value filter on one, a required
+        single value on the other)."""
         clauses = ['true']
         params: list = []
         if upload_id:
             clauses.append('upload_id = %s')
             params.append(upload_id)
-        if brands:
-            clauses.append('brand = ANY(%s)')
-            params.append(list(brands))
         if mediums:
             clauses.append('medium = ANY(%s)')
             params.append(list(mediums))
@@ -207,6 +242,16 @@ class PostgresSoeRepository:
         if date_to:
             clauses.append('activity_date <= %s')
             params.append(date_to)
+        return clauses, params
+
+    def query_soe(self, *, upload_id=None, brands=None, mediums=None, stations=None, regions=None, states=None, days=None, date_from=None, date_to=None):
+        clauses, params = self._where_clauses(
+            upload_id=upload_id, mediums=mediums, stations=stations, regions=regions, states=states, days=days,
+            date_from=date_from, date_to=date_to,
+        )
+        if brands:
+            clauses.append('brand = ANY(%s)')
+            params.append(list(brands))
         where = ' AND '.join(clauses)
         with get_connection() as conn:
             rows = conn.execute(
@@ -219,6 +264,29 @@ class PostgresSoeRepository:
                 params,
             ).fetchall()
         return [SoeBrandRow(brand=row['brand'], spend=float(row['spend']), spots=int(row['spots'])) for row in rows]
+
+    def query_soe_by_station(self, *, brand, upload_id=None, mediums=None, stations=None, regions=None, states=None, days=None, date_from=None, date_to=None):
+        clauses, params = self._where_clauses(
+            upload_id=upload_id, mediums=mediums, stations=stations, regions=regions, states=states, days=days,
+            date_from=date_from, date_to=date_to,
+        )
+        clauses.append('brand = %s')
+        params.append(brand)
+        where = ' AND '.join(clauses)
+        with get_connection() as conn:
+            rows = conn.execute(
+                f'''
+                SELECT station, medium, COALESCE(SUM(cost), 0) AS spend, COALESCE(SUM(spots), 0) AS spots
+                FROM soe_activity
+                WHERE {where}
+                GROUP BY station, medium
+                ''',
+                params,
+            ).fetchall()
+        return [
+            SoeStationRow(station=row['station'], medium=row['medium'], spend=float(row['spend']), spots=int(row['spots']))
+            for row in rows
+        ]
 
     def list_filter_options(self, *, upload_id=None):
         def _distinct(column: str) -> List[str]:
@@ -278,26 +346,35 @@ class InMemorySoeRepository:
         del self._uploads[upload_id]
         return True
 
+    @staticmethod
+    def _matches_common_filters(activity, *, upload_id, mediums, stations, regions, states, days, date_from, date_to):
+        if upload_id and activity.upload_id != upload_id:
+            return False
+        if mediums and activity.medium not in mediums:
+            return False
+        if stations and activity.station not in stations:
+            return False
+        if regions and activity.region not in regions:
+            return False
+        if states and activity.state not in states:
+            return False
+        if days and activity.day not in days:
+            return False
+        if date_from and (activity.activity_date is None or activity.activity_date < date_from):
+            return False
+        if date_to and (activity.activity_date is None or activity.activity_date > date_to):
+            return False
+        return True
+
     def query_soe(self, *, upload_id=None, brands=None, mediums=None, stations=None, regions=None, states=None, days=None, date_from=None, date_to=None):
         totals: Dict[str, Dict[str, float]] = {}
         for activity in self._activity.values():
-            if upload_id and activity.upload_id != upload_id:
+            if not self._matches_common_filters(
+                activity, upload_id=upload_id, mediums=mediums, stations=stations, regions=regions,
+                states=states, days=days, date_from=date_from, date_to=date_to,
+            ):
                 continue
             if brands and activity.brand not in brands:
-                continue
-            if mediums and activity.medium not in mediums:
-                continue
-            if stations and activity.station not in stations:
-                continue
-            if regions and activity.region not in regions:
-                continue
-            if states and activity.state not in states:
-                continue
-            if days and activity.day not in days:
-                continue
-            if date_from and (activity.activity_date is None or activity.activity_date < date_from):
-                continue
-            if date_to and (activity.activity_date is None or activity.activity_date > date_to):
                 continue
             bucket = totals.setdefault(activity.brand, {'spend': 0.0, 'spots': 0})
             bucket['spend'] += activity.cost or 0.0
@@ -305,6 +382,24 @@ class InMemorySoeRepository:
         return [
             SoeBrandRow(brand=brand, spend=bucket['spend'], spots=int(bucket['spots']))
             for brand, bucket in totals.items()
+        ]
+
+    def query_soe_by_station(self, *, brand, upload_id=None, mediums=None, stations=None, regions=None, states=None, days=None, date_from=None, date_to=None):
+        totals: Dict[tuple, Dict[str, float]] = {}
+        for activity in self._activity.values():
+            if activity.brand != brand:
+                continue
+            if not self._matches_common_filters(
+                activity, upload_id=upload_id, mediums=mediums, stations=stations, regions=regions,
+                states=states, days=days, date_from=date_from, date_to=date_to,
+            ):
+                continue
+            bucket = totals.setdefault((activity.station, activity.medium), {'spend': 0.0, 'spots': 0})
+            bucket['spend'] += activity.cost or 0.0
+            bucket['spots'] += activity.spots
+        return [
+            SoeStationRow(station=key[0], medium=key[1], spend=bucket['spend'], spots=int(bucket['spots']))
+            for key, bucket in totals.items()
         ]
 
     def list_filter_options(self, *, upload_id=None):

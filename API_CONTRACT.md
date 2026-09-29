@@ -287,6 +287,12 @@ Both `GET /api/soe/filters` and `GET /api/soe` accept an optional `upload_id` qu
 - `totalSpend` — sum of `cost` across every row matching every given filter (an omitted filter matches everything on that dimension)
 - `brands` — array of `SoeBrand`: `brand`, `spend`, `spots`, `soe` (`spend / totalSpend * 100` **within this filtered set** — `0` when `totalSpend` is `0`), sorted by `spend` descending
 
+**`GET /api/soe/brand-detail`** — not in this contract's original route list. The "media buy details" behind clicking one `SoeBrand` row: a required `brand` query param (a single value, not repeatable — unlike `GET /api/soe`'s `brand`) plus the same optional `medium`/`station`/`region`/`state`/`day`/`date_from`/`date_to` filters, scoped to exactly that one brand. Returns `SoeBrandDetail`:
+
+- `brand`
+- `totalSpend` / `totalSpots` — this brand's own totals under the given filters (matches the `spend`/`spots` on its `SoeBrand` row when the same filters are applied to `GET /api/soe`)
+- `stations` — array of `SoeStationRow`, sorted by `spend` descending: `station`, `medium`, `spend`, `spots`, `share` (`spend / totalSpend * 100` **within this one brand's filtered spend**, not the whole category — distinct from `SoeBrand.soe`)
+
 ### StationShare
 
 Per-brand-per-station GRP rollup for a run, backing the Reports screen's Station Contribution panel (ranked across stations by summing across brands client-side).

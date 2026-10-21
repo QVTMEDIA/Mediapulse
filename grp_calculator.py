@@ -62,8 +62,13 @@ SYNONYMS = {
     'region': ['region', 'market', 'zone', 'territory'],
     # Same reasoning as 'region' above, but for the finer-grained state/
     # province/city-state level a file may label separately from its own
-    # broader region. Never feeds match_key.
-    'state': ['state', 'state name'],
+    # broader region. Never feeds match_key. Includes 'location' -- a real
+    # ratings file (Nigerian TV monitoring data) uses that exact header for
+    # a column of actual state names (e.g. "Abia"), not a broader zone, so
+    # it belongs here rather than in 'region' above. A file with a genuinely
+    # coarse "Location" column (unseen so far) would be a case for revisiting
+    # this, not a reason to leave the common, specific usage unmapped.
+    'state': ['state', 'state name', 'location'],
     'spots': ['spots', 'spot', 'no. of spots', 'no spots', 'number of spots', 'spot count', 'insertions', 'frequency', 'qty', 'quantity', 'runs', 'count'],
     'rating': ['rating (%)', 'rating', 'ratings', 'program rating', 'programme rating', 'rating %', 'rch %', 'rch%', 'reach %', 'reach%', 'tvr', 'tvrs', 'grp', 'grps'],
     'grp': ['grp', 'grps', 'gross rating points', 'gross rating point', 'row grp', 'total grp', 'total grps'],

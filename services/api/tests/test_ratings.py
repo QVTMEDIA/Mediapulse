@@ -288,6 +288,22 @@ def test_upload_ratings_file_without_region_or_state_columns_leaves_them_blank(c
     assert all(row['region'] == '' and row['state'] == '' for row in rows)
 
 
+def test_upload_ratings_file_with_a_location_header_maps_it_to_state(client):
+    # Regression for a real file: a Nigerian TV monitoring export labels its
+    # geography column "Location" (holding actual state names like "Abia"),
+    # not "State" or "Region" -- previously unmapped and silently dropped.
+    content = (
+        b'Medium,Channel,Day,Programme,Rating,Location\n'
+        b'TV,BCA TV Umuahia,Monday,Morning Show,0.5,Abia\n'
+    )
+    response = _upload_ratings(client, content=content, filename='location_header.csv')
+    assert response.status_code == 201
+
+    rows = client.get(f"/api/ratings-datasets/{response.json()['ratingsDatasetId']}/rows").json()
+    assert rows[0]['state'] == 'Abia'
+    assert rows[0]['region'] == ''
+
+
 def test_create_dataset_json_rows_round_trip_region_and_state(client):
     response = client.post(
         '/api/ratings-datasets',

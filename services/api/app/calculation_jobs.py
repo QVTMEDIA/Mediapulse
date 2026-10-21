@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Optional
 
-from .calculations import compute_run
+from .calculations import compute_run, resolve_rating_by_id
 from .repositories.calculations import GrpRunRecord
 
 
@@ -47,7 +47,7 @@ def _run_calculation(job_id, project_id, uploads_repo, ratings_repo, matches_rep
         match_records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows)
 
         match_by_activity_id = {match.media_activity_id: match for match in match_records}
-        rating_by_id = {rating.id: rating for rating in rating_rows}
+        rating_by_id = resolve_rating_by_id(rating_rows, match_records, ratings_repo)
 
         result = compute_run(media_activity, match_by_activity_id, rating_by_id)
         run_record = calculations_repo.create_run(project_id, result)

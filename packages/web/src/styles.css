@@ -58,6 +58,18 @@ button:disabled {
   color: #f7fbfa;
   background: #103633;
   border-right: 1px solid #0b2a27;
+  /* .app-shell only ever sets min-height: 100vh (it grows with content,
+     not capped to it), so without this the whole document -- sidebar
+     included -- scrolls as one unit whenever .workspace's content is
+     taller than the viewport. Pinning the sidebar to the viewport and
+     letting it scroll independently (were its own content ever taller
+     than the screen) keeps it in place while .workspace scrolls under
+     it, matching the fixed-nav expectation a grid layout like this one
+     doesn't give you for free. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .brand-mark {

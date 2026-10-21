@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 
 from ..auth import get_current_user
@@ -141,7 +142,16 @@ async def upload_ratings_dataset(
     data = await file.read()
     file_name = file.filename or 'uploaded_file'
     try:
-        parsed = parse_ratings_file(data, file_name, default_medium, mapping_override)
+        # run_in_threadpool: parsing a large file (pandas) and the dataset
+        # insert (a blocking DB round trip per row, formerly) are both
+        # synchronous work that would otherwise run directly on this async
+        # route's single event-loop thread -- freezing every other request
+        # this backend serves, including Render's own health check, for as
+        # long as the file takes. Found live: a 17k-row upload hung the
+        # whole API long enough that Render force-restarted the container
+        # mid-request. See db.py's insert_rows_batched for the other half
+        # of this fix (batching the insert itself) and CHANGELOG.md.
+        parsed = await run_in_threadpool(parse_ratings_file, data, file_name, default_medium, mapping_override)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -159,8 +169,9 @@ async def upload_ratings_dataset(
     elif source_label:
         templates_repo.touch_used(source_label)
 
+    dataset_record = await run_in_threadpool(repo.create_dataset, payload, extra_invalid_rows=parsed.dropped_invalid_rows)
     return _dataset_to_out(
-        repo.create_dataset(payload, extra_invalid_rows=parsed.dropped_invalid_rows),
+        dataset_record,
         issues=parsed.issues,
         mapping_warnings=parsed.mapping_warnings,
     )

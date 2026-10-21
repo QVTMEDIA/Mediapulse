@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 from typing import Dict, List, Optional, Protocol, Tuple
 
 from ..config import get_settings
-from ..db import get_connection
+from ..db import get_connection, insert_rows_batched
 from ..parsing import ParsedMediaRow
 
 
@@ -136,24 +136,23 @@ class PostgresUploadsRepository:
             ).fetchone()
             activity_records = []
             if inserts:
-                with conn.cursor() as cur:
-                    cur.executemany(
-                        '''
-                        INSERT INTO media_activity (
-                            project_id, brand_id, upload_id, medium, station, activity_date, day,
-                            programme, spots, cost, time_band, region, source_file, source_row_number
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ''',
-                        [
-                            (
-                                project_id, insert.brand_id, upload_row['id'], insert.row.medium, insert.row.station,
-                                insert.row.activity_date, insert.row.day, insert.row.programme, insert.row.spots,
-                                insert.row.cost, insert.row.time_band, insert.row.region, insert.row.source_file,
-                                insert.row.source_row_number,
-                            )
-                            for insert in inserts
-                        ],
-                    )
+                insert_rows_batched(
+                    conn,
+                    'media_activity',
+                    [
+                        'project_id', 'brand_id', 'upload_id', 'medium', 'station', 'activity_date', 'day',
+                        'programme', 'spots', 'cost', 'time_band', 'region', 'source_file', 'source_row_number',
+                    ],
+                    [
+                        (
+                            project_id, insert.brand_id, upload_row['id'], insert.row.medium, insert.row.station,
+                            insert.row.activity_date, insert.row.day, insert.row.programme, insert.row.spots,
+                            insert.row.cost, insert.row.time_band, insert.row.region, insert.row.source_file,
+                            insert.row.source_row_number,
+                        )
+                        for insert in inserts
+                    ],
+                )
                 activity_rows = conn.execute(
                     'SELECT * FROM media_activity WHERE upload_id = %s ORDER BY id', [upload_row['id']]
                 ).fetchall()

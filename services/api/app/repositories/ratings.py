@@ -7,7 +7,7 @@ from datetime import datetime, time, timezone
 from typing import Dict, List, Optional, Protocol
 
 from ..config import get_settings
-from ..db import get_connection
+from ..db import get_connection, insert_rows_batched
 from ..matching import make_match_key
 from ..schemas.ratings import RatingRowIn, RatingsDatasetCreate
 
@@ -194,23 +194,22 @@ class PostgresRatingsRepository:
                 ],
             ).fetchone()
             if data.rows:
-                with conn.cursor() as cur:
-                    cur.executemany(
-                        '''
-                        INSERT INTO ratings (
-                            ratings_dataset_id, medium, station, day, programme, time_band,
-                            rating, start_time, end_time, week, month, region, state
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ''',
-                        [
-                            (
-                                dataset_row['id'], row.medium, row.station, row.day, row.programme,
-                                row.time_band, row.rating, row.start_time, row.end_time, row.week, row.month,
-                                row.region, row.state,
-                            )
-                            for row in data.rows
-                        ],
-                    )
+                insert_rows_batched(
+                    conn,
+                    'ratings',
+                    [
+                        'ratings_dataset_id', 'medium', 'station', 'day', 'programme', 'time_band',
+                        'rating', 'start_time', 'end_time', 'week', 'month', 'region', 'state',
+                    ],
+                    [
+                        (
+                            dataset_row['id'], row.medium, row.station, row.day, row.programme,
+                            row.time_band, row.rating, row.start_time, row.end_time, row.week, row.month,
+                            row.region, row.state,
+                        )
+                        for row in data.rows
+                    ],
+                )
         return _dataset_row_to_record(dataset_row)
 
     def list_rows(self, ratings_dataset_id):

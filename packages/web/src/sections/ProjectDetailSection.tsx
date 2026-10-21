@@ -110,7 +110,10 @@ export default function ProjectDetailSection({
               {project.client || 'No client'} | {project.category || 'Uncategorized'} | {project.market || 'No market set'}
             </p>
           </div>
-          <span className={statusClass[project.status]}>{project.status}</span>
+          <div className="project-main-badges">
+            {project.archived && <span className="status status-archived">Archived</span>}
+            <span className={statusClass[project.status]}>{project.status}</span>
+          </div>
         </div>
         <dl className="project-meta">
           <div>

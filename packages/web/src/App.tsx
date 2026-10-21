@@ -3,6 +3,7 @@ import {
   Activity as ActivityIcon,
   AlertTriangle,
   Archive,
+  ArchiveRestore,
   ArrowLeft,
   BarChart3,
   Database,
@@ -33,6 +34,7 @@ import {
   onAuthTokenRejected,
   setAuthToken,
   startCalculationJob,
+  unarchiveProject,
   uploadMediaReport,
 } from './api/client';
 import type { AuthSession, Brand, MappingWarning, Project, UploadKind, User } from './api/contracts';
@@ -152,7 +154,10 @@ function ProjectRow({
             {project.client || 'No client'} | {project.category || 'Uncategorized'} | {project.market || 'No market set'}
           </p>
         </div>
-        <span className={statusClass[project.status]}>{project.status}</span>
+        <div className="project-main-badges">
+          {project.archived && <span className="status status-archived">Archived</span>}
+          <span className={statusClass[project.status]}>{project.status}</span>
+        </div>
       </div>
       <dl className="project-meta">
         <div>
@@ -200,6 +205,7 @@ function Workspace({
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
@@ -237,7 +243,7 @@ function Workspace({
     setProjectsLoading(true);
     setProjectsError(null);
     try {
-      const results = await listProjects({ search });
+      const results = await listProjects({ search, includeArchived: showArchived });
       setProjects(results);
       setActiveProjectId((current) =>
         current && results.some((project) => project.projectId === current) ? current : results[0]?.projectId ?? null,
@@ -247,7 +253,7 @@ function Workspace({
     } finally {
       setProjectsLoading(false);
     }
-  }, []);
+  }, [showArchived]);
 
   // Debounced so every keystroke in the search box doesn't fire a request.
   useEffect(() => {
@@ -313,11 +319,23 @@ function Workspace({
   async function handleArchiveActiveProject() {
     if (!activeProject) return;
     setActionError(null);
+    const archiving = !activeProject.archived;
     try {
-      await archiveProject(activeProject.projectId);
+      if (archiving) {
+        await archiveProject(activeProject.projectId);
+        // Archived projects drop out of the default (showArchived === false)
+        // list, so leave projectDetail now -- otherwise activeProject goes
+        // null after the refresh below while activeSection is still
+        // 'projectDetail', falling through to the ComingSoonPanel branch.
+        if (!showArchived) setActiveSection('projects');
+      } else {
+        await unarchiveProject(activeProject.projectId);
+      }
       await refreshProjects(searchInput.trim());
     } catch (error) {
-      setActionError(error instanceof ApiError ? error.message : 'Could not archive the project.');
+      setActionError(
+        error instanceof ApiError ? error.message : `Could not ${archiving ? 'archive' : 'unarchive'} the project.`,
+      );
     }
   }
 
@@ -503,6 +521,14 @@ function Workspace({
                   onChange={(event) => setSearchInput(event.target.value)}
                 />
               </label>
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={showArchived}
+                  onChange={(event) => setShowArchived(event.target.checked)}
+                />
+                Show archived
+              </label>
             </div>
           )}
           {activeSection === 'projectDetail' && activeProject && (
@@ -519,11 +545,11 @@ function Workspace({
               <button
                 type="button"
                 className="icon-button"
-                aria-label="Archive active project"
-                title={`Archive ${activeProject.projectName}`}
+                aria-label={activeProject.archived ? 'Unarchive active project' : 'Archive active project'}
+                title={activeProject.archived ? `Unarchive ${activeProject.projectName}` : `Archive ${activeProject.projectName}`}
                 onClick={handleArchiveActiveProject}
               >
-                <Archive size={18} aria-hidden />
+                {activeProject.archived ? <ArchiveRestore size={18} aria-hidden /> : <Archive size={18} aria-hidden />}
               </button>
               <button
                 type="button"

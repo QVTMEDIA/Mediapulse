@@ -253,6 +253,22 @@ button:disabled {
   background: transparent;
 }
 
+.toolbar .checkbox-field {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.toolbar .checkbox-field input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+}
+
 .primary-button,
 .secondary-button,
 .icon-button,
@@ -618,6 +634,17 @@ button:disabled {
 .status-complete {
   color: #0f6f43;
   background: #e7f6ed;
+}
+
+.status-archived {
+  color: var(--muted);
+  background: #e7eae9;
+}
+
+.project-main-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .brand-row,

@@ -461,6 +461,18 @@ def normalize_medium_type(v):
         'FREE TO AIR': 'TV',
         'FTA': 'TV',
         'DTT': 'TV',
+        # 'TTV' (a real vendor file's Medium value, confirmed meaning
+        # ordinary terrestrial/broadcast TV, not cable) -- the \bTV\b
+        # substring-fallback below deliberately doesn't match "TTV" (no
+        # word boundary between the leading T and the TV inside it), so
+        # without this alias every TTV row silently fell into the 'OTHER'
+        # bucket. Found live: matching worked fine (match_key uses the raw
+        # text, not this canonicalization), but summarize_media() only
+        # totals TV/CABLE TV/RADIO rows into Total GRPs, so a project whose
+        # Medium column says "TTV" showed 0 GRPs for every brand despite
+        # every spot being matched with a real, non-zero per-row GRP. See
+        # CHANGELOG.md.
+        'TTV': 'TV',
         'CABLE TV': 'CABLE TV',
         'CABLE': 'CABLE TV',
         'PAY TV': 'CABLE TV',

@@ -94,6 +94,38 @@ def test_calculate_computes_grp_and_run_summary(client, project):
     assert run['totalGrps'] == pytest.approx(3 * 1.2 + 2 * 2.5)  # 8.6
 
 
+def test_calculate_computes_nonzero_grps_for_a_ttv_medium(client, project):
+    # Regression for a real project ("...AUGUST TTV"): the Medium column
+    # says "TTV" (confirmed to mean ordinary terrestrial TV), not "TV".
+    # Matching works fine either way (match_key uses the raw text), but
+    # grp_calculator.normalize_medium_type used to bucket "TTV" as 'OTHER'
+    # (its \bTV\b substring fallback doesn't match "TTV" -- no word
+    # boundary before the TV inside it), and summarize_media() only totals
+    # TV/CABLE TV/RADIO rows into Total GRPs -- so every spot matched
+    # (matchedRows == 2, a real non-zero per-row GRP each) while the
+    # project and brand's totalGrps both silently came out 0.
+    brand = _brand(client, project['projectId'], 'Brand A')
+    files = {'file': ('report.csv', io.BytesIO(BRAND_A_CSV), 'text/csv')}
+    response = client.post(
+        f"/api/projects/{project['projectId']}/uploads", files=files,
+        data={'brand_id': brand['brandId'], 'default_medium': 'TTV'},
+    )
+    assert response.status_code == 201, response.text
+    ttv_ratings = [{**row, 'medium': 'TTV'} for row in BRAND_A_RATINGS]
+    _attach_ratings(client, project['projectId'], ttv_ratings)
+
+    response = client.post(f"/api/projects/{project['projectId']}/calculate")
+    assert response.status_code == 201
+    run = response.json()
+    assert run['matchedRows'] == 2
+    assert run['unmatchedRows'] == 0
+    assert run['totalGrps'] == pytest.approx(3 * 1.2 + 2 * 2.5)  # 8.6, not 0
+
+    shares = client.get(f"/api/projects/{project['projectId']}/runs/{run['runId']}/brand-shares").json()
+    assert shares[0]['totalGrps'] == pytest.approx(3 * 1.2 + 2 * 2.5)
+    assert shares[0]['tvGrps'] == pytest.approx(3 * 1.2 + 2 * 2.5)
+
+
 def test_calculate_computes_matches_implicitly_without_prior_get(client, project):
     # calling /calculate without ever calling GET /matches first must still work
     brand = _brand(client, project['projectId'], 'Brand A')

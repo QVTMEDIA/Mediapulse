@@ -992,6 +992,19 @@ class GrpCalculatorTests(unittest.TestCase):
             self.assertEqual(calc.normalize_medium_type(value), 'TV', msg=value)
         self.assertEqual(calc.normalize_medium_type('Radio'), 'RADIO')
 
+    def test_normalize_medium_type_recognizes_ttv_as_tv(self):
+        # Regression for a real project: a file's Medium column says "TTV"
+        # (confirmed to mean ordinary terrestrial TV). The \bTV\b
+        # substring-fallback doesn't match this (no word boundary between
+        # the leading T and the TV inside "TTV"), so before this alias
+        # existed every such row fell into the 'OTHER' bucket -- matching
+        # still worked fine (match_key uses raw text), but
+        # summarize_media() only totals TV/CABLE TV/RADIO rows, so the
+        # project's Total GRPs came out 0 despite every spot being matched
+        # with a real, non-zero per-row GRP.
+        for value in ('TTV', 'ttv', ' TTV '):
+            self.assertEqual(calc.normalize_medium_type(value), 'TV', msg=value)
+
     def test_summarize_media_splits_cable_tv_grps_separately(self):
         media = pd.DataFrame({
             'Brand': ['Brand A', 'Brand A', 'Brand A'],

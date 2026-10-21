@@ -116,8 +116,37 @@ def test_update_missing_project_returns_404(client):
     assert response.status_code == 404
 
 
+def test_update_project_requires_owner_or_admin_to_archive(client):
+    created = client.post('/api/projects', json={'projectName': 'Malaria Category'}).json()
+    app.dependency_overrides[get_current_user] = lambda: make_test_user(role='member')
+    response = client.patch(f"/api/projects/{created['projectId']}", json={'archived': True})
+    assert response.status_code == 403
+    # Every other field on this same endpoint stays open to any role.
+    response = client.patch(f"/api/projects/{created['projectId']}", json={'notes': 'Still editable.'})
+    assert response.status_code == 200
+
+    for role in ('owner', 'admin'):
+        app.dependency_overrides[get_current_user] = lambda role=role: make_test_user(role=role)
+        response = client.patch(f"/api/projects/{created['projectId']}", json={'archived': True})
+        assert response.status_code == 200, role
+        assert response.json()['archived'] is True
+
+
 def test_delete_project(client):
     created = client.post('/api/projects', json={'projectName': 'Delete Me'}).json()
+    response = client.delete(f"/api/projects/{created['projectId']}")
+    assert response.status_code == 204
+    assert client.get(f"/api/projects/{created['projectId']}").status_code == 404
+
+
+def test_delete_project_requires_owner_or_admin(client):
+    created = client.post('/api/projects', json={'projectName': 'Delete Me'}).json()
+    app.dependency_overrides[get_current_user] = lambda: make_test_user(role='member')
+    response = client.delete(f"/api/projects/{created['projectId']}")
+    assert response.status_code == 403
+    assert client.get(f"/api/projects/{created['projectId']}").status_code == 200  # untouched
+
+    app.dependency_overrides[get_current_user] = lambda: make_test_user(role='admin')
     response = client.delete(f"/api/projects/{created['projectId']}")
     assert response.status_code == 204
     assert client.get(f"/api/projects/{created['projectId']}").status_code == 404

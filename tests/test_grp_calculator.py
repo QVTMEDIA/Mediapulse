@@ -948,6 +948,29 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(ratings['Region'].tolist(), [''])
         self.assertEqual(ratings['State'].tolist(), [''])
 
+    def test_detect_column_maps_a_location_header_to_state(self):
+        # Regression for a real file: a Nigerian TV monitoring export that
+        # labels its geography column "Location", holding actual state
+        # names (e.g. "Abia") -- not a header literally named "State".
+        # Previously unmapped entirely (no 'region' or 'state' synonym
+        # matched "Location"), so the column was silently dropped.
+        columns = ['Medium', 'Channel', 'Location']
+        self.assertEqual(calc.detect_column(columns, 'state'), 'Location')
+        self.assertIsNone(calc.detect_column(columns, 'region'))
+
+    def test_build_ratings_lookup_captures_a_location_column_as_state(self):
+        raw = pd.DataFrame({
+            'Channel': ['BCA TV Umuahia'], 'Day': ['Mon'], 'Programme': ['Morning Show'], 'Rating': [0.5],
+            'Location': ['Abia'],
+        })
+        mapping = {
+            'medium': '-- none --', 'channel': 'Channel', 'day': 'Day', 'programme': 'Programme', 'rating': 'Rating',
+            'state': 'Location',
+        }
+        ratings, _invalid, _dup_keys, _lookup = calc.build_ratings_lookup(raw, mapping)
+        self.assertEqual(ratings['State'].tolist(), ['Abia'])
+        self.assertEqual(ratings['Region'].tolist(), [''])
+
     def test_build_brand_report_daypart_is_blank_when_no_time_band_mapped(self):
         raw = pd.DataFrame({
             'Channel': ['AIT'], 'Programme': ['Morning Show'], 'Day': ['Monday'], 'Spots': [1],

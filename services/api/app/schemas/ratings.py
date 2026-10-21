@@ -31,9 +31,41 @@ class RatingRowIn(CamelModel):
     state: str = ''
 
 
+class DuplicateSiblingOut(CamelModel):
+    """One other row sharing a RatingRowOut's match key -- enough fields to
+    describe it in the "click a flagged row for details" UI without a
+    further fetch. See repositories/ratings.py's DuplicateSibling/
+    _build_rows_page."""
+
+    rating_row_id: str
+    station: str
+    day: str
+    programme: str
+    rating: Optional[float] = None
+
+
 class RatingRowOut(RatingRowIn):
     rating_row_id: str
     ratings_dataset_id: str
+    # Computed server-side from the WHOLE dataset, not just this row's page
+    # -- see RatingsRowsPageOut. Empty when this row isn't part of a
+    # duplicate-key group.
+    duplicate_siblings: List[DuplicateSiblingOut] = Field(default_factory=list)
+
+
+class RatingsRowsPageOut(CamelModel):
+    """GET /ratings-datasets/{id}/rows's response shape -- paginated rather
+    than the whole dataset in one response. See repositories/ratings.py's
+    RatingsRowsPage/_build_rows_page for why (a live incident: an unbounded
+    full-dataset response helped OOM-kill the backend on a 17k-row file)."""
+
+    rows: List[RatingRowOut]
+    # Total rows in the dataset, not just len(rows) -- for pagination UI.
+    total: int
+    # Count of stored rows (already past upload-time validation) that still
+    # look invalid (missing a match field, or no rating) -- computed over
+    # the whole dataset, same as `total`.
+    stored_invalid_rows: int
 
 
 class RatingsDatasetCreate(CamelModel):

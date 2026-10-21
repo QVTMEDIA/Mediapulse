@@ -1,65 +1,34 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { AlertTriangle, ChevronDown, ChevronUp, Database } from 'lucide-react';
 import {
   ApiError,
   attachRatingsDataset,
   listMappingTemplates,
   listProjectRatingsDatasets,
-  listRatingRows,
+  listRatingRowsPage,
   listRatingsLibrary,
   reorderProjectRatingsDatasets,
   uploadRatingsFile,
 } from '../api/client';
-import type { MappingWarning, Project, RatingRow, RatingsDataset, RatingsRowIssue } from '../api/contracts';
+import type { DuplicateSibling, MappingWarning, Project, RatingRow, RatingsDataset, RatingsRowIssue } from '../api/contracts';
 import { describeMappingWarning } from '../mappingWarnings';
-import { LimitedRows, LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
-
-// Mirrors services/api/app/repositories/ratings.py's _row_is_invalid() and
-// services/api/app/matching.py's make_match_key() (in turn grp_calculator.
-// normalize_text/normalize_day) — client-side so a clicked row can explain
-// itself immediately, without a round trip. This is display-only: the
-// dataset summary's invalidRows/duplicateKeys counts (computed server-side
-// at upload time) stay the source of truth for the badge numbers.
-const DAY_MAP: Record<string, string> = {
-  monday: 'MON', mon: 'MON',
-  tuesday: 'TUE', tue: 'TUE', tues: 'TUE',
-  wednesday: 'WED', wed: 'WED',
-  thursday: 'THU', thu: 'THU', thur: 'THU', thurs: 'THU',
-  friday: 'FRI', fri: 'FRI',
-  saturday: 'SAT', sat: 'SAT',
-  sunday: 'SUN', sun: 'SUN',
-};
-
-function normalizeText(value: string): string {
-  return value.trim().replace(/\s+/g, ' ').toUpperCase();
-}
-
-function normalizeDay(value: string): string {
-  const s = value.trim().toLowerCase();
-  if (!s) return '';
-  if (s in DAY_MAP) return DAY_MAP[s];
-  const s3 = s.slice(0, 3);
-  for (const [key, code] of Object.entries(DAY_MAP)) {
-    if (key.slice(0, 3) === s3) return code;
-  }
-  return normalizeText(value).slice(0, 3);
-}
-
-function matchKey(row: RatingRow): string {
-  const combinedProgramme = [row.programme, row.timeBand].map((part) => (part || '').trim()).filter(Boolean).join(' ');
-  return [normalizeText(row.medium), normalizeText(row.station), normalizeDay(row.day), normalizeText(combinedProgramme)].join('|');
-}
-
-function rowIsInvalid(row: RatingRow): boolean {
-  return !(row.medium.trim() && row.station.trim() && row.day.trim()) || row.rating === null;
-}
+import { LimitedRows, LimitedRowsControls, ROW_PAGE_SIZE, useLimitedRows } from '../components/LimitedRows';
 
 interface RowIssue {
   label: string;
   detail: string;
 }
 
-function describeIssue(row: RatingRow, duplicateSiblings: RatingRow[]): RowIssue | null {
+// Missing-field/no-rating checks are purely per-row, display-only (mirrors
+// services/api/app/repositories/ratings.py's _row_is_invalid()) -- no
+// round trip needed. Duplicate-sibling detection, by contrast, is computed
+// server-side (see RatingRow.duplicateSiblings) rather than here, since it
+// needs the whole dataset's match keys, not just whatever page this row
+// came back on -- see services/api/app/repositories/ratings.py's
+// _build_rows_page for why (a live incident: an earlier version of this
+// screen fetched every row to compute this client-side, which helped
+// OOM-kill the backend on a large dataset).
+function describeIssue(row: RatingRow, duplicateSiblings: DuplicateSibling[]): RowIssue | null {
   const missingFields = [
     !row.medium.trim() && 'Medium',
     !row.station.trim() && 'Station',
@@ -216,12 +185,19 @@ export default function RatingsSection({ project }: { project: Project | null })
   // attached dataset so the common one-dataset-per-project case shows real
   // data immediately, with no extra click needed.
   const [selectedDatasetId, setSelectedDatasetId] = useState('');
+  // Just the current page's rows -- GET .../rows is paginated server-side
+  // (see api/client.ts's listRatingRowsPage), not the whole dataset at
+  // once. rowsTotal/storedInvalidRows are whole-dataset counts the server
+  // computes alongside the page, so the summary text below stays accurate
+  // without ever fetching every row into the browser.
   const [datasetRows, setDatasetRows] = useState<RatingRow[]>([]);
+  const [rowsPage, setRowsPage] = useState(1);
+  const [rowsTotal, setRowsTotal] = useState(0);
+  const [storedInvalidRows, setStoredInvalidRows] = useState(0);
   const [rowsLoading, setRowsLoading] = useState(false);
   const [rowsError, setRowsError] = useState<string | null>(null);
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const limitedAttached = useLimitedRows(attached);
-  const limitedDatasetRows = useLimitedRows(datasetRows);
   const limitedUploadIssues = useLimitedRows(uploadIssues);
 
   const refresh = useCallback(async (projectId: string) => {
@@ -256,45 +232,54 @@ export default function RatingsSection({ project }: { project: Project | null })
     }
   }, [project, refresh]);
 
+  // Compares against the *previous* selectedDatasetId, not a one-shot "have
+  // I run yet" flag -- a flag like that doesn't survive React 18 StrictMode
+  // double-invoking this effect in dev (see SoeExplorerSection.tsx's
+  // persistence fix for the exact failure mode this avoids: the flag
+  // flips on the first invocation, then StrictMode's second invocation
+  // sees it already flipped and skips the reset it still needed to do).
+  const previousDatasetIdRef = useRef(selectedDatasetId);
   useEffect(() => {
+    const datasetChanged = previousDatasetIdRef.current !== selectedDatasetId;
+    previousDatasetIdRef.current = selectedDatasetId;
+    // Switching datasets always jumps back to page 1 -- a page number that
+    // only made sense for the previous dataset's row count would otherwise
+    // request an offset past the end of a smaller new dataset.
+    const pageToFetch = datasetChanged ? 1 : rowsPage;
+    if (datasetChanged && rowsPage !== 1) setRowsPage(1);
+
     if (!selectedDatasetId) {
       setDatasetRows([]);
+      setRowsTotal(0);
+      setStoredInvalidRows(0);
       return;
     }
     setRowsLoading(true);
     setRowsError(null);
     setExpandedRowId(null);
-    listRatingRows(selectedDatasetId)
-      .then(setDatasetRows)
+    listRatingRowsPage(selectedDatasetId, { limit: ROW_PAGE_SIZE, offset: (pageToFetch - 1) * ROW_PAGE_SIZE })
+      .then((page) => {
+        setDatasetRows(page.rows);
+        setRowsTotal(page.total);
+        setStoredInvalidRows(page.storedInvalidRows);
+      })
       .catch((error) => {
         setRowsError(error instanceof ApiError ? error.message : 'Could not load this dataset’s rows.');
         setDatasetRows([]);
+        setRowsTotal(0);
+        setStoredInvalidRows(0);
       })
       .finally(() => setRowsLoading(false));
-  }, [selectedDatasetId]);
-
-  // Grouped by match key so each row can point to its duplicate siblings by
-  // name, not just say "this is a duplicate" with no way to see the other
-  // half of the collision.
-  const duplicateGroups = useMemo(() => {
-    const groups = new Map<string, RatingRow[]>();
-    for (const row of datasetRows) {
-      const key = matchKey(row);
-      const group = groups.get(key) ?? [];
-      group.push(row);
-      groups.set(key, group);
-    }
-    return groups;
-  }, [datasetRows]);
+  }, [selectedDatasetId, rowsPage]);
 
   const selectedDataset = attached.find((dataset) => dataset.ratingsDatasetId === selectedDatasetId) ?? null;
-  const inspectableInvalidCount = datasetRows.filter(rowIsInvalid).length;
-  // Some invalid rows never made it into datasetRows at all — grp_calculator's
+  // Some invalid rows never made it into the dataset at all — grp_calculator's
   // own upload-time validation (missing match field, or a rating outside
   // 0-100) drops them before they're ever stored, so there's no row to click
   // into for those. The gap between the dataset's own invalidRows count and
-  // what's actually inspectable here is exactly that dropped set.
-  const droppedInvalidCount = selectedDataset ? Math.max(0, selectedDataset.invalidRows - inspectableInvalidCount) : 0;
+  // storedInvalidRows (both whole-dataset, server-computed) is exactly that
+  // dropped set.
+  const droppedInvalidCount = selectedDataset ? Math.max(0, selectedDataset.invalidRows - storedInvalidRows) : 0;
 
   async function handleUpload(event: FormEvent) {
     event.preventDefault();
@@ -628,8 +613,8 @@ export default function RatingsSection({ project }: { project: Project | null })
               <p>
                 {rowsLoading
                   ? 'Loading…'
-                  : `${datasetRows.length} row${datasetRows.length === 1 ? '' : 's'}${
-                      inspectableInvalidCount || selectedDataset.duplicateKeys
+                  : `${rowsTotal} row${rowsTotal === 1 ? '' : 's'}${
+                      storedInvalidRows || selectedDataset.duplicateKeys
                         ? ` — click a flagged row for details`
                         : ''
                     }`}
@@ -644,7 +629,7 @@ export default function RatingsSection({ project }: { project: Project | null })
               during upload (missing a match field, or a rating outside 0–100) and never stored — not shown below.
             </p>
           )}
-          {!rowsLoading && datasetRows.length === 0 && !rowsError && (
+          {!rowsLoading && rowsTotal === 0 && !rowsError && (
             <p className="empty-state">No rows in this dataset.</p>
           )}
           {datasetRows.length > 0 && (
@@ -666,11 +651,8 @@ export default function RatingsSection({ project }: { project: Project | null })
                   </tr>
                 </thead>
                 <tbody>
-                  {limitedDatasetRows.visibleRows.map((row) => {
-                    const siblings = (duplicateGroups.get(matchKey(row)) ?? []).filter(
-                      (sibling) => sibling.ratingRowId !== row.ratingRowId,
-                    );
-                    const issue = describeIssue(row, siblings);
+                  {datasetRows.map((row) => {
+                    const issue = describeIssue(row, row.duplicateSiblings);
                     const isExpanded = expandedRowId === row.ratingRowId;
                     return (
                       <Fragment key={row.ratingRowId}>
@@ -710,7 +692,13 @@ export default function RatingsSection({ project }: { project: Project | null })
                   })}
                 </tbody>
               </table>
-              <LimitedRowsControls {...limitedDatasetRows} total={datasetRows.length} />
+              <LimitedRowsControls
+                visibleRows={datasetRows}
+                total={rowsTotal}
+                page={rowsPage}
+                pageCount={Math.max(1, Math.ceil(rowsTotal / ROW_PAGE_SIZE))}
+                goToPage={setRowsPage}
+              />
             </div>
           )}
         </div>

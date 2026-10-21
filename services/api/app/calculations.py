@@ -21,6 +21,36 @@ import pandas as pd
 from .matching import make_exact_match_key
 
 
+def resolve_rating_by_id(rating_rows, match_records, ratings_repo) -> Dict[str, object]:
+    """The {rating_id: rating_record} lookup compute_run() (and the match
+    report export) need -- rating_rows alone (the project's *currently
+    attached* ratings) isn't always enough.
+
+    A rating_matches row's matched_rating_id was resolved against whatever
+    ratings dataset was attached at match time. If that dataset is later
+    detached (ratings_datasets has no delete route -- detaching only
+    removes the project_ratings_datasets join row, see
+    repositories/ratings.py's detach_from_project docstring: "the shared
+    dataset... is untouched, and so is anything already matched or
+    calculated against it"), the row itself still exists, it's just no
+    longer in rating_rows. Without this fallback, every such match
+    silently produced no GRP -- found live: a project with 729/730 spots
+    showing match_status='exact' had `Total GRPs: 0`, because every one of
+    those matched_rating_ids had fallen out of rating_rows this way; the
+    Matches screen itself never showed anything wrong because its own
+    ratings lookup (GET .../matches/ratings) already resolves by id
+    directly, same as this does. See CHANGELOG.md."""
+    rating_by_id = {rating.id: rating for rating in rating_rows}
+    missing_ids = [
+        match.matched_rating_id for match in match_records
+        if match.matched_rating_id and match.matched_rating_id not in rating_by_id
+    ]
+    if missing_ids:
+        for rating in ratings_repo.list_rows_by_ids(missing_ids):
+            rating_by_id[rating.id] = rating
+    return rating_by_id
+
+
 @dataclass
 class CalculatedRow:
     media_activity_id: str

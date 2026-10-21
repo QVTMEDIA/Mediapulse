@@ -4,6 +4,7 @@ import io
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from ..auth import get_current_user
+from ..calculations import resolve_rating_by_id
 from ..match_jobs import get_match_job, start_match_job
 from ..matches import compute_matches
 from ..repositories.brands import BrandsRepository, get_brands_repository
@@ -164,7 +165,7 @@ def export_matches(
     records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows)
 
     activity_by_id = {row.id: row for row in media_activity}
-    ratings_by_id = {row.id: row for row in rating_rows}
+    ratings_by_id = resolve_rating_by_id(rating_rows, records, ratings_repo)
     # One list_brands() call instead of one brands_repo.get_brand() call per
     # distinct brand seen in the export -- each get_brand() opens its own
     # fresh Postgres connection (db.py's get_connection() is one connection

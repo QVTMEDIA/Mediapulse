@@ -126,6 +126,64 @@ def test_calculate_computes_nonzero_grps_for_a_ttv_medium(client, project):
     assert shares[0]['tvGrps'] == pytest.approx(3 * 1.2 + 2 * 2.5)
 
 
+def test_calculate_resolves_grps_for_matches_whose_dataset_was_later_detached(client, project):
+    # Regression for a real project ("VITAMIN SOV AUGUST TTV"): matching
+    # had succeeded (match_status='exact' for 729/730 spots), yet
+    # totalGrps came back 0. Root cause: compute_run()'s rating_by_id used
+    # to be built only from the project's *currently attached* ratings
+    # (list_project_rating_rows) -- a rating_matches row's
+    # matched_rating_id was resolved against whatever was attached at
+    # match time, so detaching that dataset afterwards (the rating row
+    # itself still exists; detaching only removes the
+    # project_ratings_datasets join row) left every such match pointing
+    # at an id compute_run() could no longer find, silently producing no
+    # GRP for every one of them even though match_status was never
+    # 'unmatched'. The Matches screen itself never showed anything wrong,
+    # since its own ratings lookup (GET .../matches/ratings) already
+    # resolves by id directly rather than through the attached-only list.
+    brand = _brand(client, project['projectId'], 'Brand A')
+    _upload(client, project['projectId'], brand['brandId'], BRAND_A_CSV)
+    dataset = _attach_ratings(client, project['projectId'], BRAND_A_RATINGS)
+
+    # Match while the dataset is still attached.
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    assert all(m['matchStatus'] == 'exact' for m in matches)
+
+    detach = client.delete(
+        f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach"
+    )
+    assert detach.status_code == 204
+
+    response = client.post(f"/api/projects/{project['projectId']}/calculate")
+    assert response.status_code == 201
+    run = response.json()
+    assert run['matchedRows'] == 2
+    assert run['unmatchedRows'] == 0
+    assert run['totalGrps'] == pytest.approx(3 * 1.2 + 2 * 2.5)  # 8.6, not 0
+
+
+def test_calculate_job_resolves_grps_for_matches_whose_dataset_was_later_detached(client, project):
+    # Same regression as the sync /calculate test above, for the
+    # background-job path (calculation_jobs.py's _run_calculation), which
+    # had its own separate copy of the same bug.
+    brand = _brand(client, project['projectId'], 'Brand A')
+    _upload(client, project['projectId'], brand['brandId'], BRAND_A_CSV)
+    dataset = _attach_ratings(client, project['projectId'], BRAND_A_RATINGS)
+    client.get(f"/api/projects/{project['projectId']}/matches")
+    client.delete(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
+
+    response = client.post(f"/api/projects/{project['projectId']}/calculate/jobs")
+    job = response.json()
+    for _ in range(40):
+        if job['status'] in ('completed', 'failed'):
+            break
+        time.sleep(0.05)
+        job = client.get(f"/api/projects/{project['projectId']}/calculate/jobs/{job['jobId']}").json()
+
+    assert job['status'] == 'completed'
+    assert job['run']['totalGrps'] == pytest.approx(3 * 1.2 + 2 * 2.5)
+
+
 def test_calculate_computes_matches_implicitly_without_prior_get(client, project):
     # calling /calculate without ever calling GET /matches first must still work
     brand = _brand(client, project['projectId'], 'Brand A')

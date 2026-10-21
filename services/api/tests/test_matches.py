@@ -1196,6 +1196,33 @@ def test_export_matches_includes_time_band(client, project, brand):
     assert row[header.index('Matched Rating Time Band')] == '19:00-20:00'
 
 
+def test_export_matches_still_shows_the_rating_after_its_dataset_is_detached(client, project, brand):
+    # Regression, same root cause as test_runs.py's matching tests: a
+    # match's matched_rating_id was resolved against whatever ratings
+    # dataset was attached at match time. Detaching that dataset
+    # afterwards doesn't delete the rating row (ratings_datasets has no
+    # delete route), but the export used to look ratings up only through
+    # the *currently attached* set, so every match it had already made
+    # silently lost its Matched Rating columns -- even though match_status
+    # stayed 'exact', not 'unmatched'.
+    _upload(client, project['projectId'], brand['brandId'])
+    dataset = _attach_ratings(client, project['projectId'])
+    client.get(f"/api/projects/{project['projectId']}/matches")  # match while still attached
+
+    detach = client.delete(
+        f"/api/projects/{project['projectId']}/ratings-datasets/{dataset['ratingsDatasetId']}/attach"
+    )
+    assert detach.status_code == 204
+
+    response = client.get(f"/api/projects/{project['projectId']}/matches/export")
+    rows = list(csv.reader(io.StringIO(response.text)))
+    header, body = rows[0], rows[1:]
+    by_status = {row[header.index('Match Status')]: row for row in body}
+    exact_row = by_status['exact']
+    assert exact_row[header.index('Matched Rating Station')] == 'TVC'
+    assert exact_row[header.index('Matched Rating (%)')] == '1.2'
+
+
 def test_export_matches_rejects_missing_project(client):
     response = client.get('/api/projects/does-not-exist/matches/export')
     assert response.status_code == 404

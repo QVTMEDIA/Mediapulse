@@ -82,6 +82,8 @@ def _row_to_out(record) -> RatingRowOut:
         end_time=record.end_time,
         week=record.week,
         month=record.month,
+        region=record.region,
+        state=record.state,
     )
 
 

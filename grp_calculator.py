@@ -1341,6 +1341,12 @@ def build_ratings_lookup(ratings_raw, mapping, default_medium='TV'):
         'Time Band': safe_col(ratings_raw, mapping.get('time_band', '-- none --'), ''),
         'Rating (%)': rating_values,
         'Source / Period': safe_col(ratings_raw, mapping.get('source')),
+        # Geography breakdown, same as build_brand_report's Region/State --
+        # purely informational, never feeds Match Key. mapping.get(...), not
+        # mapping['region'], for the same app.py-narrower-mapping-dict
+        # reason resolve_row_cost()/build_brand_report's Daypart use .get().
+        'Region': safe_col(ratings_raw, mapping.get('region', '-- none --'), ''),
+        'State': safe_col(ratings_raw, mapping.get('state', '-- none --'), ''),
     })
     ratings_all['Input Row'] = input_row_numbers(ratings_raw)
     bad_rating_mask = ratings_all['Rating (%)'].isna() | ratings_all['Rating (%)'].lt(0) | ratings_all['Rating (%)'].gt(100)

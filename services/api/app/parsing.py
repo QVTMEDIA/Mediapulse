@@ -34,7 +34,7 @@ RATINGS_REQUIRED_MAPPING_FIELDS = ('channel', 'programme', 'rating')
 # itself stays required so the field is always in the mapping dict, but its
 # resolved *value* can now come from time_band when the programme column
 # wasn't found or is blank on a given row.
-RATINGS_OPTIONAL_MAPPING_FIELDS = ('medium', 'source', 'time_band', 'date', 'day')
+RATINGS_OPTIONAL_MAPPING_FIELDS = ('medium', 'source', 'time_band', 'date', 'day', 'region', 'state')
 
 
 class NamedBytesIO(io.BytesIO):
@@ -303,6 +303,8 @@ def parse_ratings_file(
             programme=row['Programme / Time Band'],
             time_band=str(row['Time Band'] or '').strip(),
             rating=float(row['Rating (%)']) if pd.notna(row['Rating (%)']) else None,
+            region=str(row['Region'] or ''),
+            state=str(row['State'] or ''),
         )
         for _, row in ratings.iterrows()
     ]

@@ -917,6 +917,37 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(ratings['Programme / Time Band'].tolist(), ['09:30-09:45', '07:15-07:30'])
         self.assertEqual(len(lookup), 2)  # both rows produced distinct, usable match keys
 
+    def test_build_ratings_lookup_captures_region_and_state_when_mapped(self):
+        raw = pd.DataFrame({
+            'Channel': ['TVC', 'AIT'],
+            'Day': ['Mon', 'Tue'],
+            'Programme': ['Prime Time', 'News'],
+            'Rating': [1.2, 2.1],
+            'Zone': ['South West', 'North Central'],
+            'State Name': ['Lagos', 'Niger'],
+        })
+        mapping = {
+            'medium': '-- none --', 'channel': 'Channel', 'day': 'Day', 'programme': 'Programme',
+            'rating': 'Rating', 'region': 'Zone', 'state': 'State Name',
+        }
+        ratings, invalid_ratings, _dup_keys, _lookup = calc.build_ratings_lookup(raw, mapping)
+        self.assertEqual(len(invalid_ratings), 0)
+        self.assertEqual(ratings['Region'].tolist(), ['South West', 'North Central'])
+        self.assertEqual(ratings['State'].tolist(), ['Lagos', 'Niger'])
+
+    def test_build_ratings_lookup_region_and_state_blank_when_unmapped(self):
+        # app.py builds a narrower mapping dict that never includes
+        # 'region'/'state' at all -- mapping.get(...) must not KeyError.
+        raw = pd.DataFrame({
+            'Channel': ['TVC'], 'Day': ['Mon'], 'Programme': ['Prime Time'], 'Rating': [1.2],
+        })
+        mapping = {
+            'medium': '-- none --', 'channel': 'Channel', 'day': 'Day', 'programme': 'Programme', 'rating': 'Rating',
+        }
+        ratings, _invalid, _dup_keys, _lookup = calc.build_ratings_lookup(raw, mapping)
+        self.assertEqual(ratings['Region'].tolist(), [''])
+        self.assertEqual(ratings['State'].tolist(), [''])
+
     def test_build_brand_report_daypart_is_blank_when_no_time_band_mapped(self):
         raw = pd.DataFrame({
             'Channel': ['AIT'], 'Programme': ['Morning Show'], 'Day': ['Monday'], 'Spots': [1],

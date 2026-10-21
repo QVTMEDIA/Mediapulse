@@ -658,6 +658,8 @@ export default function RatingsSection({ project }: { project: Project | null })
                     <th>Programme</th>
                     <th>Time Band</th>
                     <th className="num">Rating</th>
+                    <th>Region</th>
+                    <th>State</th>
                     <th>Week</th>
                     <th>Month</th>
                     <th>Issue</th>
@@ -682,6 +684,8 @@ export default function RatingsSection({ project }: { project: Project | null })
                           <td>{row.programme || '—'}</td>
                           <td>{row.timeBand || '—'}</td>
                           <td className="num">{row.rating !== null ? row.rating : '—'}</td>
+                          <td>{row.region || '—'}</td>
+                          <td>{row.state || '—'}</td>
                           <td>{row.week ?? '—'}</td>
                           <td>{row.month ?? '—'}</td>
                           <td>
@@ -694,7 +698,7 @@ export default function RatingsSection({ project }: { project: Project | null })
                         </tr>
                         {isExpanded && issue && (
                           <tr>
-                            <td colSpan={9}>
+                            <td colSpan={11}>
                               <p className="field-hint" style={{ margin: 0 }}>
                                 {issue.detail}
                               </p>

@@ -24,6 +24,11 @@ class RatingRowIn(CamelModel):
     end_time: Optional[time] = None
     week: Optional[int] = None
     month: Optional[int] = None
+    # Geography breakdown from the uploaded file, same as media_activity/
+    # soe_activity's Region/State -- purely informational, never feeds
+    # match_key. Independent columns, not one falling back to the other.
+    region: str = ''
+    state: str = ''
 
 
 class RatingRowOut(RatingRowIn):

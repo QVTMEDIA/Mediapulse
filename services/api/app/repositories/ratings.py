@@ -38,6 +38,8 @@ class RatingRowRecord:
     end_time: Optional[time]
     week: Optional[int]
     month: Optional[int]
+    region: str = ''
+    state: str = ''
     project_attached_at: Optional[datetime] = None
     priority: Optional[int] = None  # project_ratings_datasets.priority (lower wins); only set on project-scoped listings
 
@@ -135,6 +137,12 @@ def _rating_row_to_record(row: dict) -> RatingRowRecord:
         end_time=row['end_time'],
         week=row['week'],
         month=row['month'],
+        # .get(...), not row['region'] -- a live instance that hasn't yet
+        # run db/pending_migrations.sql for these columns must not 500 on
+        # every ratings read the moment this ships (see the
+        # users.avatar_data_url incident documented in README.md/CHANGELOG.md).
+        region=row.get('region') or '',
+        state=row.get('state') or '',
         project_attached_at=row.get('project_attached_at'),
         priority=row.get('priority'),
     )
@@ -191,13 +199,14 @@ class PostgresRatingsRepository:
                         '''
                         INSERT INTO ratings (
                             ratings_dataset_id, medium, station, day, programme, time_band,
-                            rating, start_time, end_time, week, month
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            rating, start_time, end_time, week, month, region, state
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ''',
                         [
                             (
                                 dataset_row['id'], row.medium, row.station, row.day, row.programme,
                                 row.time_band, row.rating, row.start_time, row.end_time, row.week, row.month,
+                                row.region, row.state,
                             )
                             for row in data.rows
                         ],
@@ -372,6 +381,7 @@ class InMemoryRatingsRepository:
                 id=str(uuid.uuid4()), ratings_dataset_id=dataset_id, medium=row.medium, station=row.station,
                 day=row.day, programme=row.programme, time_band=row.time_band, rating=row.rating,
                 start_time=row.start_time, end_time=row.end_time, week=row.week, month=row.month,
+                region=row.region, state=row.state,
             )
             for row in data.rows
         ]

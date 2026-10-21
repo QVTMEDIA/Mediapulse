@@ -114,6 +114,8 @@ Shared across projects via the Ratings Library — not owned by a single project
 - `endTime`
 - `week`
 - `month`
+- `region` — the vendor's own geography label from the uploaded ratings file (same convention as `MediaActivityRow.region`/`SoeActivityRow.region` — whatever header the file uses, captured as-is, `''` when unmapped). Purely informational/filterable — never used for rating matching. Not in this contract's original field list.
+- `state` — same as `region`, but the finer-grained state/province level a file may label separately from its own broader region (independent column, not a fallback for `region`). Not in this contract's original field list.
 
 ### Brand
 

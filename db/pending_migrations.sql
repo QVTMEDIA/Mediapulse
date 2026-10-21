@@ -87,3 +87,11 @@ alter table soe_activity
 -- (no object-storage bucket) -- see the column's own comment in schema.sql.
 alter table users
   add column if not exists avatar_data_url text;
+
+-- Ratings geography breakdown -- services/api PR "Record Region/State from
+-- uploaded ratings files", mirroring media_activity.region/
+-- soe_activity.region+state. Purely informational, never feeds match_key.
+alter table ratings
+  add column if not exists region text;
+alter table ratings
+  add column if not exists state text;

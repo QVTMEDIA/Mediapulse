@@ -59,3 +59,36 @@ def get_connection():
     before; only where the connection comes from changed."""
     with _get_pool().connection() as connection:
         yield connection
+
+
+# Comfortably under Postgres's 65535-parameter-per-statement limit for the
+# widest caller so far (uploads.py's media_activity insert, 14 columns):
+# 1000 rows x 14 = 14,000 params. Not tuned per-caller -- the point is
+# "many fewer round trips than one per row", not squeezing the exact max.
+_BULK_INSERT_BATCH_SIZE = 1000
+
+
+def insert_rows_batched(conn, table: str, columns: list, rows: list, batch_size: int = _BULK_INSERT_BATCH_SIZE):
+    """Bulk-inserts `rows` (each a tuple positionally matching `columns`)
+    into `table` using multi-row `INSERT ... VALUES (...), (...), ...`
+    statements instead of executemany()'s one-round-trip-per-row behavior.
+
+    Found live: a 17,136-row ratings upload's per-row executemany() insert
+    hung the backend process long enough (tens of seconds of nothing but
+    network round trips to Supabase, one per row) that Render's own health
+    check stopped getting a response and force-restarted the container mid-
+    request -- which looked like a CORS failure in the browser (the
+    connection was dropped, not refused) but was really the whole API
+    frozen for every user, not just this one upload. Batching cuts N round
+    trips down to ceil(N / batch_size), typically a couple dozen for a file
+    this size instead of thousands. See CHANGELOG.md."""
+    if not rows:
+        return
+    columns_sql = ', '.join(columns)
+    placeholder_row = '(' + ', '.join(['%s'] * len(columns)) + ')'
+    with conn.cursor() as cur:
+        for start in range(0, len(rows), batch_size):
+            chunk = rows[start:start + batch_size]
+            values_sql = ', '.join([placeholder_row] * len(chunk))
+            params = [value for row in chunk for value in row]
+            cur.execute(f'INSERT INTO {table} ({columns_sql}) VALUES {values_sql}', params)

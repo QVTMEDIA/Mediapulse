@@ -2,6 +2,7 @@ from collections import OrderedDict
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 from ..auth import get_current_user, require_role
 from ..parsing import ParsedMediaRow, parse_brand_report, parse_composite_report
@@ -138,35 +139,41 @@ async def create_upload(
     data = await file.read()
     file_name = file.filename or 'uploaded_file'
 
-    try:
+    def _parse_and_build_inserts():
+        # Synchronous (pandas parsing, plus brand_ids_by_name's per-distinct-
+        # brand DB round trips for composite_report) -- run off the event
+        # loop below via run_in_threadpool, same reasoning as
+        # routers/ratings.py's upload endpoint: without it, a large file
+        # freezes every other request this backend serves (including
+        # Render's own health check) for as long as parsing+brand lookups
+        # take. See db.py's insert_rows_batched for the matching fix on the
+        # insert side, and CHANGELOG.md.
         if kind == 'brand_report':
             parsed = parse_brand_report(data, file_name, default_medium, mapping_override)
             inserts = [MediaActivityInsert(brand_id=brand_id, row=row) for row in parsed.rows]
-            upload_brand_id = brand_id
-            issue_rows = parsed.issue_rows
-            mapping_used = parsed.mapping
-            mapping_warnings = parsed.mapping_warnings
-        else:
-            composite = parse_composite_report(data, file_name, default_medium, mapping_override)
-            brand_ids_by_name: "OrderedDict[str, str]" = OrderedDict()
-            inserts = []
-            for row in composite.rows:
-                if row.brand_name not in brand_ids_by_name:
-                    brand_ids_by_name[row.brand_name] = brands_repo.get_or_create_brand(
-                        project_id, row.brand_name
-                    ).id
-                inserts.append(MediaActivityInsert(
-                    brand_id=brand_ids_by_name[row.brand_name],
-                    row=ParsedMediaRow(
-                        medium=row.medium, station=row.station, activity_date=row.activity_date, day=row.day,
-                        programme=row.programme, spots=row.spots, source_file=row.source_file,
-                        source_row_number=None, cost=row.cost, time_band=row.time_band, region=row.region,
-                    ),
-                ))
-            upload_brand_id = None
-            issue_rows = composite.issue_rows
-            mapping_used = composite.mapping
-            mapping_warnings = composite.mapping_warnings
+            return inserts, brand_id, parsed.issue_rows, parsed.mapping, parsed.mapping_warnings
+        composite = parse_composite_report(data, file_name, default_medium, mapping_override)
+        brand_ids_by_name: "OrderedDict[str, str]" = OrderedDict()
+        inserts = []
+        for row in composite.rows:
+            if row.brand_name not in brand_ids_by_name:
+                brand_ids_by_name[row.brand_name] = brands_repo.get_or_create_brand(
+                    project_id, row.brand_name
+                ).id
+            inserts.append(MediaActivityInsert(
+                brand_id=brand_ids_by_name[row.brand_name],
+                row=ParsedMediaRow(
+                    medium=row.medium, station=row.station, activity_date=row.activity_date, day=row.day,
+                    programme=row.programme, spots=row.spots, source_file=row.source_file,
+                    source_row_number=None, cost=row.cost, time_band=row.time_band, region=row.region,
+                ),
+            ))
+        return inserts, None, composite.issue_rows, composite.mapping, composite.mapping_warnings
+
+    try:
+        inserts, upload_brand_id, issue_rows, mapping_used, mapping_warnings = await run_in_threadpool(
+            _parse_and_build_inserts
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -175,8 +182,8 @@ async def create_upload(
     elif source_label:
         templates_repo.touch_used(source_label)
 
-    upload_record, _activity_records = repo.create_upload_with_activity(
-        project_id, upload_brand_id, file_name, kind, inserts, issue_rows=issue_rows
+    upload_record, _activity_records = await run_in_threadpool(
+        repo.create_upload_with_activity, project_id, upload_brand_id, file_name, kind, inserts, issue_rows=issue_rows
     )
     return _upload_to_out(upload_record, mapping_warnings)
 

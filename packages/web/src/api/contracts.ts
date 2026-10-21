@@ -381,6 +381,14 @@ export interface MatchJob {
   processed: number;
 }
 
+export interface DuplicateSibling {
+  ratingRowId: string;
+  station: string;
+  day: string;
+  programme: string;
+  rating: number | null;
+}
+
 export interface RatingRow {
   ratingRowId: string;
   ratingsDatasetId: string;
@@ -396,6 +404,17 @@ export interface RatingRow {
   month: number | null;
   region: string;
   state: string;
+  // Computed server-side from the dataset's full row set, not just
+  // whatever page this row came back on -- see services/api/app/
+  // repositories/ratings.py's _build_rows_page. Empty when this row isn't
+  // part of a duplicate-key group.
+  duplicateSiblings: DuplicateSibling[];
+}
+
+export interface RatingRowsPage {
+  rows: RatingRow[];
+  total: number;
+  storedInvalidRows: number;
 }
 
 export interface GrpCalculationRow {

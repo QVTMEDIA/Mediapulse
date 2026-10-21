@@ -78,7 +78,9 @@ def test_list_rows_for_dataset(client):
     created = client.post('/api/ratings-datasets', json={'provider': 'Agency A', 'rows': SAMPLE_ROWS[:2]}).json()
     response = client.get(f"/api/ratings-datasets/{created['ratingsDatasetId']}/rows")
     assert response.status_code == 200
-    rows = response.json()
+    body = response.json()
+    assert body['total'] == 2
+    rows = body['rows']
     assert len(rows) == 2
     assert rows[0]['station'] == 'TVC'
 
@@ -86,6 +88,70 @@ def test_list_rows_for_dataset(client):
 def test_list_rows_for_missing_dataset_returns_404(client):
     response = client.get('/api/ratings-datasets/does-not-exist/rows')
     assert response.status_code == 404
+
+
+def test_list_rows_paginates_with_limit_and_offset(client):
+    rows = [{'medium': 'TV', 'station': f'Station {i}', 'day': 'Mon', 'programme': 'Show', 'rating': 1.0} for i in range(5)]
+    created = client.post('/api/ratings-datasets', json={'provider': 'Agency A', 'rows': rows}).json()
+    dataset_id = created['ratingsDatasetId']
+
+    page1 = client.get(f'/api/ratings-datasets/{dataset_id}/rows', params={'limit': 2, 'offset': 0}).json()
+    assert page1['total'] == 5
+    assert [row['station'] for row in page1['rows']] == ['Station 0', 'Station 1']
+
+    page2 = client.get(f'/api/ratings-datasets/{dataset_id}/rows', params={'limit': 2, 'offset': 2}).json()
+    assert page2['total'] == 5
+    assert [row['station'] for row in page2['rows']] == ['Station 2', 'Station 3']
+
+    page3 = client.get(f'/api/ratings-datasets/{dataset_id}/rows', params={'limit': 2, 'offset': 4}).json()
+    assert [row['station'] for row in page3['rows']] == ['Station 4']
+
+
+def test_list_rows_rejects_a_limit_above_the_max(client):
+    created = client.post('/api/ratings-datasets', json={'provider': 'Agency A', 'rows': SAMPLE_ROWS[:1]}).json()
+    response = client.get(f"/api/ratings-datasets/{created['ratingsDatasetId']}/rows", params={'limit': 100000})
+    assert response.status_code == 422
+
+
+def test_list_rows_marks_duplicate_siblings_even_across_pages(client):
+    # SAMPLE_ROWS[0] and SAMPLE_ROWS[2] share a match key (normalized
+    # Medium/Station/Day/Programme). Fetching them on two SEPARATE pages
+    # (limit=1 each) still has to report them as each other's sibling --
+    # proves duplicate detection runs over the whole dataset, not just
+    # whatever happens to be on one page.
+    created = client.post('/api/ratings-datasets', json={'provider': 'Agency A', 'rows': SAMPLE_ROWS}).json()
+    dataset_id = created['ratingsDatasetId']
+
+    page1 = client.get(f'/api/ratings-datasets/{dataset_id}/rows', params={'limit': 1, 'offset': 0}).json()
+    first_row = page1['rows'][0]
+    assert first_row['station'] == 'TVC'
+    assert len(first_row['duplicateSiblings']) == 1
+    # Raw stored value, not normalized -- SAMPLE_ROWS[2]'s station is
+    # ' TVC ' (same match key as 'TVC' once normalized, different text).
+    assert first_row['duplicateSiblings'][0]['station'] == ' TVC '
+    assert first_row['duplicateSiblings'][0]['ratingRowId'] != first_row['ratingRowId']
+
+    page3 = client.get(f'/api/ratings-datasets/{dataset_id}/rows', params={'limit': 1, 'offset': 2}).json()
+    third_row = page3['rows'][0]
+    assert len(third_row['duplicateSiblings']) == 1
+    assert third_row['duplicateSiblings'][0]['ratingRowId'] == first_row['ratingRowId']
+
+
+def test_list_rows_non_duplicate_rows_have_no_siblings(client):
+    created = client.post('/api/ratings-datasets', json={'provider': 'Agency A', 'rows': SAMPLE_ROWS[:2]}).json()
+    rows = client.get(f"/api/ratings-datasets/{created['ratingsDatasetId']}/rows").json()['rows']
+    assert all(row['duplicateSiblings'] == [] for row in rows)
+
+
+def test_list_rows_stored_invalid_rows_counts_the_whole_dataset_not_just_the_page(client):
+    # SAMPLE_ROWS has exactly one row that's stored but still invalid (row
+    # index 3, missing station) -- must be counted even when it isn't on
+    # the requested page.
+    created = client.post('/api/ratings-datasets', json={'provider': 'Agency A', 'rows': SAMPLE_ROWS}).json()
+    dataset_id = created['ratingsDatasetId']
+
+    page = client.get(f'/api/ratings-datasets/{dataset_id}/rows', params={'limit': 1, 'offset': 0}).json()
+    assert page['storedInvalidRows'] == 1
 
 
 def test_attach_dataset_to_project_and_list_it(client):
@@ -240,7 +306,7 @@ def test_upload_ratings_file_with_only_a_timeband_column_still_maps(client):
     assert body['status'] == 'Ready'
     assert body.get('issues') in (None, [])
 
-    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()['rows']
     assert len(rows) == 2
     assert all(row['medium'] == 'Radio' for row in rows)
     assert sorted(row['rating'] for row in rows) == [0.16, 0.92]
@@ -255,7 +321,7 @@ def test_upload_ratings_file_parses_real_spreadsheet(client):
     assert body['invalidRows'] == 0
     assert body['status'] == 'Ready'
 
-    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()['rows']
     stations = sorted(row['station'] for row in rows)
     assert stations == ['AIT', 'TVC']
 
@@ -271,7 +337,7 @@ def test_upload_ratings_file_captures_region_and_state_columns(client):
     body = response.json()
     assert body['rows'] == 2
 
-    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()['rows']
     by_station = {row['station']: row for row in rows}
     assert by_station['TVC']['region'] == 'South West'
     assert by_station['TVC']['state'] == 'Lagos'
@@ -284,7 +350,7 @@ def test_upload_ratings_file_without_region_or_state_columns_leaves_them_blank(c
     assert response.status_code == 201
     body = response.json()
 
-    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()['rows']
     assert all(row['region'] == '' and row['state'] == '' for row in rows)
 
 
@@ -299,7 +365,7 @@ def test_upload_ratings_file_with_a_location_header_maps_it_to_state(client):
     response = _upload_ratings(client, content=content, filename='location_header.csv')
     assert response.status_code == 201
 
-    rows = client.get(f"/api/ratings-datasets/{response.json()['ratingsDatasetId']}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{response.json()['ratingsDatasetId']}/rows").json()['rows']
     assert rows[0]['state'] == 'Abia'
     assert rows[0]['region'] == ''
 
@@ -320,7 +386,7 @@ def test_create_dataset_json_rows_round_trip_region_and_state(client):
     assert response.status_code == 201
     dataset_id = response.json()['ratingsDatasetId']
 
-    rows = client.get(f"/api/ratings-datasets/{dataset_id}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{dataset_id}/rows").json()['rows']
     assert rows[0]['region'] == 'South West'
     assert rows[0]['state'] == 'Lagos'
     assert all(row['medium'] == 'TV' for row in rows)
@@ -330,7 +396,7 @@ def test_upload_ratings_file_respects_default_medium(client):
     response = _upload_ratings(client, default_medium='Radio')
     assert response.status_code == 201
     dataset_id = response.json()['ratingsDatasetId']
-    rows = client.get(f"/api/ratings-datasets/{dataset_id}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{dataset_id}/rows").json()['rows']
     assert all(row['medium'] == 'Radio' for row in rows)
 
 
@@ -343,7 +409,7 @@ def test_upload_ratings_file_preserves_time_band(client):
     assert response.status_code == 201
     dataset_id = response.json()['ratingsDatasetId']
 
-    rows = client.get(f"/api/ratings-datasets/{dataset_id}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{dataset_id}/rows").json()['rows']
     assert rows[0]['timeBand'] == '19:00-20:00'
 
 
@@ -359,7 +425,7 @@ def test_upload_ratings_file_derives_day_from_date(client):
     assert body['rows'] == 2
     assert body['invalidRows'] == 0
 
-    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()['rows']
     assert {row['day'] for row in rows} == {'MON', 'TUE'}
 
 
@@ -384,7 +450,7 @@ def test_upload_ratings_file_drops_out_of_range_rating_and_flags_it(client):
     assert body['issues'][0]['reason'] == 'Invalid or out-of-range rating'
     assert body['issues'][0]['rating'] == 150
 
-    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()['rows']
     assert len(rows) == 1  # the invalid row was never stored
     assert rows[0]['station'] == 'TVC'
 
@@ -412,7 +478,7 @@ def test_upload_ratings_file_rejecting_every_row_still_explains_why(client):
     # the failure is specifically the Rating column, not the whole mapping.
     assert {issue['station'] for issue in body['issues']} == {'TVC', 'AIT'}
 
-    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()['rows']
     assert rows == []
 
 
@@ -474,7 +540,7 @@ def test_upload_ratings_file_warns_when_stale_template_disagrees_with_auto_detec
 
     # The stale template still wins for parsing -- consistent with the
     # existing fallback behavior -- but the disagreement is now visible.
-    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()['rows']
     assert rows[0]['timeBand'] == 'PM'
 
     assert body['mappingWarnings'] == [{
@@ -514,7 +580,7 @@ def test_upload_ratings_file_ignore_saved_template_uses_fresh_auto_detection(cli
     body = response.json()
     assert body['mappingWarnings'] == []  # nothing to disagree with once the template isn't applied
 
-    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()['rows']
     assert rows[0]['timeBand'] == '19:00-20:00'  # picked Timeband, not the stale Time Belt
 
     template = client.get('/api/mapping-templates/suggest', params={'sourceLabel': 'Agency A'}).json()

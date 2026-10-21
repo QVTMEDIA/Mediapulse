@@ -512,7 +512,7 @@ def test_attach_order_decides_the_winner_on_an_overlapping_key_by_default(client
     assert matches[0]['matchStatus'] == 'exact'
     winning_rating_id = matches[0]['matchedRatingId']
 
-    rows_a = client.get(f"/api/ratings-datasets/{dataset_a['ratingsDatasetId']}/rows").json()
+    rows_a = client.get(f"/api/ratings-datasets/{dataset_a['ratingsDatasetId']}/rows").json()['rows']
     assert winning_rating_id == rows_a[0]['ratingRowId']  # attached first == priority 0 == wins
 
 
@@ -534,7 +534,7 @@ def test_reordering_before_first_computing_changes_the_winner(client, project, b
     matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
     winning_rating_id = matches[0]['matchedRatingId']
 
-    rows_b = client.get(f"/api/ratings-datasets/{dataset_b['ratingsDatasetId']}/rows").json()
+    rows_b = client.get(f"/api/ratings-datasets/{dataset_b['ratingsDatasetId']}/rows").json()['rows']
     assert winning_rating_id == rows_b[0]['ratingRowId']  # reordered to priority 0 == now wins
 
 
@@ -975,7 +975,7 @@ def test_correct_match_sets_manual_status(client, project, brand):
     dataset = _attach_ratings(client, project['projectId'])
     matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
     unmatched = next(m for m in matches if m['matchStatus'] == 'unmatched')
-    rows = client.get(f"/api/ratings-datasets/{dataset['ratingsDatasetId']}/rows").json()
+    rows = client.get(f"/api/ratings-datasets/{dataset['ratingsDatasetId']}/rows").json()['rows']
     target_rating_id = rows[0]['ratingRowId']
 
     response = client.post(
@@ -1013,7 +1013,7 @@ def test_correct_match_rejects_rating_not_attached_to_project(client, project, b
         '/api/ratings-datasets',
         json={'provider': 'Other', 'rows': [{'medium': 'TV', 'station': 'XYZ FM', 'day': 'Wednesday', 'programme': 'Drive Time', 'rating': 3.0}]},
     ).json()
-    foreign_rating_id = client.get(f"/api/ratings-datasets/{foreign_dataset['ratingsDatasetId']}/rows").json()[0]['ratingRowId']
+    foreign_rating_id = client.get(f"/api/ratings-datasets/{foreign_dataset['ratingsDatasetId']}/rows").json()['rows'][0]['ratingRowId']
 
     response = client.post(
         f"/api/projects/{project['projectId']}/matches/{unmatched['ratingMatchId']}/correct",

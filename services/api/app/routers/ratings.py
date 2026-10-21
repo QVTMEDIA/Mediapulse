@@ -16,11 +16,13 @@ from ..repositories.ratings import (
 from ..parsing import MappingWarning, RatingsRowIssue
 from ..schemas.common import MappingWarningOut
 from ..schemas.ratings import (
+    DuplicateSiblingOut,
     RatingRowOut,
     RatingsDatasetCreate,
     RatingsDatasetOut,
     RatingsDatasetPriorityUpdate,
     RatingsRowIssueOut,
+    RatingsRowsPageOut,
 )
 
 router = APIRouter(prefix='/api', tags=['ratings-library'], dependencies=[Depends(get_current_user)])
@@ -29,6 +31,14 @@ router = APIRouter(prefix='/api', tags=['ratings-library'], dependencies=[Depend
 # file that rejects thousands of rows shouldn't balloon the response; the
 # dataset's own invalidRows count still reports the true total regardless.
 MAX_REPORTED_ISSUES = 100
+
+# GET /ratings-datasets/{id}/rows's page size -- see that route's docstring
+# for why this is paginated at all (a live OOM incident on an unpaginated,
+# 17k-row response). ROWS_PAGE_SIZE_MAX bounds what a caller can ask for in
+# one request even explicitly, so a very large `limit` can't recreate the
+# same unbounded-response risk this pagination exists to prevent.
+ROWS_PAGE_SIZE_DEFAULT = 20
+ROWS_PAGE_SIZE_MAX = 1000
 
 
 def _dataset_to_out(
@@ -69,7 +79,7 @@ def _dataset_to_out(
     )
 
 
-def _row_to_out(record) -> RatingRowOut:
+def _row_to_out(record, duplicate_siblings=()) -> RatingRowOut:
     return RatingRowOut(
         rating_row_id=record.id,
         ratings_dataset_id=record.ratings_dataset_id,
@@ -85,6 +95,13 @@ def _row_to_out(record) -> RatingRowOut:
         month=record.month,
         region=record.region,
         state=record.state,
+        duplicate_siblings=[
+            DuplicateSiblingOut(
+                rating_row_id=sibling.id, station=sibling.station, day=sibling.day,
+                programme=sibling.programme, rating=sibling.rating,
+            )
+            for sibling in duplicate_siblings
+        ],
     )
 
 
@@ -177,15 +194,29 @@ async def upload_ratings_dataset(
     )
 
 
-@router.get('/ratings-datasets/{ratings_dataset_id}/rows', response_model=list[RatingRowOut])
+@router.get('/ratings-datasets/{ratings_dataset_id}/rows', response_model=RatingsRowsPageOut)
 def list_ratings_dataset_rows(
     ratings_dataset_id: str,
+    limit: int = Query(default=ROWS_PAGE_SIZE_DEFAULT, ge=1, le=ROWS_PAGE_SIZE_MAX),
+    offset: int = Query(default=0, ge=0),
     repo: RatingsRepository = Depends(get_ratings_repository),
 ):
-    rows = repo.list_rows(ratings_dataset_id)
-    if rows is None:
+    """Paginated, not the whole dataset in one response -- see a live
+    incident: an earlier, unpaginated version of this route returning every
+    row of a 17,136-row dataset at once helped exhaust the backend's memory
+    and get it killed mid-request. Each row's duplicateSiblings is still
+    computed from the WHOLE dataset (not just this page), so the "click a
+    flagged row to see its duplicate siblings" feature stays correct even
+    when a duplicate pair falls on two different pages. storedInvalidRows
+    is also a whole-dataset count, for the same reason. See CHANGELOG.md."""
+    page = repo.list_rows_page(ratings_dataset_id, limit=limit, offset=offset)
+    if page is None:
         raise HTTPException(status_code=404, detail='Ratings dataset not found')
-    return [_row_to_out(row) for row in rows]
+    return RatingsRowsPageOut(
+        rows=[_row_to_out(entry.row, entry.duplicate_siblings) for entry in page.entries],
+        total=page.total,
+        stored_invalid_rows=page.stored_invalid_rows,
+    )
 
 
 @router.post('/projects/{project_id}/ratings-datasets/{ratings_dataset_id}/attach', status_code=204)

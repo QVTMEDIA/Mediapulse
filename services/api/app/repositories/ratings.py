@@ -24,6 +24,70 @@ def _summarize_rows(rows: List[RatingRowIn]):
     return invalid_rows, duplicate_keys, status
 
 
+def _record_is_invalid(record: 'RatingRowRecord') -> bool:
+    # Same check as _row_is_invalid above, over a stored RatingRowRecord
+    # rather than an about-to-be-inserted RatingRowIn -- the two types
+    # happen to share the field names this reads.
+    return not (record.medium.strip() and record.station.strip() and record.day.strip()) or record.rating is None
+
+
+@dataclass
+class DuplicateSibling:
+    id: str
+    station: str
+    day: str
+    programme: str
+    rating: Optional[float]
+
+
+@dataclass
+class RatingRowPageEntry:
+    row: 'RatingRowRecord'
+    duplicate_siblings: List[DuplicateSibling]
+
+
+@dataclass
+class RatingsRowsPage:
+    entries: List[RatingRowPageEntry]
+    # Total rows in the dataset (not just this page) -- for pagination UI.
+    total: int
+    # Count of STORED rows (already past grp_calculator's own upload-time
+    # drop) that still fail _record_is_invalid -- computed over the whole
+    # dataset, not just this page, same as `total`. Lets the frontend keep
+    # showing "N rows look invalid" without ever fetching the whole dataset
+    # itself just to count them.
+    stored_invalid_rows: int
+
+
+def _build_rows_page(records: List['RatingRowRecord'], *, limit: int, offset: int) -> RatingsRowsPage:
+    """Shared by both repository backends: given the FULL set of a dataset's
+    rows (already fetched), groups them by match key to compute each row's
+    duplicate siblings, then slices out just the requested page. Found live:
+    returning an entire large dataset's rows in one API response (previously
+    every row, unpaginated) risked exhausting the backend's memory -- a real
+    17k-row dataset helped trigger an OOM kill. Pagination fixes the
+    response size; computing duplicate groups from the full set here (not
+    just the current page) keeps the "click a flagged row to see its
+    duplicate siblings" feature correct even when a duplicate pair falls on
+    two different pages. See CHANGELOG.md."""
+    groups: Dict[str, List['RatingRowRecord']] = {}
+    for record in records:
+        key = make_match_key(record.medium, record.station, record.day, record.programme, record.time_band)
+        groups.setdefault(key, []).append(record)
+    stored_invalid_rows = sum(1 for record in records if _record_is_invalid(record))
+
+    entries = []
+    for record in records[offset:offset + limit]:
+        key = make_match_key(record.medium, record.station, record.day, record.programme, record.time_band)
+        siblings = [
+            DuplicateSibling(id=sibling.id, station=sibling.station, day=sibling.day,
+                              programme=sibling.programme, rating=sibling.rating)
+            for sibling in groups[key] if sibling.id != record.id
+        ]
+        entries.append(RatingRowPageEntry(row=record, duplicate_siblings=siblings))
+    return RatingsRowsPage(entries=entries, total=len(records), stored_invalid_rows=stored_invalid_rows)
+
+
 @dataclass
 class RatingRowRecord:
     id: str
@@ -79,7 +143,7 @@ class RatingsRepository(Protocol):
 
     def create_dataset(self, data: RatingsDatasetCreate, extra_invalid_rows: int = 0) -> RatingsDatasetRecord: ...
 
-    def list_rows(self, ratings_dataset_id: str) -> Optional[List[RatingRowRecord]]: ...
+    def list_rows_page(self, ratings_dataset_id: str, *, limit: int, offset: int) -> Optional[RatingsRowsPage]: ...
 
     def attach_to_project(self, project_id: str, ratings_dataset_id: str) -> bool: ...
 
@@ -212,14 +276,15 @@ class PostgresRatingsRepository:
                 )
         return _dataset_row_to_record(dataset_row)
 
-    def list_rows(self, ratings_dataset_id):
+    def list_rows_page(self, ratings_dataset_id, *, limit, offset):
         if self.get_dataset(ratings_dataset_id) is None:
             return None
         with get_connection() as conn:
             rows = conn.execute(
                 'SELECT * FROM ratings WHERE ratings_dataset_id = %s ORDER BY id', [ratings_dataset_id]
             ).fetchall()
-        return [_rating_row_to_record(row) for row in rows]
+        records = [_rating_row_to_record(row) for row in rows]
+        return _build_rows_page(records, limit=limit, offset=offset)
 
     def attach_to_project(self, project_id, ratings_dataset_id):
         if self.get_dataset(ratings_dataset_id) is None:
@@ -386,10 +451,10 @@ class InMemoryRatingsRepository:
         ]
         return record
 
-    def list_rows(self, ratings_dataset_id):
+    def list_rows_page(self, ratings_dataset_id, *, limit, offset):
         if ratings_dataset_id not in self._datasets:
             return None
-        return self._rows.get(ratings_dataset_id, [])
+        return _build_rows_page(self._rows.get(ratings_dataset_id, []), limit=limit, offset=offset)
 
     def attach_to_project(self, project_id, ratings_dataset_id):
         if ratings_dataset_id not in self._datasets:

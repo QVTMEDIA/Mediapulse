@@ -116,6 +116,9 @@ Shared across projects via the Ratings Library — not owned by a single project
 - `month`
 - `region` — the vendor's own geography label from the uploaded ratings file (same convention as `MediaActivityRow.region`/`SoeActivityRow.region` — whatever header the file uses, captured as-is, `''` when unmapped). Purely informational/filterable — never used for rating matching. Not in this contract's original field list.
 - `state` — same as `region`, but the finer-grained state/province level a file may label separately from its own broader region (independent column, not a fallback for `region`). Not in this contract's original field list.
+- `duplicateSiblings` — other `RatingRow`s (a minimal shape: `ratingRowId`/`station`/`day`/`programme`/`rating`) sharing this row's Medium/Station/Day/Programme match key, computed server-side from the *whole* dataset, not just whatever page this row came back on. Empty when this row isn't part of a duplicate-key group. Not in this contract's original field list — added alongside pagination below.
+
+**`GET /ratings-datasets/{ratingsDatasetId}/rows` is paginated, not a bare `RatingRow[]`** — returns `{ rows: RatingRow[], total: int, storedInvalidRows: int }` instead. `limit` (default 20, max 1000) and `offset` query params control the page; `total` is the dataset's full row count and `storedInvalidRows` the count of stored rows that still fail validation (missing a match field, or no rating), both computed over the *whole* dataset regardless of page size. Changed from an unpaginated response after a live incident: returning an entire large dataset's rows in one response (a real 17,136-row file) helped exhaust the backend's memory and get the process killed mid-request. A caller that genuinely needs every row (e.g. the Matches screen's manual-assign picker) pages through it in large-but-bounded chunks instead of requesting it all at once — see `packages/web`'s `api/client.ts`'s `listRatingRows()`.
 
 ### Brand
 

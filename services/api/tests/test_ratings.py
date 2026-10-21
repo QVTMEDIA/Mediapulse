@@ -258,6 +258,55 @@ def test_upload_ratings_file_parses_real_spreadsheet(client):
     rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
     stations = sorted(row['station'] for row in rows)
     assert stations == ['AIT', 'TVC']
+
+
+def test_upload_ratings_file_captures_region_and_state_columns(client):
+    content = (
+        b'Channel,Day,Programme,Rating,Region,State\n'
+        b'TVC,Monday,Prime Time,1.2,South West,Lagos\n'
+        b'AIT,Tuesday,News,2.5,North Central,Niger\n'
+    )
+    response = _upload_ratings(client, content=content, filename='ratings_with_geo.csv')
+    assert response.status_code == 201
+    body = response.json()
+    assert body['rows'] == 2
+
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    by_station = {row['station']: row for row in rows}
+    assert by_station['TVC']['region'] == 'South West'
+    assert by_station['TVC']['state'] == 'Lagos'
+    assert by_station['AIT']['region'] == 'North Central'
+    assert by_station['AIT']['state'] == 'Niger'
+
+
+def test_upload_ratings_file_without_region_or_state_columns_leaves_them_blank(client):
+    response = _upload_ratings(client)  # RATINGS_CSV has no Region/State columns
+    assert response.status_code == 201
+    body = response.json()
+
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()
+    assert all(row['region'] == '' and row['state'] == '' for row in rows)
+
+
+def test_create_dataset_json_rows_round_trip_region_and_state(client):
+    response = client.post(
+        '/api/ratings-datasets',
+        json={
+            'provider': 'Agency A',
+            'rows': [
+                {
+                    'medium': 'TV', 'station': 'TVC', 'day': 'Monday', 'programme': 'Prime Time',
+                    'rating': 1.2, 'region': 'South West', 'state': 'Lagos',
+                },
+            ],
+        },
+    )
+    assert response.status_code == 201
+    dataset_id = response.json()['ratingsDatasetId']
+
+    rows = client.get(f"/api/ratings-datasets/{dataset_id}/rows").json()
+    assert rows[0]['region'] == 'South West'
+    assert rows[0]['state'] == 'Lagos'
     assert all(row['medium'] == 'TV' for row in rows)
 
 

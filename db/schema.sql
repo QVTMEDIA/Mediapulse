@@ -166,6 +166,13 @@ create table ratings (
   end_time time,
   week int,
   month int,
+  -- Geography breakdown from the uploaded ratings file, same as
+  -- media_activity.region/soe_activity.region+state -- purely
+  -- informational (filtering/reporting only), never feeds match_key.
+  -- Independent columns: a file can carry both a State and its own
+  -- broader Region side by side.
+  region text,
+  state text,
   -- normalized match key, computed the same way as grp_calculator.make_key:
   -- MEDIUM | STATION | DAY | PROGRAMME/TIME BAND — set by the trigger below,
   -- not a generated column (see the comment above this table).

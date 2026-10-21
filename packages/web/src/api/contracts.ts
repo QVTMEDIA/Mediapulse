@@ -394,6 +394,8 @@ export interface RatingRow {
   endTime: string | null;
   week: number | null;
   month: number | null;
+  region: string;
+  state: string;
 }
 
 export interface GrpCalculationRow {

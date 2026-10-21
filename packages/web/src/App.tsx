@@ -325,6 +325,16 @@ function Workspace({
     setProjects((current) => current.map((project) => (project.projectId === updated.projectId ? updated : project)));
   }
 
+  async function handleProjectDeleted() {
+    // Navigate away first -- ProjectDetailSection/ProjectManagePanel are
+    // rendered from `activeProject`, which refreshProjects() below is about
+    // to invalidate (the project no longer exists to look up). Switching
+    // sections first avoids a render where those components briefly hold a
+    // dangling `project` prop.
+    setActiveSection('projects');
+    await refreshProjects(searchInput.trim());
+  }
+
   async function handleCalculate() {
     if (!activeProject) return;
     setIsCalculating(true);
@@ -752,6 +762,7 @@ function Workspace({
                   project={activeProject}
                   currentUser={currentUser}
                   onProjectUpdated={handleProjectUpdated}
+                  onProjectDeleted={handleProjectDeleted}
                   onClose={() => setActiveSection('projects')}
                   refreshSignal={projectDataVersion}
                 />

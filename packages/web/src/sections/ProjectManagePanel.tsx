@@ -3,6 +3,7 @@ import { Trash2 } from 'lucide-react';
 import {
   ApiError,
   deleteBrand,
+  deleteProject,
   deleteUpload,
   detachRatingsDataset,
   listBrands,
@@ -39,12 +40,17 @@ export default function ProjectManagePanel({
   project,
   currentUser,
   onProjectUpdated,
+  onProjectDeleted,
   onClose,
   refreshSignal,
 }: {
   project: Project;
   currentUser: User;
   onProjectUpdated: (project: Project) => void;
+  // Project itself (not just a field on it) was deleted -- the caller
+  // needs to drop it from any project list it's holding and navigate away,
+  // since this component's own `project` prop is now a dangling reference.
+  onProjectDeleted: () => void;
   onClose: () => void;
   // Bumped by the caller after an upload or brand creation happens
   // elsewhere on the page — this panel now stays mounted continuously
@@ -54,6 +60,8 @@ export default function ProjectManagePanel({
   refreshSignal?: number;
 }) {
   const canManageData = currentUser.role === 'owner' || currentUser.role === 'admin';
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [form, setForm] = useState(toFormState(project));
   const [isSaving, setIsSaving] = useState(false);
@@ -167,6 +175,30 @@ export default function ProjectManagePanel({
       setDataError(error instanceof ApiError ? error.message : 'Could not detach that dataset.');
     } finally {
       setPendingActionId(null);
+    }
+  }
+
+  async function handleDeleteProject() {
+    // Unlike deleting a single upload/brand (protected from removing
+    // anything already part of a calculated run), deleting the whole
+    // project has no such guard on the backend — every upload, brand,
+    // match, calculated run, and attached-ratings-dataset link cascades
+    // away with it, permanently. A plain click-to-delete icon button (this
+    // app's usual pattern for the smaller deletes above) isn't enough
+    // friction for something this size, so this is the one destructive
+    // action in the app with a confirmation prompt.
+    const confirmed = window.confirm(
+      `Permanently delete "${project.projectName}"? This removes every upload, brand, match, and calculated run in it. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    setIsDeletingProject(true);
+    setDeleteError(null);
+    try {
+      await deleteProject(project.projectId);
+      onProjectDeleted();
+    } catch (error) {
+      setDeleteError(error instanceof ApiError ? error.message : 'Could not delete this project.');
+      setIsDeletingProject(false);
     }
   }
 
@@ -450,6 +482,26 @@ export default function ProjectManagePanel({
         </table>
         <LimitedRowsControls {...limitedDatasets} total={datasets.length} />
       </div>
+
+      {canManageData && (
+        <div className="danger-zone">
+          <h3>Danger zone</h3>
+          <p>
+            Deleting this project permanently removes every upload, brand, match, and calculated run in it. This
+            cannot be undone.
+          </p>
+          {deleteError && <p className="inline-error">{deleteError}</p>}
+          <button
+            type="button"
+            className="danger-button"
+            disabled={isDeletingProject}
+            onClick={handleDeleteProject}
+          >
+            <Trash2 size={15} aria-hidden />
+            {isDeletingProject ? 'Deleting…' : `Delete ${project.projectName}`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

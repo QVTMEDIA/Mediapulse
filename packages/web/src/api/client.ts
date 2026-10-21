@@ -172,6 +172,14 @@ export function archiveProject(projectId: string): Promise<Project> {
   });
 }
 
+// Owner/admin only (enforced server-side, 403 otherwise) -- unlike
+// archiving, this is permanent: every upload, brand, match, calculated
+// run, and attached-ratings-dataset link cascades away with it
+// (db/schema.sql has every project-scoped table as `on delete cascade`).
+export function deleteProject(projectId: string): Promise<void> {
+  return request<void>(`/api/projects/${projectId}`, { method: 'DELETE' });
+}
+
 export interface UpdateProjectInput {
   projectName?: string;
   projectOwner?: string;

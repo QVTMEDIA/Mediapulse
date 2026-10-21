@@ -243,7 +243,8 @@ button:disabled {
 
 .primary-button,
 .secondary-button,
-.icon-button {
+.icon-button,
+.danger-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -274,6 +275,35 @@ button:disabled {
 .icon-button {
   width: 40px;
   padding: 0;
+}
+
+.danger-zone {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid #f3b7b0;
+  border-radius: 10px;
+  background: #fdecea;
+}
+
+.danger-zone h3 {
+  margin: 0 0 4px;
+  color: var(--red);
+  font-size: 15px;
+}
+
+.danger-zone p {
+  margin: 0 0 12px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.danger-button {
+  color: #ffffff;
+  background: var(--red);
+}
+
+.danger-button:hover {
+  background: #8f1b11;
 }
 
 .match-filter-bar {

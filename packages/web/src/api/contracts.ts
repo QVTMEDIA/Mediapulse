@@ -11,6 +11,7 @@ export interface User {
   role: UserRole;
   createdAt: string;
   avatarUrl: string | null;
+  lastActiveProjectId: string | null;
 }
 
 export interface AuthSession {

@@ -120,6 +120,17 @@ create trigger projects_set_updated_at
 
 create index projects_status_idx on projects (status) where not archived;
 
+-- Added here via ALTER TABLE, not as a column on the `users` table above --
+-- `users` is created earlier in this file than `projects`, and a forward
+-- FK reference to a not-yet-created table fails at CREATE TABLE time.
+-- The project a user had open last -- restores them to it on their next
+-- login instead of whichever project anyone most recently updated
+-- (list_projects()'s own default ordering). `on delete set null` rather
+-- than cascade: deleting a project shouldn't take the user row down with
+-- it, it should just fall back to that default ordering again.
+alter table users
+  add column last_active_project_id uuid references projects(id) on delete set null;
+
 -- ---------------------------------------------------------------------------
 -- ratings_datasets / ratings  (the shared Ratings Library)
 -- ---------------------------------------------------------------------------

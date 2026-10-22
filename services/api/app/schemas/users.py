@@ -42,6 +42,7 @@ class UserOut(CamelModel):
     role: str
     created_at: datetime
     avatar_url: Optional[str] = None
+    last_active_project_id: Optional[str] = None
 
 
 class RegisterIn(CamelModel):
@@ -82,6 +83,16 @@ class UpdateProfileIn(CamelModel):
     display_name: Optional[str] = Field(default=None, max_length=200)
     current_password: Optional[str] = None
     new_password: Optional[str] = Field(default=None, min_length=8, max_length=200)
+
+
+class UpdateActiveProjectIn(CamelModel):
+    """PUT /api/auth/me/active-project -- called whenever the frontend
+    changes which project the user is looking at, so their next login opens
+    back to it. project_id=None clears it (e.g. that project was deleted),
+    falling back to the app's existing most-recently-updated-project
+    default."""
+
+    project_id: Optional[str] = None
 
 
 class UpdateAvatarIn(CamelModel):

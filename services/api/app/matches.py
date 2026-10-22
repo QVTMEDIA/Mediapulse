@@ -138,6 +138,48 @@ def _filter_station_covered_unresolved(unresolved, rating_records):
     return covered
 
 
+def describe_unmatched_reason(activity, rating_records) -> str:
+    """Best-effort, human-readable explanation for why one media_activity
+    row never resolved to a rating -- used only by the match report export
+    (GET .../matches/export) to answer "why not" for a row the CSV's
+    existing Match Status column already says is 'unmatched'. Walks the
+    same Medium -> Station -> Day narrowing a user would do by eye,
+    reusing the same normalization and fuzzy-station-coverage rules
+    compute_matches/_filter_station_covered_unresolved already use, so the
+    reason given reflects why neither the exact lookup nor the fuzzy
+    suggestion engine found anything, not a generic restatement of
+    'unmatched'. Never consulted by matching itself -- purely descriptive,
+    computed fresh per export rather than persisted anywhere."""
+    if not rating_records:
+        return 'No ratings attached to this project'
+
+    activity_medium = normalize_medium(getattr(activity, 'medium', ''))
+    activity_station = normalize_station(getattr(activity, 'station', ''))
+    activity_day = normalize_day(getattr(activity, 'day', ''))
+
+    same_medium = [r for r in rating_records if normalize_medium(getattr(r, 'medium', '')) == activity_medium]
+    if not same_medium:
+        return f"No ratings for Medium '{activity.medium}'"
+
+    stations_by_medium = _rating_station_index(same_medium)
+    if not _has_station_candidate(activity_medium, activity_station, stations_by_medium):
+        return f"No rating for Station '{activity.station}' under Medium '{activity.medium}' (or a close match)"
+
+    def _station_matches(rating_station_norm: str) -> bool:
+        if rating_station_norm == activity_station:
+            return True
+        if not activity_station or not rating_station_norm:
+            return False
+        return calc.fuzz.token_set_ratio(activity_station, rating_station_norm) / 100 >= STATION_SUGGESTION_THRESHOLD
+
+    same_station = [r for r in same_medium if _station_matches(normalize_station(getattr(r, 'station', '')))]
+    same_day = [r for r in same_station if normalize_day(getattr(r, 'day', '')) == activity_day]
+    if not same_day:
+        return f"Station matches, but no rating for '{activity.station}' on '{activity.day}'"
+
+    return 'Station and Day match, but no rating entry for this Programme/Time Band'
+
+
 def compute_matches(media_activity_records, rating_records, *, include_suggestions: bool = True) -> List[ComputedMatch]:
     if not media_activity_records:
         return []

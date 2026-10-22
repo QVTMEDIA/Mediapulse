@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.auth import get_current_user
 from app.calculations import compute_run
 from app.main import app
-from app.matches import compute_matches
+from app.matches import compute_matches, describe_unmatched_reason
 from app.repositories.brands import InMemoryBrandsRepository, get_brands_repository
 from app.repositories.mapping_templates import InMemoryMappingTemplatesRepository, get_mapping_templates_repository
 from app.repositories.matches import InMemoryMatchesRepository, get_matches_repository
@@ -249,6 +249,47 @@ def test_compute_matches_does_not_bridge_genuine_medium_differences():
 
     assert len(result) == 1
     assert result[0].match_status == 'unmatched'
+
+
+def test_describe_unmatched_reason_with_no_ratings_at_all():
+    activity = _media_activity(station='XYZ FM')
+    assert describe_unmatched_reason(activity, []) == 'No ratings attached to this project'
+
+
+def test_describe_unmatched_reason_with_no_ratings_for_medium():
+    activity = _media_activity(medium='Radio', station='XYZ FM')
+    ratings = [_rating_row('rating-1', medium='TV', station='TVC')]
+
+    reason = describe_unmatched_reason(activity, ratings)
+
+    assert reason == "No ratings for Medium 'Radio'"
+
+
+def test_describe_unmatched_reason_with_no_matching_station():
+    activity = _media_activity(medium='TV', station='XYZ FM')
+    ratings = [_rating_row('rating-1', medium='TV', station='TVC'), _rating_row('rating-2', medium='TV', station='AIT')]
+
+    reason = describe_unmatched_reason(activity, ratings)
+
+    assert reason == "No rating for Station 'XYZ FM' under Medium 'TV' (or a close match)"
+
+
+def test_describe_unmatched_reason_station_matches_fuzzily_but_no_candidate_for_the_day():
+    activity = _media_activity(medium='TV', station='AIT Lagos', day='Wednesday')
+    ratings = [_rating_row('rating-1', medium='TV', station='AIT', day='Monday')]
+
+    reason = describe_unmatched_reason(activity, ratings)
+
+    assert reason == "Station matches, but no rating for 'AIT Lagos' on 'Wednesday'"
+
+
+def test_describe_unmatched_reason_with_station_and_day_matched_but_no_slot():
+    activity = _media_activity(medium='TV', station='TVC', day='Monday', programme='Breakfast Show')
+    ratings = [_rating_row('rating-1', medium='TV', station='TVC', day='Monday', programme='Evening News')]
+
+    reason = describe_unmatched_reason(activity, ratings)
+
+    assert reason == 'Station and Day match, but no rating entry for this Programme/Time Band'
 
 
 def test_compute_matches_does_not_suggest_incompatible_time_band():
@@ -1152,7 +1193,7 @@ def test_export_matches_returns_csv_with_activity_and_rating_details(client, pro
         'Brand', 'Medium', 'Station', 'Day', 'Programme', 'Time Band', 'Spots', 'Cost',
         'Match Status', 'Match Confidence',
         'Matched Rating Station', 'Matched Rating Day', 'Matched Rating Programme', 'Matched Rating Time Band',
-        'Matched Rating (%)', 'Corrected At',
+        'Matched Rating (%)', 'Reason Not Matched', 'Corrected At',
     ]
     assert len(body) == 3  # matches UPLOAD_CSV's 3 rows: exact, suggested, unmatched
 
@@ -1161,12 +1202,19 @@ def test_export_matches_returns_csv_with_activity_and_rating_details(client, pro
     assert exact_row[1:5] == ['TV', 'TVC', 'Monday', 'Prime Time']  # Medium/Station/Day/Programme
     assert exact_row[10] == 'TVC'  # Matched Rating Station
     assert exact_row[14] == '1.2'  # Matched Rating (%)
+    assert exact_row[15] == ''  # Reason Not Matched -- blank, it matched
 
     suggested_row = by_status['suggested']
     assert suggested_row[10] == 'AIT'  # matched to the near-match rating, not the input station
+    assert suggested_row[15] == ''  # Reason Not Matched -- blank, it matched
 
     unmatched_row = by_status['unmatched']
     assert unmatched_row[10] == ''  # no matched rating at all
+    # XYZ FM has no station (or close fuzzy match) anywhere in the attached
+    # ratings' TV medium -- the only station the real matching engine ever
+    # tries against for this row, same tier compute_matches itself checks
+    # before even attempting a fuzzy suggestion scan.
+    assert unmatched_row[15] == "No rating for Station 'XYZ FM' under Medium 'TV' (or a close match)"
 
 
 def test_export_matches_includes_time_band(client, project, brand):

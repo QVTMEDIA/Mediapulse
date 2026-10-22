@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from ..auth import get_current_user
 from ..calculations import resolve_rating_by_id
 from ..match_jobs import get_match_job, start_match_job
-from ..matches import compute_matches
+from ..matches import compute_matches, describe_unmatched_reason
 from ..repositories.brands import BrandsRepository, get_brands_repository
 from ..repositories.matches import MatchesRepository, RatingMatchRecord, get_matches_repository
 from ..repositories.projects import ProjectsRepository, get_projects_repository
@@ -183,11 +183,14 @@ def export_matches(
         'Brand', 'Medium', 'Station', 'Day', 'Programme', 'Time Band', 'Spots', 'Cost',
         'Match Status', 'Match Confidence',
         'Matched Rating Station', 'Matched Rating Day', 'Matched Rating Programme', 'Matched Rating Time Band',
-        'Matched Rating (%)', 'Corrected At',
+        'Matched Rating (%)', 'Reason Not Matched', 'Corrected At',
     ])
     for match in records:
         activity = activity_by_id.get(match.media_activity_id)
         rating = ratings_by_id.get(match.matched_rating_id) if match.matched_rating_id else None
+        # Only an 'unmatched' row needs explaining -- 'exact'/'suggested'/
+        # 'manual' already show what they matched to in the columns above.
+        reason = describe_unmatched_reason(activity, rating_rows) if activity and match.match_status == 'unmatched' else ''
         writer.writerow([
             _brand_name(activity.brand_id) if activity else '',
             activity.medium if activity else '',
@@ -204,6 +207,7 @@ def export_matches(
             rating.programme if rating else '',
             rating.time_band if rating else '',
             rating.rating if rating else None,
+            reason,
             match.corrected_at,
         ])
 

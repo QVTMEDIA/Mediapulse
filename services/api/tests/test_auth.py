@@ -1,11 +1,13 @@
 import base64
+import uuid
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.repositories.projects import InMemoryProjectsRepository, get_projects_repository
-from app.repositories.users import InMemoryUsersRepository, get_users_repository
+from app.repositories.users import InMemoryUsersRepository, _row_to_record, get_users_repository
 
 
 @pytest.fixture
@@ -430,6 +432,49 @@ def test_user_can_set_and_clear_last_active_project(client):
     clear_response = client.put('/api/auth/me/active-project', json={'projectId': None}, headers=headers)
     assert clear_response.status_code == 200
     assert clear_response.json()['lastActiveProjectId'] is None
+
+
+def test_row_to_record_casts_last_active_project_id_to_a_plain_string():
+    # Regression: found live on Render -- psycopg returns a uuid.UUID
+    # object (not a str) for a Postgres `uuid` column, same reason `id` is
+    # str()-cast two lines above this field in _row_to_record. Without the
+    # same cast here, every GET /auth/me (and therefore every login) for a
+    # user with last_active_project_id set hard-500'd on a pydantic
+    # ValidationError ("Input should be a valid string ... input_type=UUID"),
+    # since UserOut.last_active_project_id is a plain str field and
+    # pydantic doesn't coerce a UUID into one. The in-memory repository
+    # never exercises this -- it only ever stores plain str ids -- so this
+    # is exercised directly against a row shaped like psycopg's real output.
+    row = {
+        'id': uuid.uuid4(),
+        'email': 'uuidrow@example.com',
+        'display_name': 'UUID Row',
+        'password_hash': 'hash',
+        'role': 'member',
+        'created_at': datetime.now(timezone.utc),
+        'avatar_data_url': None,
+        'last_active_project_id': uuid.uuid4(),
+    }
+
+    record = _row_to_record(row)
+
+    assert isinstance(record.last_active_project_id, str)
+    assert record.last_active_project_id == str(row['last_active_project_id'])
+
+
+def test_row_to_record_leaves_last_active_project_id_null_when_unset():
+    row = {
+        'id': uuid.uuid4(),
+        'email': 'nouuidrow@example.com',
+        'display_name': 'No UUID Row',
+        'password_hash': 'hash',
+        'role': 'member',
+        'created_at': datetime.now(timezone.utc),
+        'avatar_data_url': None,
+        'last_active_project_id': None,
+    }
+
+    assert _row_to_record(row).last_active_project_id is None
 
 
 def test_update_active_project_requires_authentication(client):

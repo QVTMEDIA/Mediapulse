@@ -75,7 +75,12 @@ def _row_to_record(row: dict) -> UserRecord:
         # db/pending_migrations.sql for this column. See services/api/
         # README.md's users.avatar_data_url incident for what bracket
         # access on a brand-new column here broke last time (every login).
-        last_active_project_id=row.get('last_active_project_id'),
+        # str(...) if set, not a bare pass-through -- psycopg returns a
+        # uuid.UUID object for a `uuid` column (same reason `id` above is
+        # str()-cast), and UserOut.last_active_project_id is a plain str
+        # field: pydantic doesn't coerce a UUID into one, so every login
+        # for a user with this column set was a hard 500 until this cast.
+        last_active_project_id=str(row.get('last_active_project_id')) if row.get('last_active_project_id') else None,
     )
 
 

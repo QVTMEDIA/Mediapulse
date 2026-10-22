@@ -35,6 +35,7 @@ import {
   setAuthToken,
   startCalculationJob,
   unarchiveProject,
+  updateActiveProject,
   uploadMediaReport,
 } from './api/client';
 import type { AuthSession, Brand, MappingWarning, Project, UploadKind, User } from './api/contracts';
@@ -245,15 +246,31 @@ function Workspace({
     try {
       const results = await listProjects({ search, includeArchived: showArchived });
       setProjects(results);
-      setActiveProjectId((current) =>
-        current && results.some((project) => project.projectId === current) ? current : results[0]?.projectId ?? null,
-      );
+      setActiveProjectId((current) => {
+        if (current && results.some((project) => project.projectId === current)) return current;
+        // No valid current selection (first load, or the active project just
+        // vanished from this list) -- prefer this user's own last active
+        // project over the list's own default ordering (most-recently-
+        // updated-by-anyone), falling back to that ordering when there's no
+        // preference or it's no longer in this result set.
+        const preferred = currentUser.lastActiveProjectId;
+        if (preferred && results.some((project) => project.projectId === preferred)) return preferred;
+        return results[0]?.projectId ?? null;
+      });
     } catch (error) {
       setProjectsError(error instanceof ApiError ? error.message : 'Could not reach the Mediapulse API.');
     } finally {
       setProjectsLoading(false);
     }
-  }, [showArchived]);
+  }, [showArchived, currentUser.lastActiveProjectId]);
+
+  // Fire-and-forget: records which project this user is looking at so their
+  // next login opens back to it (PUT /api/auth/me/active-project). Never
+  // blocks the UI on it, and a failure here (e.g. offline) only costs the
+  // next-login convenience, not anything in this session.
+  function rememberActiveProject(projectId: string) {
+    void updateActiveProject(projectId).catch(() => {});
+  }
 
   // Debounced so every keystroke in the search box doesn't fire a request.
   useEffect(() => {
@@ -309,6 +326,7 @@ function Workspace({
       setIsCreating(false);
       await refreshProjects(searchInput.trim());
       setActiveProjectId(created.projectId);
+      rememberActiveProject(created.projectId);
     } catch (error) {
       setFormError(error instanceof ApiError ? error.message : 'Could not create the project.');
     } finally {
@@ -859,6 +877,7 @@ function Workspace({
                     onSelect={() => {
                       setActiveProjectId(project.projectId);
                       setActiveSection('projectDetail');
+                      rememberActiveProject(project.projectId);
                     }}
                   />
                 ))}

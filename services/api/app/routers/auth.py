@@ -2,8 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_user
 from ..config import get_settings
+from ..repositories.projects import ProjectsRepository, get_projects_repository
 from ..repositories.users import UserRecord, UsersRepository, get_users_repository
-from ..schemas.users import LoginIn, RegisterIn, TokenOut, UpdateAvatarIn, UpdateProfileIn, UserOut
+from ..schemas.users import (
+    LoginIn,
+    RegisterIn,
+    TokenOut,
+    UpdateActiveProjectIn,
+    UpdateAvatarIn,
+    UpdateProfileIn,
+    UserOut,
+)
 from ..security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix='/api/auth', tags=['auth'])
@@ -17,6 +26,7 @@ def _to_out(record: UserRecord) -> UserOut:
         role=record.role,
         created_at=record.created_at,
         avatar_url=record.avatar_data_url,
+        last_active_project_id=record.last_active_project_id,
     )
 
 
@@ -101,4 +111,23 @@ def remove_avatar(
     users_repo: UsersRepository = Depends(get_users_repository),
 ):
     record = users_repo.update_avatar(current_user.id, None)
+    return _to_out(record)
+
+
+@router.put('/me/active-project', response_model=UserOut)
+def update_active_project(
+    payload: UpdateActiveProjectIn,
+    current_user: UserRecord = Depends(get_current_user),
+    users_repo: UsersRepository = Depends(get_users_repository),
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+):
+    """Called whenever the frontend switches which project is active, so
+    the app can open back to it on this user's next login instead of
+    always defaulting to whichever project anyone most recently updated.
+    Fire-and-forget from the frontend's point of view -- its own in-memory
+    activeProjectId state already drives the current session, this just
+    records it for next time."""
+    if payload.project_id is not None and projects_repo.get_project(payload.project_id) is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    record = users_repo.update_last_active_project(current_user.id, payload.project_id)
     return _to_out(record)

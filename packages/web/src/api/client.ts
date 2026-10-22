@@ -133,6 +133,10 @@ export function removeAvatar(): Promise<User> {
   return request<User>('/api/auth/me/avatar', { method: 'DELETE' });
 }
 
+export function updateActiveProject(projectId: string | null): Promise<User> {
+  return request<User>('/api/auth/me/active-project', { method: 'PUT', body: JSON.stringify({ projectId }) });
+}
+
 export function listUsers(): Promise<User[]> {
   return request<User[]>('/api/users');
 }

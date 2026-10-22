@@ -20,6 +20,7 @@ class UserRecord:
     role: str
     created_at: datetime
     avatar_data_url: Optional[str] = None
+    last_active_project_id: Optional[str] = None
 
 
 class UsersRepository(Protocol):
@@ -51,6 +52,13 @@ class UsersRepository(Protocol):
         "leave unchanged," which can't also represent "clear this one"."""
         ...
 
+    def update_last_active_project(self, user_id: str, project_id: Optional[str]) -> Optional[UserRecord]:
+        """Sets last_active_project_id to exactly the given value, including
+        None to clear it (e.g. the project it pointed at was deleted) --
+        same reasoning as update_avatar, a plain assignment rather than a
+        COALESCE-guarded field on update_profile."""
+        ...
+
 
 def _row_to_record(row: dict) -> UserRecord:
     return UserRecord(
@@ -61,6 +69,13 @@ def _row_to_record(row: dict) -> UserRecord:
         role=row['role'],
         created_at=row['created_at'],
         avatar_data_url=row['avatar_data_url'],
+        # row.get(...), not bracket access -- same defensive read as
+        # ratings.region/state, specifically so every user lookup (login
+        # included) keeps working on a live instance that hasn't yet run
+        # db/pending_migrations.sql for this column. See services/api/
+        # README.md's users.avatar_data_url incident for what bracket
+        # access on a brand-new column here broke last time (every login).
+        last_active_project_id=row.get('last_active_project_id'),
     )
 
 
@@ -126,6 +141,13 @@ class PostgresUsersRepository:
             ).fetchone()
         return _row_to_record(row) if row else None
 
+    def update_last_active_project(self, user_id: str, project_id: Optional[str]):
+        with get_connection() as conn:
+            row = conn.execute(
+                'UPDATE users SET last_active_project_id = %s WHERE id = %s RETURNING *', [project_id, user_id]
+            ).fetchone()
+        return _row_to_record(row) if row else None
+
 
 class InMemoryUsersRepository:
     """Stand-in for tests and for local exploration without Postgres running
@@ -184,6 +206,13 @@ class InMemoryUsersRepository:
         if record is None:
             return None
         record.avatar_data_url = avatar_data_url
+        return record
+
+    def update_last_active_project(self, user_id: str, project_id: Optional[str]):
+        record = self._rows.get(user_id)
+        if record is None:
+            return None
+        record.last_active_project_id = project_id
         return record
 
 

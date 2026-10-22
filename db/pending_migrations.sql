@@ -95,3 +95,10 @@ alter table ratings
   add column if not exists region text;
 alter table ratings
   add column if not exists state text;
+
+-- Per-user "last active project" -- services/api PR "Load the app to each
+-- user's own last active project instead of whichever project anyone most
+-- recently updated". `on delete set null`: deleting a project shouldn't
+-- take the user row down with it.
+alter table users
+  add column if not exists last_active_project_id uuid references projects(id) on delete set null;

@@ -407,6 +407,46 @@ def test_team_roster_omits_avatar_data(client):
     assert all(user.get('avatarUrl') is None for user in response.json())
 
 
+def test_last_active_project_is_null_by_default(client):
+    token = _register(client, email='noactiveproject@example.com').json()['accessToken']
+    response = client.get('/api/auth/me', headers={'Authorization': f'Bearer {token}'})
+    assert response.json()['lastActiveProjectId'] is None
+
+
+def test_user_can_set_and_clear_last_active_project(client):
+    token = _register(client, email='activeproject@example.com').json()['accessToken']
+    headers = {'Authorization': f'Bearer {token}'}
+    project = client.post('/api/projects', json={'projectName': 'Q1 Push'}, headers=headers).json()
+
+    set_response = client.put(
+        '/api/auth/me/active-project', json={'projectId': project['projectId']}, headers=headers
+    )
+    assert set_response.status_code == 200
+    assert set_response.json()['lastActiveProjectId'] == project['projectId']
+
+    me_response = client.get('/api/auth/me', headers=headers)
+    assert me_response.json()['lastActiveProjectId'] == project['projectId']
+
+    clear_response = client.put('/api/auth/me/active-project', json={'projectId': None}, headers=headers)
+    assert clear_response.status_code == 200
+    assert clear_response.json()['lastActiveProjectId'] is None
+
+
+def test_update_active_project_requires_authentication(client):
+    response = client.put('/api/auth/me/active-project', json={'projectId': None})
+    assert response.status_code == 401
+
+
+def test_update_active_project_rejects_unknown_project(client):
+    token = _register(client, email='badproject@example.com').json()['accessToken']
+    response = client.put(
+        '/api/auth/me/active-project',
+        json={'projectId': 'does-not-exist'},
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    assert response.status_code == 404
+
+
 def test_update_role_rejects_unknown_role(client):
     owner_body = _register(client, email='owner9@example.com').json()
     owner_token = owner_body['accessToken']

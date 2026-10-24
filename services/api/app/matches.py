@@ -138,7 +138,55 @@ def _filter_station_covered_unresolved(unresolved, rating_records):
     return covered
 
 
-def describe_unmatched_reason(activity, rating_records) -> str:
+@dataclass
+class UnmatchedReasonContext:
+    """Precomputed once per export call (build_unmatched_reason_context),
+    not once per unmatched row -- see that function's docstring for why."""
+
+    has_ratings: bool
+    mediums: frozenset
+    stations_by_medium: Dict[str, tuple]
+    station_days: Dict[tuple, frozenset]
+
+
+def build_unmatched_reason_context(rating_records) -> UnmatchedReasonContext:
+    """Indexes a project's ratings once, for describe_unmatched_reason() to
+    reuse across every unmatched row in a match report export.
+
+    Regression: describe_unmatched_reason() used to re-filter and re-index
+    the FULL ratings list from scratch on every call, and -- worse -- its
+    station-fuzzy-match check ran once per *rating row* sharing a medium
+    (not once per distinct station), so a project with many ratings rows
+    per station paid a full rapidfuzz comparison per row, per unmatched
+    activity row. A real-shaped stress case (15,000 ratings rows across 50
+    stations, 2,000 unmatched activity rows with no matching station at
+    all -- the worst case, since nothing short-circuits) took over three
+    minutes and never returned, which is indistinguishable from a crash to
+    a caller: Render's own request/health-check timeout kills the
+    connection before any response (including its CORS headers) is ever
+    sent, which the browser reports as a CORS failure -- the same red
+    herring already documented in services/api/README.md's
+    users.avatar_data_url and upload-freeze incidents. Building this index
+    once (O(ratings)) and scoring fuzzy-match candidates only against each
+    medium's *distinct* stations (bounded, not row-count-based) brings an
+    export back down to a fraction of a second at the same scale."""
+    mediums: set = set()
+    station_days: Dict[tuple, set] = {}
+    for rating in rating_records:
+        medium = normalize_medium(getattr(rating, 'medium', ''))
+        station = normalize_station(getattr(rating, 'station', ''))
+        day = normalize_day(getattr(rating, 'day', ''))
+        mediums.add(medium)
+        station_days.setdefault((medium, station), set()).add(day)
+    return UnmatchedReasonContext(
+        has_ratings=bool(rating_records),
+        mediums=frozenset(mediums),
+        stations_by_medium=_rating_station_index(rating_records),
+        station_days={key: frozenset(days) for key, days in station_days.items()},
+    )
+
+
+def describe_unmatched_reason(activity, context: UnmatchedReasonContext) -> str:
     """Best-effort, human-readable explanation for why one media_activity
     row never resolved to a rating -- used only by the match report export
     (GET .../matches/export) to answer "why not" for a row the CSV's
@@ -148,33 +196,38 @@ def describe_unmatched_reason(activity, rating_records) -> str:
     compute_matches/_filter_station_covered_unresolved already use, so the
     reason given reflects why neither the exact lookup nor the fuzzy
     suggestion engine found anything, not a generic restatement of
-    'unmatched'. Never consulted by matching itself -- purely descriptive,
-    computed fresh per export rather than persisted anywhere."""
-    if not rating_records:
+    'unmatched'. Never consulted by matching itself -- purely descriptive.
+    Takes a context from build_unmatched_reason_context(), built once per
+    export rather than re-derived from the full ratings list on every
+    call -- see that function's docstring for why that distinction matters
+    at scale."""
+    if not context.has_ratings:
         return 'No ratings attached to this project'
 
     activity_medium = normalize_medium(getattr(activity, 'medium', ''))
     activity_station = normalize_station(getattr(activity, 'station', ''))
     activity_day = normalize_day(getattr(activity, 'day', ''))
 
-    same_medium = [r for r in rating_records if normalize_medium(getattr(r, 'medium', '')) == activity_medium]
-    if not same_medium:
+    if activity_medium not in context.mediums:
         return f"No ratings for Medium '{activity.medium}'"
 
-    stations_by_medium = _rating_station_index(same_medium)
-    if not _has_station_candidate(activity_medium, activity_station, stations_by_medium):
+    if not _has_station_candidate(activity_medium, activity_station, context.stations_by_medium):
         return f"No rating for Station '{activity.station}' under Medium '{activity.medium}' (or a close match)"
 
-    def _station_matches(rating_station_norm: str) -> bool:
-        if rating_station_norm == activity_station:
-            return True
-        if not activity_station or not rating_station_norm:
-            return False
-        return calc.fuzz.token_set_ratio(activity_station, rating_station_norm) / 100 >= STATION_SUGGESTION_THRESHOLD
-
-    same_station = [r for r in same_medium if _station_matches(normalize_station(getattr(r, 'station', '')))]
-    same_day = [r for r in same_station if normalize_day(getattr(r, 'day', '')) == activity_day]
-    if not same_day:
+    # Fuzzy-scored against this medium's distinct stations only (typically
+    # a handful to a few hundred), never against every rating row sharing
+    # one -- the fix for the O(ratings rows) blowup described above.
+    candidate_stations = context.stations_by_medium.get(activity_medium, ())
+    matching_stations = {
+        candidate for candidate in candidate_stations
+        if candidate == activity_station
+        or calc.fuzz.token_set_ratio(activity_station, candidate) / 100 >= STATION_SUGGESTION_THRESHOLD
+    }
+    has_day = any(
+        activity_day in context.station_days.get((activity_medium, station), ())
+        for station in matching_stations
+    )
+    if not has_day:
         return f"Station matches, but no rating for '{activity.station}' on '{activity.day}'"
 
     return 'Station and Day match, but no rating entry for this Programme/Time Band'

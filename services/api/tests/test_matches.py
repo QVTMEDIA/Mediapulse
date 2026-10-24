@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.auth import get_current_user
 from app.calculations import compute_run
 from app.main import app
-from app.matches import compute_matches, describe_unmatched_reason
+from app.matches import build_unmatched_reason_context, compute_matches, describe_unmatched_reason
 from app.repositories.brands import InMemoryBrandsRepository, get_brands_repository
 from app.repositories.mapping_templates import InMemoryMappingTemplatesRepository, get_mapping_templates_repository
 from app.repositories.matches import InMemoryMatchesRepository, get_matches_repository
@@ -253,14 +253,15 @@ def test_compute_matches_does_not_bridge_genuine_medium_differences():
 
 def test_describe_unmatched_reason_with_no_ratings_at_all():
     activity = _media_activity(station='XYZ FM')
-    assert describe_unmatched_reason(activity, []) == 'No ratings attached to this project'
+    context = build_unmatched_reason_context([])
+    assert describe_unmatched_reason(activity, context) == 'No ratings attached to this project'
 
 
 def test_describe_unmatched_reason_with_no_ratings_for_medium():
     activity = _media_activity(medium='Radio', station='XYZ FM')
     ratings = [_rating_row('rating-1', medium='TV', station='TVC')]
 
-    reason = describe_unmatched_reason(activity, ratings)
+    reason = describe_unmatched_reason(activity, build_unmatched_reason_context(ratings))
 
     assert reason == "No ratings for Medium 'Radio'"
 
@@ -269,7 +270,7 @@ def test_describe_unmatched_reason_with_no_matching_station():
     activity = _media_activity(medium='TV', station='XYZ FM')
     ratings = [_rating_row('rating-1', medium='TV', station='TVC'), _rating_row('rating-2', medium='TV', station='AIT')]
 
-    reason = describe_unmatched_reason(activity, ratings)
+    reason = describe_unmatched_reason(activity, build_unmatched_reason_context(ratings))
 
     assert reason == "No rating for Station 'XYZ FM' under Medium 'TV' (or a close match)"
 
@@ -278,7 +279,7 @@ def test_describe_unmatched_reason_station_matches_fuzzily_but_no_candidate_for_
     activity = _media_activity(medium='TV', station='AIT Lagos', day='Wednesday')
     ratings = [_rating_row('rating-1', medium='TV', station='AIT', day='Monday')]
 
-    reason = describe_unmatched_reason(activity, ratings)
+    reason = describe_unmatched_reason(activity, build_unmatched_reason_context(ratings))
 
     assert reason == "Station matches, but no rating for 'AIT Lagos' on 'Wednesday'"
 
@@ -287,9 +288,25 @@ def test_describe_unmatched_reason_with_station_and_day_matched_but_no_slot():
     activity = _media_activity(medium='TV', station='TVC', day='Monday', programme='Breakfast Show')
     ratings = [_rating_row('rating-1', medium='TV', station='TVC', day='Monday', programme='Evening News')]
 
-    reason = describe_unmatched_reason(activity, ratings)
+    reason = describe_unmatched_reason(activity, build_unmatched_reason_context(ratings))
 
     assert reason == 'Station and Day match, but no rating entry for this Programme/Time Band'
+
+
+def test_describe_unmatched_reason_station_candidate_from_a_different_station_doesnt_leak_days():
+    # Regression guard for the rewrite that scores fuzzy-match candidates
+    # against each medium's distinct stations rather than every rating row
+    # -- a day that only exists for a DIFFERENT (non-matching) station must
+    # not count as a hit just because it shares the dict grouping.
+    activity = _media_activity(medium='TV', station='TVC', day='Friday')
+    ratings = [
+        _rating_row('rating-1', medium='TV', station='TVC', day='Monday'),
+        _rating_row('rating-2', medium='TV', station='AIT', day='Friday'),
+    ]
+
+    reason = describe_unmatched_reason(activity, build_unmatched_reason_context(ratings))
+
+    assert reason == "Station matches, but no rating for 'TVC' on 'Friday'"
 
 
 def test_compute_matches_does_not_suggest_incompatible_time_band():

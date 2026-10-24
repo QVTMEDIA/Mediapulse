@@ -221,6 +221,29 @@ def test_calculate_job_completes_and_returns_run(client, project):
     assert latest['runId'] == job['run']['runId']
 
 
+def test_calculate_job_reports_stage_progress(client, project):
+    # calculation_jobs.py's progress is stage-based (compute_run() has no
+    # per-row Python loop to count through) -- total is fixed from job
+    # creation (CALCULATION_STAGE_COUNT), processed advances to exactly
+    # that total once the job completes, never beyond it.
+    brand = _brand(client, project['projectId'], 'Brand A')
+    _upload(client, project['projectId'], brand['brandId'], BRAND_A_CSV)
+    _attach_ratings(client, project['projectId'], BRAND_A_RATINGS)
+
+    job = client.post(f"/api/projects/{project['projectId']}/calculate/jobs").json()
+    assert job['total'] > 0
+    assert 0 <= job['processed'] <= job['total']
+
+    for _ in range(40):
+        if job['status'] in ('completed', 'failed'):
+            break
+        time.sleep(0.05)
+        job = client.get(f"/api/projects/{project['projectId']}/calculate/jobs/{job['jobId']}").json()
+
+    assert job['status'] == 'completed'
+    assert job['processed'] == job['total']
+
+
 def test_calculate_job_rejects_missing_project(client):
     response = client.post('/api/projects/does-not-exist/calculate/jobs')
     assert response.status_code == 404

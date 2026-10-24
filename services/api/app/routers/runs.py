@@ -76,6 +76,8 @@ def _job_to_out(job) -> CalculationJobOut:
         status=job.status,
         error=job.error,
         run=_run_to_out(job.run) if job.run else None,
+        total=job.total,
+        processed=job.processed,
     )
 
 

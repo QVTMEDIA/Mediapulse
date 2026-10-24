@@ -1421,6 +1421,16 @@ h3.subsection {
     display: grid;
     grid-template-columns: 1fr;
     padding: 14px;
+    /* The base .sidebar rule pins it to height: 100vh for the desktop
+       two-column layout (see its own comment) -- left un-reset here, the
+       stacked single-column mobile layout below still gave it the full
+       viewport height, leaving most of that space empty (just a brand
+       mark, a horizontal nav strip, and the user chip) while pushing
+       every bit of actual page content a full screen-height down and,
+       because the sidebar stays position: sticky, intercepting clicks on
+       whatever scrolled underneath it. Auto-height here lets it hug its
+       own (much shorter) content instead. */
+    height: auto;
   }
 
   .nav-list {
@@ -1695,7 +1705,20 @@ h3.subsection {
   .project-meta,
   .dataset-row,
   .dataset-row.dataset-row-with-priority {
-    grid-template-columns: 1fr;
+    /* minmax(0, 1fr), not a bare 1fr -- a bare 1fr track still honors
+       the widest min-content size among its children as an implicit
+       floor (the same pitfall the >1100px breakpoint below already
+       guards against with repeat(2, minmax(0, 1fr))). Found live: a
+       calculated Reports page's single-column .content-grid was
+       stretching to ~436px on a 375px-wide viewport -- every panel in
+       it (even ones with no wide content of their own) inheriting that
+       same oversized shared track -- because this rule's own bare 1fr
+       let one wide child (likely a .table-scroll-wrapped <table>, whose
+       automatic minimum-size clamp only applies when it is itself the
+       grid item, not nested one level inside .panel) set the floor for
+       the whole column. minmax(0, 1fr) caps the track to the
+       container's actual available width regardless of content. */
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .dataset-stat {

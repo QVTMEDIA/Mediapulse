@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 
 from .common import CamelModel
 
@@ -59,3 +59,14 @@ class SoeUploadOut(CamelModel):
     mapped_rows: int
     issue_rows: int
     uploaded_at: datetime
+
+
+class SoeUploadJobOut(CamelModel):
+    job_id: str
+    status: str  # 'queued' | 'running' | 'completed' | 'failed'
+    error: Optional[str] = None
+    # Real progress -- see schemas/uploads.py's UploadJobOut (the project-
+    # upload equivalent) for what total/processed mean.
+    total: int = 0
+    processed: int = 0
+    upload: Optional[SoeUploadOut] = None

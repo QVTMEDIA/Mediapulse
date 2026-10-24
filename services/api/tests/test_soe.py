@@ -1,4 +1,5 @@
 import io
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -315,4 +316,51 @@ def test_soe_delete_upload_removes_it_and_its_activity(client):
 
 def test_soe_delete_rejects_missing_upload(client):
     response = client.delete('/api/soe/uploads/does-not-exist')
+    assert response.status_code == 404
+
+
+def _post_soe_upload_job(client, content=SOE_CSV, filename='spend.csv', **form):
+    files = {'file': (filename, io.BytesIO(content), 'text/csv')}
+    return client.post('/api/soe/uploads/jobs', files=files, data=form)
+
+
+def _await_soe_job(client, job):
+    for _ in range(40):
+        if job['status'] in ('completed', 'failed'):
+            break
+        time.sleep(0.05)
+        job = client.get(f"/api/soe/uploads/jobs/{job['jobId']}").json()
+    return job
+
+
+def test_soe_upload_job_reports_progress_and_completes(client):
+    # Job-based twin of the plain POST /soe/uploads route -- total is
+    # SOE_CSV's row count (4), processed advances to exactly that total
+    # once insert_rows_batched's on_batch callback has fired for every row
+    # (soe's Postgres backend used to executemany() one row at a time with
+    # no batching and no progress hook at all; see repositories/soe.py).
+    response = _post_soe_upload_job(client)
+    assert response.status_code == 202
+    job = response.json()
+    assert job['status'] in ('queued', 'running', 'completed')
+    assert 0 <= job['processed'] <= job['total']
+
+    job = _await_soe_job(client, job)
+    assert job['status'] == 'completed'
+    assert job['total'] == 4
+    assert job['processed'] == job['total']
+    assert job['upload']['fileName'] == 'spend.csv'
+    assert job['upload']['mappedRows'] == 4
+
+    report = client.get('/api/soe', params={'uploadId': job['upload']['uploadId']}).json()
+    assert report['totalSpend'] == pytest.approx(600000)
+
+
+def test_soe_upload_job_rejects_unparseable_file(client):
+    response = _post_soe_upload_job(client, content=b'not really a report', filename='garbage.xlsm')
+    assert response.status_code == 422
+
+
+def test_get_soe_upload_job_rejects_unknown_job_id(client):
+    response = client.get('/api/soe/uploads/jobs/does-not-exist')
     assert response.status_code == 404

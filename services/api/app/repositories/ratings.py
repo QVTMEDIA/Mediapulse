@@ -141,7 +141,13 @@ class RatingsRepository(Protocol):
 
     def get_dataset(self, ratings_dataset_id: str) -> Optional[RatingsDatasetRecord]: ...
 
-    def create_dataset(self, data: RatingsDatasetCreate, extra_invalid_rows: int = 0) -> RatingsDatasetRecord: ...
+    def create_dataset(
+        self, data: RatingsDatasetCreate, extra_invalid_rows: int = 0, on_batch=None
+    ) -> RatingsDatasetRecord:
+        """on_batch, if given, is called with how many rows were just
+        inserted after each real batch/row lands -- see
+        UploadsRepository.create_upload_with_activity's identical param."""
+        ...
 
     def list_rows_page(self, ratings_dataset_id: str, *, limit: int, offset: int) -> Optional[RatingsRowsPage]: ...
 
@@ -238,7 +244,7 @@ class PostgresRatingsRepository:
             ).fetchone()
         return _dataset_row_to_record(row) if row else None
 
-    def create_dataset(self, data: RatingsDatasetCreate, extra_invalid_rows: int = 0):
+    def create_dataset(self, data: RatingsDatasetCreate, extra_invalid_rows: int = 0, on_batch=None):
         invalid_rows, duplicate_keys, _ = _summarize_rows(data.rows)
         invalid_rows += extra_invalid_rows
         row_count = len(data.rows) + extra_invalid_rows
@@ -273,6 +279,7 @@ class PostgresRatingsRepository:
                         )
                         for row in data.rows
                     ],
+                    on_batch=on_batch,
                 )
         return _dataset_row_to_record(dataset_row)
 
@@ -421,7 +428,7 @@ class InMemoryRatingsRepository:
     def get_dataset(self, ratings_dataset_id):
         return self._datasets.get(ratings_dataset_id)
 
-    def create_dataset(self, data: RatingsDatasetCreate, extra_invalid_rows: int = 0):
+    def create_dataset(self, data: RatingsDatasetCreate, extra_invalid_rows: int = 0, on_batch=None):
         invalid_rows, duplicate_keys, _ = _summarize_rows(data.rows)
         invalid_rows += extra_invalid_rows
         status = 'Ready' if invalid_rows == 0 else 'Needs Review'
@@ -440,15 +447,17 @@ class InMemoryRatingsRepository:
             uploaded_at=datetime.now(timezone.utc),
         )
         self._datasets[dataset_id] = record
-        self._rows[dataset_id] = [
-            RatingRowRecord(
+        rows = []
+        for row in data.rows:
+            rows.append(RatingRowRecord(
                 id=str(uuid.uuid4()), ratings_dataset_id=dataset_id, medium=row.medium, station=row.station,
                 day=row.day, programme=row.programme, time_band=row.time_band, rating=row.rating,
                 start_time=row.start_time, end_time=row.end_time, week=row.week, month=row.month,
                 region=row.region, state=row.state,
-            )
-            for row in data.rows
-        ]
+            ))
+            if on_batch:
+                on_batch(1)
+        self._rows[dataset_id] = rows
         return record
 
     def list_rows_page(self, ratings_dataset_id, *, limit, offset):

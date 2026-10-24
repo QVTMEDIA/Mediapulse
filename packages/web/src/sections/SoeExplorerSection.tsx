@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { SlidersHorizontal, Upload, X } from 'lucide-react';
-import { ApiError, deleteSoeUpload, getSoe, getSoeBrandDetail, getSoeFilterOptions, listSoeUploads, uploadSoeFile } from '../api/client';
+import {
+  ApiError,
+  deleteSoeUpload,
+  getSoe,
+  getSoeBrandDetail,
+  getSoeFilterOptions,
+  getSoeUploadJob,
+  listSoeUploads,
+  startSoeUploadJob,
+} from '../api/client';
 import type { SoeBrandDetail, SoeFilterOptions, SoeFilters, SoeReport, SoeUpload } from '../api/contracts';
 import { formatNumber } from './SpendIntelligenceSection';
 
@@ -255,6 +264,7 @@ export default function SoeExplorerSection() {
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadDefaultMedium, setUploadDefaultMedium] = useState('TV');
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ processed: number; total: number } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
@@ -360,8 +370,25 @@ export default function SoeExplorerSection() {
     setIsUploading(true);
     setUploadError(null);
     setUploadSuccess(null);
+    setUploadProgress(null);
     try {
-      const result = await uploadSoeFile({ defaultMedium: uploadDefaultMedium, file: uploadFile });
+      const job = await startSoeUploadJob({ defaultMedium: uploadDefaultMedium, file: uploadFile });
+      let jobResult = job;
+      while (jobResult.status === 'queued' || jobResult.status === 'running') {
+        // total is 0 for the brief window before parsing has finished and
+        // reported a row count (see upload_jobs.py) -- only treat it as
+        // real progress info once the job has actually reported it.
+        setUploadProgress(jobResult.total > 0 ? { processed: jobResult.processed, total: jobResult.total } : null);
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        jobResult = await getSoeUploadJob(job.jobId);
+      }
+      if (jobResult.status === 'failed') {
+        throw new ApiError(500, jobResult.error ?? 'Upload failed.');
+      }
+      const result = jobResult.upload;
+      if (!result) {
+        throw new ApiError(500, 'Upload completed without a result.');
+      }
       setUploadSuccess(
         `Uploaded ${result.fileName}: ${result.mappedRows} row${result.mappedRows === 1 ? '' : 's'} mapped` +
           (result.issueRows ? `, ${result.issueRows} skipped with issues.` : '.'),
@@ -376,6 +403,7 @@ export default function SoeExplorerSection() {
     } catch (error) {
       setUploadError(error instanceof ApiError ? error.message : 'Could not upload the file.');
     } finally {
+      setUploadProgress(null);
       setIsUploading(false);
     }
   }
@@ -441,9 +469,28 @@ export default function SoeExplorerSection() {
             </select>
           </label>
           <button type="submit" className="secondary-button" disabled={isUploading || !uploadFile}>
-            {isUploading ? 'Uploading…' : 'Upload'}
+            {isUploading
+              ? uploadProgress
+                ? `Uploading… ${uploadProgress.processed}/${uploadProgress.total}`
+                : 'Uploading…'
+              : 'Upload'}
           </button>
         </div>
+        {isUploading && (
+          <div
+            className="progress-bar"
+            role="progressbar"
+            aria-label="Upload progress"
+            aria-valuemin={0}
+            aria-valuemax={uploadProgress?.total ?? undefined}
+            aria-valuenow={uploadProgress?.processed ?? undefined}
+          >
+            <div
+              className={uploadProgress ? 'progress-bar-fill' : 'progress-bar-fill progress-bar-indeterminate'}
+              style={uploadProgress ? { width: `${(uploadProgress.processed / uploadProgress.total) * 100}%` } : undefined}
+            />
+          </div>
+        )}
         {uploadError && <p className="inline-error">{uploadError}</p>}
         {uploadSuccess && <p className="inline-success">{uploadSuccess}</p>}
       </form>

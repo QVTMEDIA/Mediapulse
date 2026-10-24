@@ -70,6 +70,17 @@ export interface RatingsDataset {
   priority: number | null;
 }
 
+// Job-based twin of RatingsDataset, for a real progress bar -- same shape
+// as UploadJob (see its comment), with dataset in place of UploadBatch.
+export interface RatingsUploadJob {
+  jobId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  error: string | null;
+  total: number;
+  processed: number;
+  dataset: RatingsDataset | null;
+}
+
 export interface RatingsRowIssue {
   rowNumber: number;
   reason: string;
@@ -116,6 +127,21 @@ export interface UploadBatch {
   // upload's own parse) — GET .../uploads (listing past uploads) always
   // leaves this empty. See MappingWarning.
   mappingWarnings: MappingWarning[];
+}
+
+// Job-based twin of UploadBatch, for a real progress bar (see
+// CalculationJob/MatchJob) instead of the plain POST .../uploads route,
+// which blocks the whole request until parsing + the insert finish.
+export interface UploadJob {
+  jobId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  error: string | null;
+  // Real progress: total is the number of rows this upload will insert,
+  // set as soon as parsing finishes; processed advances per batch/row
+  // actually inserted.
+  total: number;
+  processed: number;
+  upload: UploadBatch | null;
 }
 
 export interface GrpRunSummary {
@@ -188,6 +214,17 @@ export interface SoeUpload {
   mappedRows: number;
   issueRows: number;
   uploadedAt: string;
+}
+
+// Job-based twin of SoeUpload, for a real progress bar -- same shape as
+// UploadJob (see its comment), with upload in place of UploadBatch.
+export interface SoeUploadJob {
+  jobId: string;
+  status: 'queued' | 'running' | 'completed' | 'failed';
+  error: string | null;
+  total: number;
+  processed: number;
+  upload: SoeUpload | null;
 }
 
 // Distinct values actually present in soe_activity — what the SOE

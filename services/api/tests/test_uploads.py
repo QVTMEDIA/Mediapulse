@@ -1,4 +1,5 @@
 import io
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -304,3 +305,64 @@ def test_composite_upload_with_rate_but_no_rating_column_still_maps(client, proj
     by_station = {row['station']: row for row in activity}
     assert by_station['ADABA FM']['cost'] == pytest.approx(12500)
     assert by_station['AREWA FM']['cost'] == pytest.approx(4500)
+
+
+def _post_upload_job(client, project_id, brand_id, content=SAMPLE_CSV, filename='report.csv', **form):
+    files = {'file': (filename, io.BytesIO(content), 'text/csv')}
+    data = {'brand_id': brand_id, **form}
+    return client.post(f'/api/projects/{project_id}/uploads/jobs', files=files, data=data)
+
+
+def _await_job(client, project_id, job):
+    for _ in range(40):
+        if job['status'] in ('completed', 'failed'):
+            break
+        time.sleep(0.05)
+        job = client.get(f"/api/projects/{project_id}/uploads/jobs/{job['jobId']}").json()
+    return job
+
+
+def test_upload_job_reports_progress_and_completes(client, project, brand):
+    # Job-based twin of the plain POST .../uploads route, for a real
+    # progress bar -- total is the row count SAMPLE_CSV parses to (2),
+    # processed advances to exactly that total once insert_rows_batched's
+    # on_batch callback has fired for every row.
+    response = _post_upload_job(client, project['projectId'], brand['brandId'])
+    assert response.status_code == 202
+    job = response.json()
+    assert job['status'] in ('queued', 'running', 'completed')
+    assert 0 <= job['processed'] <= job['total']
+
+    job = _await_job(client, project['projectId'], job)
+    assert job['status'] == 'completed'
+    assert job['total'] == 2
+    assert job['processed'] == job['total']
+    assert job['upload']['fileName'] == 'report.csv'
+    assert job['upload']['mappedRows'] == 2
+    assert job['upload']['brandId'] == brand['brandId']
+
+    activity = client.get(f"/api/projects/{project['projectId']}/media-activity").json()
+    assert len(activity) == 2
+
+
+def test_upload_job_rejects_missing_project(client, brand):
+    response = _post_upload_job(client, 'does-not-exist', brand['brandId'])
+    assert response.status_code == 404
+
+
+def test_upload_job_rejects_missing_brand_for_brand_report(client, project):
+    response = _post_upload_job(client, project['projectId'], 'does-not-exist')
+    assert response.status_code == 404
+
+
+def test_get_upload_job_rejects_job_from_another_project(client, project, brand):
+    other_project = client.post('/api/projects', json={'projectName': 'Other'}).json()
+    response = _post_upload_job(client, project['projectId'], brand['brandId'])
+    job = response.json()
+    cross_response = client.get(f"/api/projects/{other_project['projectId']}/uploads/jobs/{job['jobId']}")
+    assert cross_response.status_code == 404
+
+
+def test_get_upload_job_rejects_unknown_job_id(client, project):
+    response = client.get(f"/api/projects/{project['projectId']}/uploads/jobs/does-not-exist")
+    assert response.status_code == 404

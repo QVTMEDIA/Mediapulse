@@ -1,4 +1,5 @@
 import io
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -585,3 +586,52 @@ def test_upload_ratings_file_ignore_saved_template_uses_fresh_auto_detection(cli
 
     template = client.get('/api/mapping-templates/suggest', params={'sourceLabel': 'Agency A'}).json()
     assert template['fieldMapping']['time_band'] == 'Time Belt'  # untouched — still stale for next time
+
+
+def _upload_ratings_job(client, content=RATINGS_CSV, filename='ratings.csv', **form):
+    files = {'file': (filename, io.BytesIO(content), 'text/csv')}
+    return client.post('/api/ratings-datasets/upload/jobs', files=files, data=form)
+
+
+def _await_ratings_job(client, job):
+    for _ in range(40):
+        if job['status'] in ('completed', 'failed'):
+            break
+        time.sleep(0.05)
+        job = client.get(f"/api/ratings-datasets/upload/jobs/{job['jobId']}").json()
+    return job
+
+
+def test_ratings_upload_job_reports_progress_and_completes(client):
+    # Job-based twin of the plain POST .../ratings-datasets/upload route --
+    # total is RATINGS_CSV's row count (2), processed advances to exactly
+    # that total once insert_rows_batched's on_batch callback has fired for
+    # every row.
+    response = _upload_ratings_job(client)
+    assert response.status_code == 202
+    job = response.json()
+    assert job['status'] in ('queued', 'running', 'completed')
+    assert 0 <= job['processed'] <= job['total']
+
+    job = _await_ratings_job(client, job)
+    assert job['status'] == 'completed'
+    assert job['total'] == 2
+    assert job['processed'] == job['total']
+    assert job['dataset']['rows'] == 2
+    assert job['dataset']['status'] == 'Ready'
+
+    rows = client.get(f"/api/ratings-datasets/{job['dataset']['ratingsDatasetId']}/rows").json()['rows']
+    assert len(rows) == 2
+
+
+def test_ratings_upload_job_rejects_unknown_media_type_before_starting_job(client):
+    # media_types validation happens synchronously in the route (same as
+    # parsing) so a bad request fails the POST itself with a 422, rather
+    # than starting a job that would only report the error on a later poll.
+    response = _upload_ratings_job(client, media_types='Digital')
+    assert response.status_code == 422
+
+
+def test_get_ratings_upload_job_rejects_unknown_job_id(client):
+    response = client.get('/api/ratings-datasets/upload/jobs/does-not-exist')
+    assert response.status_code == 404

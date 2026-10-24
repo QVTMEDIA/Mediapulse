@@ -3,12 +3,13 @@ import { AlertTriangle, ChevronDown, ChevronUp, Database } from 'lucide-react';
 import {
   ApiError,
   attachRatingsDataset,
+  getRatingsUploadJob,
   listMappingTemplates,
   listProjectRatingsDatasets,
   listRatingRowsPage,
   listRatingsLibrary,
   reorderProjectRatingsDatasets,
-  uploadRatingsFile,
+  startRatingsUploadJob,
 } from '../api/client';
 import type { DuplicateSibling, MappingWarning, Project, RatingRow, RatingsDataset, RatingsRowIssue } from '../api/contracts';
 import { describeMappingWarning } from '../mappingWarnings';
@@ -162,6 +163,7 @@ export default function RatingsSection({ project }: { project: Project | null })
   const [file, setFile] = useState<File | null>(null);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ processed: number; total: number } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   // Which specific rows this upload rejected, and why — never fetchable
@@ -290,8 +292,9 @@ export default function RatingsSection({ project }: { project: Project | null })
     setUploadIssues([]);
     setUploadIssuesTotal(0);
     setUploadMappingWarnings([]);
+    setUploadProgress(null);
     try {
-      const dataset = await uploadRatingsFile({
+      const job = await startRatingsUploadJob({
         provider,
         period,
         defaultMedium,
@@ -300,6 +303,22 @@ export default function RatingsSection({ project }: { project: Project | null })
         saveAsTemplate,
         ignoreSavedTemplate,
       });
+      let jobResult = job;
+      while (jobResult.status === 'queued' || jobResult.status === 'running') {
+        // total is 0 for the brief window before parsing has finished and
+        // reported a row count (see upload_jobs.py) -- only treat it as
+        // real progress info once the job has actually reported it.
+        setUploadProgress(jobResult.total > 0 ? { processed: jobResult.processed, total: jobResult.total } : null);
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        jobResult = await getRatingsUploadJob(job.jobId);
+      }
+      if (jobResult.status === 'failed') {
+        throw new ApiError(500, jobResult.error ?? 'Upload failed.');
+      }
+      const dataset = jobResult.dataset;
+      if (!dataset) {
+        throw new ApiError(500, 'Upload completed without a result.');
+      }
       await attachRatingsDataset(project.projectId, dataset.ratingsDatasetId);
       setUploadSuccess(
         `Uploaded ${dataset.provider || 'dataset'}: ${dataset.rows} row${dataset.rows === 1 ? '' : 's'}` +
@@ -319,6 +338,7 @@ export default function RatingsSection({ project }: { project: Project | null })
     } catch (error) {
       setUploadError(error instanceof ApiError ? error.message : 'Could not upload the ratings file.');
     } finally {
+      setUploadProgress(null);
       setIsUploading(false);
     }
   }
@@ -481,9 +501,28 @@ export default function RatingsSection({ project }: { project: Project | null })
                 onChange={(event) => setFile(event.target.files?.[0] ?? null)}
               />
             </label>
+            {isUploading && (
+              <div
+                className="progress-bar"
+                role="progressbar"
+                aria-label="Upload progress"
+                aria-valuemin={0}
+                aria-valuemax={uploadProgress?.total ?? undefined}
+                aria-valuenow={uploadProgress?.processed ?? undefined}
+              >
+                <div
+                  className={uploadProgress ? 'progress-bar-fill' : 'progress-bar-fill progress-bar-indeterminate'}
+                  style={uploadProgress ? { width: `${(uploadProgress.processed / uploadProgress.total) * 100}%` } : undefined}
+                />
+              </div>
+            )}
             <div className="form-actions">
               <button type="submit" className="primary-button" disabled={isUploading || !file}>
-                {isUploading ? 'Uploading…' : 'Upload & attach'}
+                {isUploading
+                  ? uploadProgress
+                    ? `Uploading… ${uploadProgress.processed}/${uploadProgress.total}`
+                    : 'Uploading…'
+                  : 'Upload & attach'}
               </button>
               <button type="button" className="secondary-button" onClick={() => setIsUploadOpen(false)}>
                 Close

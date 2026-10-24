@@ -17,15 +17,18 @@ import type {
   RatingRow,
   RatingRowsPage,
   RatingsDataset,
+  RatingsUploadJob,
   SoeBrandDetail,
   SoeFilterOptions,
   SoeFilters,
   SoeReport,
   SoeUpload,
+  SoeUploadJob,
   SpotEfficiency,
   StationShare,
   TrendPoint,
   UploadBatch,
+  UploadJob,
   User,
   ValidationIssue,
 } from './contracts';
@@ -260,6 +263,20 @@ export function deleteSoeUpload(uploadId: string): Promise<void> {
   return request<void>(`/api/soe/uploads/${uploadId}`, { method: 'DELETE' });
 }
 
+// Job-based twin of uploadSoeFile, for a real progress bar (see
+// startCalculationJob/startMatchJob) instead of blocking on the whole
+// parse + insert. Poll with getSoeUploadJob.
+export function startSoeUploadJob(input: UploadSoeFileInput): Promise<SoeUploadJob> {
+  const formData = new FormData();
+  formData.append('default_medium', input.defaultMedium);
+  formData.append('file', input.file);
+  return request<SoeUploadJob>('/api/soe/uploads/jobs', { method: 'POST', body: formData });
+}
+
+export function getSoeUploadJob(jobId: string): Promise<SoeUploadJob> {
+  return request<SoeUploadJob>(`/api/soe/uploads/jobs/${jobId}`);
+}
+
 // uploadId scopes to one uploaded file — the SOE Explorer analyzes a
 // single upload at a time rather than pooling everything ever uploaded;
 // omitted, the filter facets span every SOE upload.
@@ -375,6 +392,25 @@ export function uploadMediaReport(projectId: string, input: UploadMediaReportInp
   if (input.ignoreSavedTemplate) formData.append('ignore_saved_template', 'true');
   formData.append('file', input.file);
   return request<UploadBatch>(`/api/projects/${projectId}/uploads`, { method: 'POST', body: formData });
+}
+
+// Job-based twin of uploadMediaReport, for a real progress bar (see
+// startCalculationJob/startMatchJob) instead of blocking on the whole
+// parse + insert. Poll with getUploadJob.
+export function startUploadJob(projectId: string, input: UploadMediaReportInput): Promise<UploadJob> {
+  const formData = new FormData();
+  formData.append('kind', input.kind);
+  if (input.brandId) formData.append('brand_id', input.brandId);
+  formData.append('default_medium', input.defaultMedium);
+  if (input.sourceLabel) formData.append('source_label', input.sourceLabel);
+  if (input.saveAsTemplate) formData.append('save_as_template', 'true');
+  if (input.ignoreSavedTemplate) formData.append('ignore_saved_template', 'true');
+  formData.append('file', input.file);
+  return request<UploadJob>(`/api/projects/${projectId}/uploads/jobs`, { method: 'POST', body: formData });
+}
+
+export function getUploadJob(projectId: string, jobId: string): Promise<UploadJob> {
+  return request<UploadJob>(`/api/projects/${projectId}/uploads/jobs/${jobId}`);
 }
 
 export function listMediaActivity(projectId: string): Promise<MediaActivityRow[]> {
@@ -511,6 +547,27 @@ export function uploadRatingsFile(input: UploadRatingsFileInput): Promise<Rating
   if (input.ignoreSavedTemplate) formData.append('ignore_saved_template', 'true');
   formData.append('file', input.file);
   return request<RatingsDataset>('/api/ratings-datasets/upload', { method: 'POST', body: formData });
+}
+
+// Job-based twin of uploadRatingsFile, for a real progress bar (see
+// startCalculationJob/startMatchJob) instead of blocking on the whole
+// parse + insert. Poll with getRatingsUploadJob.
+export function startRatingsUploadJob(input: UploadRatingsFileInput): Promise<RatingsUploadJob> {
+  const formData = new FormData();
+  if (input.provider) formData.append('provider', input.provider);
+  if (input.period) formData.append('period', input.period);
+  if (input.market) formData.append('market', input.market);
+  if (input.audience) formData.append('audience', input.audience);
+  formData.append('default_medium', input.defaultMedium ?? 'TV');
+  if (input.sourceLabel) formData.append('source_label', input.sourceLabel);
+  if (input.saveAsTemplate) formData.append('save_as_template', 'true');
+  if (input.ignoreSavedTemplate) formData.append('ignore_saved_template', 'true');
+  formData.append('file', input.file);
+  return request<RatingsUploadJob>('/api/ratings-datasets/upload/jobs', { method: 'POST', body: formData });
+}
+
+export function getRatingsUploadJob(jobId: string): Promise<RatingsUploadJob> {
+  return request<RatingsUploadJob>(`/api/ratings-datasets/upload/jobs/${jobId}`);
 }
 
 export function listStationShares(projectId: string, runId: string): Promise<StationShare[]> {

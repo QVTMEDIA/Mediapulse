@@ -130,6 +130,17 @@ class RatingsDatasetOut(CamelModel):
     priority: Optional[int] = None
 
 
+class RatingsUploadJobOut(CamelModel):
+    job_id: str
+    status: str  # 'queued' | 'running' | 'completed' | 'failed'
+    error: Optional[str] = None
+    # Real progress -- see schemas/uploads.py's UploadJobOut (the project-
+    # upload equivalent) for what total/processed mean.
+    total: int = 0
+    processed: int = 0
+    dataset: Optional[RatingsDatasetOut] = None
+
+
 class RatingsDatasetPriorityUpdate(CamelModel):
     # Every currently-attached dataset id, in the new priority order
     # (index 0 = highest precedence). Must be exactly the attached set --

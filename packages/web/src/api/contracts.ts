@@ -382,7 +382,9 @@ export interface MatchJob {
   projectId: string;
   status: 'queued' | 'running' | 'completed' | 'failed';
   error: string | null;
-  // Real progress for recompute jobs only; ensure jobs always report 0/0.
+  // Real progress for both 'ensure' and 'recompute' jobs -- total is 0 only
+  // for the brief window before the job has counted its own rows yet, or
+  // when there's genuinely nothing pending/unmatched to do.
   total: number;
   processed: number;
 }

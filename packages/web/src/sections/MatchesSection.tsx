@@ -94,6 +94,10 @@ export default function MatchesSection({ project }: { project: Project | null })
   const [assignableRatingsById, setAssignableRatingsById] = useState<Map<string, RatingRow>>(new Map());
   const [assignableRatingsLoading, setAssignableRatingsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
+  // Real progress for the 'ensure' job refresh() kicks off on page open/
+  // project switch (see match_jobs.py's _run_ensure) -- same null-means-
+  // no-info-yet convention as recomputeProgress below.
+  const [loadProgress, setLoadProgress] = useState<{ processed: number; total: number } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [correctingId, setCorrectingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -125,6 +129,7 @@ export default function MatchesSection({ project }: { project: Project | null })
   const refresh = useCallback(async (projectId: string) => {
     setLoading(true);
     setLoadError(null);
+    setLoadProgress(null);
     try {
       const [job, activityResults] = await Promise.all([
         startMatchJob(projectId),
@@ -132,10 +137,16 @@ export default function MatchesSection({ project }: { project: Project | null })
       ]);
       let jobResult = job;
       while (jobResult.status === 'queued' || jobResult.status === 'running') {
+        // total is 0 for the brief window before the job has counted its
+        // own pending rows yet (see match_jobs.py's _run_ensure) -- only
+        // treat it as real progress info once the job has actually
+        // reported it, same convention handleRecompute below uses.
+        setLoadProgress(jobResult.total > 0 ? { processed: jobResult.processed, total: jobResult.total } : null);
         await new Promise((resolve) => window.setTimeout(resolve, 500));
         jobResult = await getMatchJob(projectId, job.jobId);
       }
       if (jobResult.status === 'failed') throw new ApiError(500, jobResult.error ?? 'Matching failed.');
+      setLoadProgress(jobResult.total > 0 ? { processed: jobResult.processed, total: jobResult.total } : null);
       // Fetched together with the matches themselves, not the full attached
       // library (see assignableRatingsById below and listMatchedRatings'
       // docstring) -- describing an already-made match only ever needs the
@@ -149,7 +160,10 @@ export default function MatchesSection({ project }: { project: Project | null })
       if (activeProjectIdRef.current !== projectId) return;
       setLoadError(error instanceof ApiError ? error.message : 'Could not load matches.');
     } finally {
-      if (activeProjectIdRef.current === projectId) setLoading(false);
+      if (activeProjectIdRef.current === projectId) {
+        setLoading(false);
+        setLoadProgress(null);
+      }
     }
   }, []);
 
@@ -297,11 +311,28 @@ export default function MatchesSection({ project }: { project: Project | null })
       </div>
       {exportError && <p className="inline-error">{exportError}</p>}
 
+      {loading && (
+        <div
+          className="progress-bar"
+          role="progressbar"
+          aria-label="Match progress"
+          aria-valuemin={0}
+          aria-valuemax={loadProgress?.total ?? undefined}
+          aria-valuenow={loadProgress?.processed ?? undefined}
+          style={{ marginBottom: 20 }}
+        >
+          <div
+            className={loadProgress ? 'progress-bar-fill' : 'progress-bar-fill progress-bar-indeterminate'}
+            style={loadProgress ? { width: `${(loadProgress.processed / loadProgress.total) * 100}%` } : undefined}
+          />
+        </div>
+      )}
+
       <section className="metric-grid" aria-label="Match summary">
         <div className="metric-panel">
           <span>Total Spots</span>
           <strong>{matches.length}</strong>
-          <small>{loading ? 'Loading…' : ' '}</small>
+          <small>{loading ? (loadProgress ? `Matching… ${loadProgress.processed}/${loadProgress.total}` : 'Matching…') : ' '}</small>
         </div>
         <div className="metric-panel">
           <span>Exact + Manual</span>

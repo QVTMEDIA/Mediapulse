@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from ..auth import get_current_user
 from ..calculations import resolve_rating_by_id
 from ..match_jobs import get_match_job, start_match_job
-from ..matches import compute_matches, describe_unmatched_reason
+from ..matches import build_unmatched_reason_context, compute_matches, describe_unmatched_reason
 from ..repositories.brands import BrandsRepository, get_brands_repository
 from ..repositories.matches import MatchesRepository, RatingMatchRecord, get_matches_repository
 from ..repositories.projects import ProjectsRepository, get_projects_repository
@@ -177,6 +177,12 @@ def export_matches(
     def _brand_name(brand_id: str) -> str:
         return brand_names.get(brand_id, 'Unknown brand')
 
+    # Built once for the whole export, not once per unmatched row -- see
+    # build_unmatched_reason_context()'s own docstring for the production
+    # incident (a request that never returned, surfacing as a browser CORS
+    # error) this was found fixing.
+    unmatched_reason_context = build_unmatched_reason_context(rating_rows)
+
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow([
@@ -190,7 +196,11 @@ def export_matches(
         rating = ratings_by_id.get(match.matched_rating_id) if match.matched_rating_id else None
         # Only an 'unmatched' row needs explaining -- 'exact'/'suggested'/
         # 'manual' already show what they matched to in the columns above.
-        reason = describe_unmatched_reason(activity, rating_rows) if activity and match.match_status == 'unmatched' else ''
+        reason = (
+            describe_unmatched_reason(activity, unmatched_reason_context)
+            if activity and match.match_status == 'unmatched'
+            else ''
+        )
         writer.writerow([
             _brand_name(activity.brand_id) if activity else '',
             activity.medium if activity else '',

@@ -3,10 +3,21 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 
+from fastapi.concurrency import run_in_threadpool
+
 from ..auth import get_current_user, require_role
 from ..parsing import parse_composite_report
 from ..repositories.soe import SoeRepository, SoeUploadRecord, get_soe_repository
-from ..schemas.soe import SoeBrandDetailOut, SoeBrandOut, SoeFilterOptionsOut, SoeReportOut, SoeStationRowOut, SoeUploadOut
+from ..schemas.soe import (
+    SoeBrandDetailOut,
+    SoeBrandOut,
+    SoeFilterOptionsOut,
+    SoeReportOut,
+    SoeStationRowOut,
+    SoeUploadJobOut,
+    SoeUploadOut,
+)
+from ..upload_jobs import UploadJob, advance, get_upload_job, set_total, start_upload_job
 
 router = APIRouter(prefix='/api/soe', tags=['soe'], dependencies=[Depends(get_current_user)])
 
@@ -50,6 +61,59 @@ async def create_soe_upload(
         file_name, parsed.rows, issue_rows=parsed.issue_rows
     )
     return _upload_to_out(upload_record)
+
+
+def _soe_upload_job_to_out(job: UploadJob) -> SoeUploadJobOut:
+    return SoeUploadJobOut(
+        job_id=job.id, status=job.status, error=job.error, total=job.total, processed=job.processed,
+        upload=job.result if job.result else None,
+    )
+
+
+def _run_soe_upload_job(job_id, file_name, parsed, repo: SoeRepository) -> SoeUploadOut:
+    """Job-based twin of create_soe_upload's insert half -- parsing already
+    happened on the request handler before the job started (see
+    start_soe_upload_job_route), so a malformed file still fails the POST
+    itself with a 422 rather than surfacing later as a job error. total is
+    the row count parsing already produced; insert_rows_batched's on_batch
+    callback (threaded through create_upload_with_activity) advances
+    processed per real batch landed -- this also closes create_soe_upload's
+    own pre-existing gap of never having run its insert off the event loop
+    at all, since this job always runs in upload_jobs.py's background
+    thread."""
+    set_total(job_id, len(parsed.rows))
+    upload_record, _activity_records = repo.create_upload_with_activity(
+        file_name, parsed.rows, issue_rows=parsed.issue_rows, on_batch=lambda n: advance(job_id, n)
+    )
+    return _upload_to_out(upload_record)
+
+
+@router.post('/uploads/jobs', response_model=SoeUploadJobOut, status_code=202)
+async def start_soe_upload_job_route(
+    default_medium: str = Form('TV'),
+    file: UploadFile = File(...),
+    repo: SoeRepository = Depends(get_soe_repository),
+):
+    """Job-based twin of POST /soe/uploads, for a real progress bar (see
+    app/upload_jobs.py) instead of blocking the whole request until
+    parsing + the insert finish. Poll via GET /soe/uploads/jobs/{jobId}."""
+    data = await file.read()
+    file_name = file.filename or 'uploaded_file'
+    try:
+        parsed = await run_in_threadpool(parse_composite_report, data, file_name, default_medium)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    job = start_upload_job(_run_soe_upload_job, file_name, parsed, repo)
+    return _soe_upload_job_to_out(job)
+
+
+@router.get('/uploads/jobs/{job_id}', response_model=SoeUploadJobOut)
+def get_soe_upload_job_route(job_id: str):
+    job = get_upload_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail='Upload job not found')
+    return _soe_upload_job_to_out(job)
 
 
 @router.delete('/uploads/{upload_id}', status_code=204)

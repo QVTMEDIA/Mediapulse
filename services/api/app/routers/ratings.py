@@ -23,7 +23,9 @@ from ..schemas.ratings import (
     RatingsDatasetPriorityUpdate,
     RatingsRowIssueOut,
     RatingsRowsPageOut,
+    RatingsUploadJobOut,
 )
+from ..upload_jobs import UploadJob, advance, get_upload_job, set_total, start_upload_job
 
 router = APIRouter(prefix='/api', tags=['ratings-library'], dependencies=[Depends(get_current_user)])
 
@@ -192,6 +194,94 @@ async def upload_ratings_dataset(
         issues=parsed.issues,
         mapping_warnings=parsed.mapping_warnings,
     )
+
+
+def _ratings_upload_job_to_out(job: UploadJob) -> RatingsUploadJobOut:
+    return RatingsUploadJobOut(
+        job_id=job.id, status=job.status, error=job.error, total=job.total, processed=job.processed,
+        dataset=job.result if job.result else None,
+    )
+
+
+def _run_ratings_upload_job(
+    job_id, parsed, payload, source_label, save_as_template, existing_template, templates_repo, repo,
+) -> RatingsDatasetOut:
+    """Job-based twin of upload_ratings_dataset's body below parsing --
+    parsing and the RatingsDatasetCreate validation already happened on the
+    request handler before the job started (see
+    start_ratings_upload_job_route), since a ValueError/ValidationError
+    there needs to turn into a 422 on the POST response itself, not surface
+    later as a job error. total is the row count parsing already produced;
+    insert_rows_batched's on_batch callback (threaded through
+    create_dataset) advances processed per real batch landed."""
+    set_total(job_id, len(parsed.rows))
+
+    if source_label and (existing_template is None or save_as_template):
+        templates_repo.save_template(source_label, parsed.mapping)
+    elif source_label:
+        templates_repo.touch_used(source_label)
+
+    dataset_record = repo.create_dataset(
+        payload, extra_invalid_rows=parsed.dropped_invalid_rows, on_batch=lambda n: advance(job_id, n)
+    )
+    return _dataset_to_out(dataset_record, issues=parsed.issues, mapping_warnings=parsed.mapping_warnings)
+
+
+@router.post('/ratings-datasets/upload/jobs', response_model=RatingsUploadJobOut, status_code=202)
+async def start_ratings_upload_job_route(
+    provider: str = Form(''),
+    period: str = Form(''),
+    market: str = Form(''),
+    audience: str = Form(''),
+    media_types: str = Form(''),
+    default_medium: str = Form('TV'),
+    source_label: Optional[str] = Form(None),
+    save_as_template: bool = Form(False),
+    ignore_saved_template: bool = Form(False),
+    file: UploadFile = File(...),
+    repo: RatingsRepository = Depends(get_ratings_repository),
+    templates_repo: MappingTemplatesRepository = Depends(get_mapping_templates_repository),
+):
+    """Job-based twin of POST .../ratings-datasets/upload, for a real
+    progress bar (see app/upload_jobs.py) instead of blocking the whole
+    request until parsing + the insert finish. Parsing and the
+    RatingsDatasetCreate validation still happen synchronously here (via
+    run_in_threadpool), so a malformed file or payload still fails the
+    POST itself with a 422 rather than surfacing later as a job error --
+    only the insert (the genuinely slow, per-row part on a large file)
+    runs in the background job. Poll via GET .../upload/jobs/{jobId}."""
+    existing_template = templates_repo.get_by_source_label(source_label) if source_label else None
+    mapping_override = existing_template.field_mapping if existing_template and not ignore_saved_template else None
+
+    data = await file.read()
+    file_name = file.filename or 'uploaded_file'
+    try:
+        parsed = await run_in_threadpool(parse_ratings_file, data, file_name, default_medium, mapping_override)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    parsed_media_types = [item.strip() for item in media_types.split(',') if item.strip()]
+    try:
+        payload = RatingsDatasetCreate(
+            provider=provider, period=period, market=market, audience=audience,
+            media_types=parsed_media_types, rows=parsed.rows,
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    job = start_upload_job(
+        _run_ratings_upload_job, parsed, payload, source_label, save_as_template, existing_template,
+        templates_repo, repo,
+    )
+    return _ratings_upload_job_to_out(job)
+
+
+@router.get('/ratings-datasets/upload/jobs/{job_id}', response_model=RatingsUploadJobOut)
+def get_ratings_upload_job_route(job_id: str):
+    job = get_upload_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail='Upload job not found')
+    return _ratings_upload_job_to_out(job)
 
 
 @router.get('/ratings-datasets/{ratings_dataset_id}/rows', response_model=RatingsRowsPageOut)

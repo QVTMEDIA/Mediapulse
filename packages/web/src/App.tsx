@@ -28,15 +28,16 @@ import {
   getAuthToken,
   getCalculationJob,
   getCurrentUser,
+  getUploadJob,
   listBrands,
   listMappingTemplates,
   listProjects,
   onAuthTokenRejected,
   setAuthToken,
   startCalculationJob,
+  startUploadJob,
   unarchiveProject,
   updateActiveProject,
-  uploadMediaReport,
 } from './api/client';
 import type { AuthSession, Brand, MappingWarning, Project, UploadKind, User } from './api/contracts';
 import { describeMappingWarning } from './mappingWarnings';
@@ -237,6 +238,7 @@ function Workspace({
   const [knownSourceLabels, setKnownSourceLabels] = useState<string[]>([]);
   const [fileInputKey, setFileInputKey] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ processed: number; total: number } | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [uploadMappingWarnings, setUploadMappingWarnings] = useState<MappingWarning[]>([]);
@@ -438,8 +440,9 @@ function Workspace({
     setUploadError(null);
     setUploadSuccess(null);
     setUploadMappingWarnings([]);
+    setUploadProgress(null);
     try {
-      const result = await uploadMediaReport(activeProject.projectId, {
+      const job = await startUploadJob(activeProject.projectId, {
         kind: uploadKind,
         brandId: uploadKind === 'brand_report' ? selectedBrandId : undefined,
         defaultMedium: uploadDefaultMedium,
@@ -448,6 +451,22 @@ function Workspace({
         saveAsTemplate: uploadSaveAsTemplate,
         ignoreSavedTemplate: uploadIgnoreSavedTemplate,
       });
+      let jobResult = job;
+      while (jobResult.status === 'queued' || jobResult.status === 'running') {
+        // total is 0 for the brief window before parsing has finished and
+        // reported a row count (see upload_jobs.py) -- only treat it as
+        // real progress info once the job has actually reported it.
+        setUploadProgress(jobResult.total > 0 ? { processed: jobResult.processed, total: jobResult.total } : null);
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        jobResult = await getUploadJob(activeProject.projectId, job.jobId);
+      }
+      if (jobResult.status === 'failed') {
+        throw new ApiError(500, jobResult.error ?? 'Upload failed.');
+      }
+      const result = jobResult.upload;
+      if (!result) {
+        throw new ApiError(500, 'Upload completed without a result.');
+      }
       setUploadSuccess(
         `Uploaded ${result.fileName}: ${result.mappedRows} row${result.mappedRows === 1 ? '' : 's'} mapped` +
           (result.issueRows ? `, ${result.issueRows} skipped with issues.` : '.') +
@@ -468,6 +487,7 @@ function Workspace({
     } catch (error) {
       setUploadError(error instanceof ApiError ? error.message : 'Could not upload the file.');
     } finally {
+      setUploadProgress(null);
       setIsUploading(false);
     }
   }
@@ -802,13 +822,33 @@ function Workspace({
                   />
                 </label>
 
+                {isUploading && (
+                  <div
+                    className="progress-bar"
+                    role="progressbar"
+                    aria-label="Upload progress"
+                    aria-valuemin={0}
+                    aria-valuemax={uploadProgress?.total ?? undefined}
+                    aria-valuenow={uploadProgress?.processed ?? undefined}
+                  >
+                    <div
+                      className={uploadProgress ? 'progress-bar-fill' : 'progress-bar-fill progress-bar-indeterminate'}
+                      style={uploadProgress ? { width: `${(uploadProgress.processed / uploadProgress.total) * 100}%` } : undefined}
+                    />
+                  </div>
+                )}
+
                 <div className="form-actions">
                   <button
                     type="submit"
                     className="primary-button"
                     disabled={isUploading || !uploadFile || (uploadKind === 'brand_report' && !selectedBrandId)}
                   >
-                    {isUploading ? 'Uploading…' : 'Upload'}
+                    {isUploading
+                      ? uploadProgress
+                        ? `Uploading… ${uploadProgress.processed}/${uploadProgress.total}`
+                        : 'Uploading…'
+                      : 'Upload'}
                   </button>
                   <button type="button" className="secondary-button" onClick={() => setIsUploadOpen(false)}>
                     Close

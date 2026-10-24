@@ -68,7 +68,14 @@ class UploadsRepository(Protocol):
         kind: str,
         inserts: List[MediaActivityInsert],
         issue_rows: int = 0,
-    ) -> Tuple[UploadRecord, List[MediaActivityRecord]]: ...
+        on_batch=None,
+    ) -> Tuple[UploadRecord, List[MediaActivityRecord]]:
+        """on_batch, if given, is called with how many rows were just
+        inserted after each real batch/row lands -- an upload job
+        (app/upload_jobs.py) uses it to report genuine progress instead of
+        a simulated percentage. Optional and unused by every caller that
+        doesn't need progress tracking."""
+        ...
 
     def delete_upload(self, project_id: str, upload_id: str) -> bool: ...
 
@@ -124,7 +131,7 @@ class PostgresUploadsRepository:
             ).fetchall()
         return [_activity_row_to_record(row) for row in rows]
 
-    def create_upload_with_activity(self, project_id, brand_id, file_name, kind, inserts, issue_rows=0):
+    def create_upload_with_activity(self, project_id, brand_id, file_name, kind, inserts, issue_rows=0, on_batch=None):
         with get_connection() as conn:
             upload_row = conn.execute(
                 '''
@@ -152,6 +159,7 @@ class PostgresUploadsRepository:
                         )
                         for insert in inserts
                     ],
+                    on_batch=on_batch,
                 )
                 activity_rows = conn.execute(
                     'SELECT * FROM media_activity WHERE upload_id = %s ORDER BY id', [upload_row['id']]
@@ -199,7 +207,7 @@ class InMemoryUploadsRepository:
     def list_media_activity(self, project_id):
         return [a for a in self._activity.values() if a.project_id == project_id]
 
-    def create_upload_with_activity(self, project_id, brand_id, file_name, kind, inserts, issue_rows=0):
+    def create_upload_with_activity(self, project_id, brand_id, file_name, kind, inserts, issue_rows=0, on_batch=None):
         upload = UploadRecord(
             id=str(uuid.uuid4()), project_id=project_id, brand_id=brand_id, file_name=file_name, kind=kind,
             mapped_rows=len(inserts), issue_rows=issue_rows, uploaded_at=datetime.now(timezone.utc),
@@ -216,6 +224,8 @@ class InMemoryUploadsRepository:
             )
             self._activity[record.id] = record
             activity_records.append(record)
+            if on_batch:
+                on_batch(1)
         return upload, activity_records
 
     def delete_upload(self, project_id, upload_id):

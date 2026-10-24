@@ -68,7 +68,9 @@ def get_connection():
 _BULK_INSERT_BATCH_SIZE = 1000
 
 
-def insert_rows_batched(conn, table: str, columns: list, rows: list, batch_size: int = _BULK_INSERT_BATCH_SIZE):
+def insert_rows_batched(
+    conn, table: str, columns: list, rows: list, batch_size: int = _BULK_INSERT_BATCH_SIZE, on_batch=None
+):
     """Bulk-inserts `rows` (each a tuple positionally matching `columns`)
     into `table` using multi-row `INSERT ... VALUES (...), (...), ...`
     statements instead of executemany()'s one-round-trip-per-row behavior.
@@ -81,7 +83,13 @@ def insert_rows_batched(conn, table: str, columns: list, rows: list, batch_size:
     connection was dropped, not refused) but was really the whole API
     frozen for every user, not just this one upload. Batching cuts N round
     trips down to ceil(N / batch_size), typically a couple dozen for a file
-    this size instead of thousands. See CHANGELOG.md."""
+    this size instead of thousands. See CHANGELOG.md.
+
+    on_batch, if given, is called with the number of rows just inserted
+    after each batch completes -- real, already-committed-to-this-
+    statement progress for a caller tracking an upload job's total/
+    processed (see app/upload_jobs.py), not a simulated/interpolated
+    fraction."""
     if not rows:
         return
     columns_sql = ', '.join(columns)
@@ -92,3 +100,5 @@ def insert_rows_batched(conn, table: str, columns: list, rows: list, batch_size:
             values_sql = ', '.join([placeholder_row] * len(chunk))
             params = [value for row in chunk for value in row]
             cur.execute(f'INSERT INTO {table} ({columns_sql}) VALUES {values_sql}', params)
+            if on_batch:
+                on_batch(len(chunk))

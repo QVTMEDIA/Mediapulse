@@ -6,7 +6,7 @@ from datetime import date, datetime, timezone
 from typing import Dict, List, Optional, Protocol, Tuple
 
 from ..config import get_settings
-from ..db import get_connection
+from ..db import get_connection, insert_rows_batched
 from ..parsing import ParsedCompositeRow
 
 
@@ -80,8 +80,12 @@ class SoeRepository(Protocol):
     def list_uploads(self) -> List[SoeUploadRecord]: ...
 
     def create_upload_with_activity(
-        self, file_name: str, rows: List[ParsedCompositeRow], issue_rows: int = 0
-    ) -> Tuple[SoeUploadRecord, List[SoeActivityRecord]]: ...
+        self, file_name: str, rows: List[ParsedCompositeRow], issue_rows: int = 0, on_batch=None
+    ) -> Tuple[SoeUploadRecord, List[SoeActivityRecord]]:
+        """on_batch, if given, is called with how many rows were just
+        inserted after each real batch/row lands -- see
+        UploadsRepository.create_upload_with_activity's identical param."""
+        ...
 
     def delete_upload(self, upload_id: str) -> bool: ...
 
@@ -166,7 +170,7 @@ class PostgresSoeRepository:
             rows = conn.execute('SELECT * FROM soe_uploads ORDER BY uploaded_at DESC').fetchall()
         return [_upload_row_to_record(row) for row in rows]
 
-    def create_upload_with_activity(self, file_name, rows, issue_rows=0):
+    def create_upload_with_activity(self, file_name, rows, issue_rows=0, on_batch=None):
         with get_connection() as conn:
             upload_row = conn.execute(
                 '''
@@ -178,23 +182,31 @@ class PostgresSoeRepository:
             ).fetchone()
             activity_records = []
             if rows:
-                with conn.cursor() as cur:
-                    cur.executemany(
-                        '''
-                        INSERT INTO soe_activity (
-                            upload_id, brand, medium, station, activity_date, day, programme, spots,
-                            cost, time_band, region, state, source_file
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ''',
-                        [
-                            (
-                                upload_row['id'], row.brand_name, row.medium, row.station, row.activity_date,
-                                row.day, row.programme, row.spots, row.cost, row.time_band, row.region,
-                                row.state, row.source_file,
-                            )
-                            for row in rows
-                        ],
-                    )
+                # Was executemany() (one round trip per row) until this
+                # upload gained a background-job/progress-bar path
+                # (app/upload_jobs.py) that needed a real per-batch hook to
+                # report from -- switched to the same batched multi-row
+                # INSERT the other two upload kinds already use (db.py's
+                # insert_rows_batched, added for exactly this N-round-trips
+                # problem on a large file; see its own docstring), which
+                # also closes that same latent performance gap here.
+                insert_rows_batched(
+                    conn,
+                    'soe_activity',
+                    [
+                        'upload_id', 'brand', 'medium', 'station', 'activity_date', 'day', 'programme', 'spots',
+                        'cost', 'time_band', 'region', 'state', 'source_file',
+                    ],
+                    [
+                        (
+                            upload_row['id'], row.brand_name, row.medium, row.station, row.activity_date,
+                            row.day, row.programme, row.spots, row.cost, row.time_band, row.region,
+                            row.state, row.source_file,
+                        )
+                        for row in rows
+                    ],
+                    on_batch=on_batch,
+                )
                 activity_rows = conn.execute(
                     'SELECT * FROM soe_activity WHERE upload_id = %s ORDER BY id', [upload_row['id']]
                 ).fetchall()
@@ -319,7 +331,7 @@ class InMemorySoeRepository:
     def list_uploads(self):
         return sorted(self._uploads.values(), key=lambda u: u.uploaded_at, reverse=True)
 
-    def create_upload_with_activity(self, file_name, rows, issue_rows=0):
+    def create_upload_with_activity(self, file_name, rows, issue_rows=0, on_batch=None):
         upload = SoeUploadRecord(
             id=str(uuid.uuid4()), file_name=file_name, mapped_rows=len(rows), issue_rows=issue_rows,
             uploaded_at=datetime.now(timezone.utc),
@@ -335,6 +347,8 @@ class InMemorySoeRepository:
             )
             self._activity[record.id] = record
             activity_records.append(record)
+            if on_batch:
+                on_batch(1)
         return upload, activity_records
 
     def delete_upload(self, upload_id):

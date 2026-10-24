@@ -24,6 +24,18 @@ class UploadBatchOut(CamelModel):
     mapping_warnings: List[MappingWarningOut] = Field(default_factory=list)
 
 
+class UploadJobOut(CamelModel):
+    job_id: str
+    status: str  # 'queued' | 'running' | 'completed' | 'failed'
+    error: Optional[str] = None
+    # Real progress: total is the number of rows this upload will insert,
+    # set as soon as parsing finishes; processed advances per batch/row
+    # actually inserted (see app/upload_jobs.py, db.py's insert_rows_batched).
+    total: int = 0
+    processed: int = 0
+    upload: Optional[UploadBatchOut] = None
+
+
 class MediaActivityRowOut(CamelModel):
     media_activity_id: str
     project_id: str

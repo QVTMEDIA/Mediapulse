@@ -215,6 +215,7 @@ function Workspace({
   const [actionError, setActionError] = useState<string | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [calculateError, setCalculateError] = useState<string | null>(null);
+  const [calculateProgress, setCalculateProgress] = useState<{ processed: number; total: number } | null>(null);
   // Bumped after a successful calculate so ProjectDetailSection (which owns
   // its own SOV/version-history fetch, independent of this component) knows
   // to refetch — its own project.projectId dependency doesn't change just
@@ -375,10 +376,15 @@ function Workspace({
     if (!activeProject) return;
     setIsCalculating(true);
     setCalculateError(null);
+    setCalculateProgress(null);
     try {
       const job = await startCalculationJob(activeProject.projectId);
       let jobResult = job;
       while (jobResult.status === 'queued' || jobResult.status === 'running') {
+        // total is 0 for the brief window before the job record itself
+        // exists (see calculation_jobs.py) -- only treat it as real
+        // progress info once the job has actually reported it.
+        setCalculateProgress(jobResult.total > 0 ? { processed: jobResult.processed, total: jobResult.total } : null);
         await new Promise((resolve) => window.setTimeout(resolve, 500));
         jobResult = await getCalculationJob(activeProject.projectId, job.jobId);
       }
@@ -388,10 +394,12 @@ function Workspace({
       if (!jobResult.run) {
         throw new ApiError(500, 'Calculation completed without a run.');
       }
+      setCalculateProgress(jobResult.total > 0 ? { processed: jobResult.processed, total: jobResult.total } : null);
       setProjectDataVersion((current) => current + 1);
     } catch (error) {
       setCalculateError(error instanceof ApiError ? error.message : 'Could not calculate GRPs.');
     } finally {
+      setCalculateProgress(null);
       setIsCalculating(false);
     }
   }
@@ -577,7 +585,11 @@ function Workspace({
                 onClick={handleCalculate}
               >
                 <BarChart3 size={18} aria-hidden />
-                {isCalculating ? 'Calculating…' : 'Calculate'}
+                {isCalculating
+                  ? calculateProgress
+                    ? `Calculating… ${calculateProgress.processed}/${calculateProgress.total}`
+                    : 'Calculating…'
+                  : 'Calculate'}
               </button>
               <button
                 type="button"
@@ -602,6 +614,23 @@ function Workspace({
             </div>
           )}
         </header>
+
+        {isCalculating && (
+          <div
+            className="progress-bar"
+            role="progressbar"
+            aria-label="Calculate progress"
+            aria-valuemin={0}
+            aria-valuemax={calculateProgress?.total ?? undefined}
+            aria-valuenow={calculateProgress?.processed ?? undefined}
+            style={{ marginBottom: 20 }}
+          >
+            <div
+              className={calculateProgress ? 'progress-bar-fill' : 'progress-bar-fill progress-bar-indeterminate'}
+              style={calculateProgress ? { width: `${(calculateProgress.processed / calculateProgress.total) * 100}%` } : undefined}
+            />
+          </div>
+        )}
 
         {activeSection === 'overview' ? (
           <OverviewSection project={activeProject} />

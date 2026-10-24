@@ -30,6 +30,11 @@ class CalculationJobOut(CamelModel):
     status: str  # 'queued' | 'running' | 'completed' | 'failed'
     error: Optional[str] = None
     run: Optional[GrpRunSummaryOut] = None
+    # Stage-based progress (see calculation_jobs.py's CALCULATION_STAGE_COUNT)
+    # -- total is fixed from job creation, processed advances as each stage
+    # of the calculation genuinely completes.
+    total: int = 0
+    processed: int = 0
 
 
 class GrpCalculationRowOut(CamelModel):

@@ -142,6 +142,11 @@ export interface CalculationJob {
   status: 'queued' | 'running' | 'completed' | 'failed';
   error: string | null;
   run: GrpRunSummary | null;
+  // Stage-based progress (loading data, matching, computing GRPs, saving) --
+  // not row-based like MatchJob, since compute_run()'s GRP aggregation has
+  // no per-row Python loop to count through.
+  total: number;
+  processed: number;
 }
 
 export interface BrandShare {

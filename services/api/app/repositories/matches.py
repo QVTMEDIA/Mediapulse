@@ -30,6 +30,15 @@ class MatchesRepository(Protocol):
         self, project_id: str, media_activity_records, rating_records
     ) -> List[RatingMatchRecord]: ...
 
+    def insert_matches(self, project_id: str, computed_results) -> None:
+        """Persists already-computed ComputedMatch results as new
+        rating_matches rows -- the write half of ensure_matches_computed(),
+        split out so match_jobs.py's _run_ensure can compute its own
+        pending-row count up front (for real total/processed progress) and
+        still share the one insert path every ensure_matches_computed()
+        caller already relies on, rather than duplicating it."""
+        ...
+
     def correct_match(self, rating_match_id: str, matched_rating_id: Optional[str]) -> Optional[RatingMatchRecord]: ...
 
     def update_match(
@@ -98,21 +107,25 @@ class PostgresMatchesRepository:
             }
         pending = [activity for activity in media_activity_records if activity.id not in existing_ids]
         if pending:
-            computed = compute_matches(pending, rating_records)
-            with get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.executemany(
-                        '''
-                        INSERT INTO rating_matches (media_activity_id, matched_rating_id, match_status, match_confidence, match_key)
-                        VALUES (%s, %s, %s, %s, %s)
-                        ON CONFLICT (media_activity_id) DO NOTHING
-                        ''',
-                        [
-                            (c.media_activity_id, c.matched_rating_id, c.match_status, c.match_confidence, c.match_key)
-                            for c in computed
-                        ],
-                    )
+            self.insert_matches(project_id, compute_matches(pending, rating_records))
         return self.list_matches(project_id)
+
+    def insert_matches(self, project_id, computed_results):
+        if not computed_results:
+            return
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.executemany(
+                    '''
+                    INSERT INTO rating_matches (media_activity_id, matched_rating_id, match_status, match_confidence, match_key)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (media_activity_id) DO NOTHING
+                    ''',
+                    [
+                        (c.media_activity_id, c.matched_rating_id, c.match_status, c.match_confidence, c.match_key)
+                        for c in computed_results
+                    ],
+                )
 
     def correct_match(self, rating_match_id, matched_rating_id):
         with get_connection() as conn:
@@ -205,9 +218,12 @@ class InMemoryMatchesRepository:
     def ensure_matches_computed(self, project_id, media_activity_records, rating_records):
         existing_ids = {record.media_activity_id for record in self._rows.values()}
         pending = [activity for activity in media_activity_records if activity.id not in existing_ids]
-        for activity in pending:
-            self._project_by_activity[activity.id] = project_id
-        for computed in compute_matches(pending, rating_records):
+        self.insert_matches(project_id, compute_matches(pending, rating_records))
+        return self.list_matches(project_id)
+
+    def insert_matches(self, project_id, computed_results):
+        for computed in computed_results:
+            self._project_by_activity[computed.media_activity_id] = project_id
             record = RatingMatchRecord(
                 id=str(uuid.uuid4()),
                 media_activity_id=computed.media_activity_id,
@@ -218,7 +234,6 @@ class InMemoryMatchesRepository:
                 corrected_at=None,
             )
             self._rows[record.id] = record
-        return self.list_matches(project_id)
 
     def correct_match(self, rating_match_id, matched_rating_id):
         record = self._rows.get(rating_match_id)

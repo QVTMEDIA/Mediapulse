@@ -615,13 +615,38 @@ def test_match_job_completes_and_persists_results(client, project, brand):
     assert len(client.get(f"/api/projects/{project['projectId']}/matches").json()) == 3
 
 
-def test_ensure_job_never_reports_progress(client, project, brand):
-    # 'ensure' is a single atomic repository call with no per-row loop up in
-    # match_jobs.py to report progress from -- total/processed stay 0/0,
-    # distinct from 'recompute' below. A progress bar reading this should
-    # fall back to an indeterminate state rather than showing "0 of 0".
+def test_ensure_job_reports_progress(client, project, brand):
+    # 'ensure' used to be a single atomic repository call with no per-row
+    # loop up in match_jobs.py to report progress from, so total/processed
+    # stayed 0/0 no matter how many rows it matched -- the Matches screen's
+    # own opening-the-page job (distinct from the explicit "Fast recompute"/
+    # "Full scan" buttons) always showed an indeterminate spinner, never a
+    # real percentage. _run_ensure now computes its own pending-row count up
+    # front and advances processed per row visited, same as 'recompute'
+    # below. Uploading + attaching ratings alone creates no match records
+    # (those are only ever created lazily) -- the only thing that can have
+    # created any before this job runs is this job itself, so `total`
+    # reflects every uploaded row with nothing excluded.
     _upload(client, project['projectId'], brand['brandId'])
     _attach_ratings(client, project['projectId'])
+
+    response = client.post(f"/api/projects/{project['projectId']}/matches/jobs?mode=ensure")
+    job = response.json()
+    for _ in range(40):
+        if job['status'] in ('completed', 'failed'):
+            break
+        time.sleep(0.05)
+        job = client.get(f"/api/projects/{project['projectId']}/matches/jobs/{job['jobId']}").json()
+
+    assert job['status'] == 'completed'
+    assert job['total'] == 3  # UPLOAD_CSV's 3 rows, all pending before this job ran
+    assert job['processed'] == job['total']
+
+
+def test_ensure_job_reports_zero_total_when_nothing_pending(client, project, brand):
+    _upload(client, project['projectId'], brand['brandId'])
+    _attach_ratings(client, project['projectId'])
+    client.get(f"/api/projects/{project['projectId']}/matches")  # compute everything first
 
     response = client.post(f"/api/projects/{project['projectId']}/matches/jobs?mode=ensure")
     job = response.json()

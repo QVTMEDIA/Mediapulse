@@ -501,25 +501,21 @@ export function listRatingRowsPage(
   return request<RatingRowsPage>(`/api/ratings-datasets/${ratingsDatasetId}/rows?limit=${limit}&offset=${offset}`);
 }
 
-// Large-but-bounded chunks, not a single unbounded request -- GET
-// .../rows is paginated server-side specifically because returning an
-// entire large dataset in one response risked exhausting the backend's
+// Every row of one dataset, via the lean GET .../rows/all route -- not
+// GET .../rows (above), which is paginated specifically because returning
+// an entire large dataset in one response risked exhausting the backend's
 // memory (see services/api/app/routers/ratings.py's docstring on that
-// route). Callers that genuinely need every row (today: MatchesSection's
-// manual-assign picker) page through it instead of asking for it all at
-// once.
-const LIST_ALL_RATING_ROWS_CHUNK_SIZE = 1000;
-
+// route) AND because it computes each row's duplicateSiblings from the
+// whole dataset on every call. This function's only caller (today:
+// MatchesSection's manual-assign picker) needs every row but never reads
+// duplicateSiblings, so it used to page through GET .../rows
+// LIST_ALL_RATING_ROWS_CHUNK_SIZE rows at a time -- which re-fetched and
+// re-grouped the ENTIRE dataset from scratch on every single page just to
+// throw the duplicate info away, visible live as the picker showing a
+// permanent "Loading ratings…" for a project with a large ratings
+// library. GET .../rows/all does one plain fetch per dataset instead.
 export async function listRatingRows(ratingsDatasetId: string): Promise<RatingRow[]> {
-  const rows: RatingRow[] = [];
-  let offset = 0;
-  for (;;) {
-    const page = await listRatingRowsPage(ratingsDatasetId, { limit: LIST_ALL_RATING_ROWS_CHUNK_SIZE, offset });
-    rows.push(...page.rows);
-    if (rows.length >= page.total || page.rows.length === 0) break;
-    offset += LIST_ALL_RATING_ROWS_CHUNK_SIZE;
-  }
-  return rows;
+  return request<RatingRow[]>(`/api/ratings-datasets/${ratingsDatasetId}/rows/all`);
 }
 
 export interface UploadRatingsFileInput {

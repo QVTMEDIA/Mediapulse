@@ -91,6 +91,26 @@ def test_list_rows_for_missing_dataset_returns_404(client):
     assert response.status_code == 404
 
 
+def test_list_all_rows_returns_every_row_in_one_response(client):
+    # The lean twin of GET .../rows used by MatchesSection's manual-assign
+    # picker (via api/client.ts's listRatingRows) -- every row, unpaginated,
+    # with no duplicateSiblings computed (every row comes back with []).
+    created = client.post('/api/ratings-datasets', json={'provider': 'Agency A', 'rows': SAMPLE_ROWS}).json()
+    dataset_id = created['ratingsDatasetId']
+
+    response = client.get(f'/api/ratings-datasets/{dataset_id}/rows/all')
+    assert response.status_code == 200
+    rows = response.json()
+    assert len(rows) == 4  # every SAMPLE_ROWS row, including the invalid one -- not paginated
+    assert all(row['duplicateSiblings'] == [] for row in rows)  # never computed by this route
+    assert sorted(row['station'] for row in rows) == sorted(row['station'] for row in SAMPLE_ROWS)
+
+
+def test_list_all_rows_for_missing_dataset_returns_404(client):
+    response = client.get('/api/ratings-datasets/does-not-exist/rows/all')
+    assert response.status_code == 404
+
+
 def test_list_rows_paginates_with_limit_and_offset(client):
     rows = [{'medium': 'TV', 'station': f'Station {i}', 'day': 'Mon', 'programme': 'Show', 'rating': 1.0} for i in range(5)]
     created = client.post('/api/ratings-datasets', json={'provider': 'Agency A', 'rows': rows}).json()

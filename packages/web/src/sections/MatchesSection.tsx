@@ -81,10 +81,19 @@ function describeMatchedRating(match: RatingMatch, ratingsById: Map<string, Rati
 // row's assign dropdown used to mean up to ROW_PAGE_SIZE (20) rows times
 // the WHOLE attached ratings library (a real project in this codebase's
 // own history runs 15,000-17,000+ rows) -- up to ~340,000 DOM nodes,
-// rebuilt on every render. A search-as-you-type combobox never mounts
-// more than RATING_COMBOBOX_MAX_RESULTS options at once, regardless of
-// how large the ratings library is.
-const RATING_COMBOBOX_MAX_RESULTS = 50;
+// rebuilt on every render. A capped search-as-you-type list (an earlier
+// version of this component) fixed the DOM cost but made some ratings
+// outright unreachable -- a station with a dense time-band breakdown
+// (e.g. one row per 15-minute slot) could alone exceed the cap, with no
+// way to scroll past it to a rating the cap had excluded. Real
+// virtualization fixes both at once: the list below can hold every
+// matching row, however many there are, scrollable like a normal list --
+// only OPTIONS_VIEWPORT_ROWS + 2*OPTIONS_OVERSCAN_ROWS of them are ever
+// actually mounted at once, the rest exist only as filtered's array
+// entries until scrolled into view.
+const OPTIONS_ROW_HEIGHT = 32; // px -- must match .rating-combobox-option's CSS height exactly
+const OPTIONS_VIEWPORT_ROWS = 8; // matches .rating-combobox-options' max-height (260px) / OPTIONS_ROW_HEIGHT
+const OPTIONS_OVERSCAN_ROWS = 4;
 
 function RatingCombobox({
   options,
@@ -102,52 +111,32 @@ function RatingCombobox({
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const optionsRef = useRef<HTMLDivElement>(null);
   const listboxId = useRef(`rating-combobox-${Math.random().toString(36).slice(2)}`).current;
 
   const selected = value ? options.find((option) => option.ratingRowId === value) ?? null : null;
 
-  const { results: filtered, matchingCount } = useMemo(() => {
+  const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const matching = needle
-      ? options.filter((option) => describeRatingOption(option).toLowerCase().includes(needle))
-      : options;
-    if (matching.length <= RATING_COMBOBOX_MAX_RESULTS) return { results: matching, matchingCount: matching.length };
-
-    // Found live: searching a station name (e.g. "channel") surfaced only
-    // that station's Friday slots, because a station with a fine-grained
-    // (e.g. 15-minute) time-band breakdown can have ~96 rows for a single
-    // day -- more than the whole cap on its own -- and options is sorted
-    // by station/day/programme, so a plain first-N-in-order scan exhausted
-    // the cap on day one before ever reaching any other day for that same
-    // station. Grouping by station+day and taking matches round-robin
-    // across groups instead guarantees every matching day (and station)
-    // gets a fair share of the cap, however dense any single group is.
-    const groups = new Map<string, RatingRow[]>();
-    for (const option of matching) {
-      const key = `${option.station}|${option.day}`;
-      const group = groups.get(key);
-      if (group) group.push(option);
-      else groups.set(key, [option]);
-    }
-    const groupLists = Array.from(groups.values());
-    const result: RatingRow[] = [];
-    for (let index = 0; result.length < RATING_COMBOBOX_MAX_RESULTS; index += 1) {
-      let addedAny = false;
-      for (const group of groupLists) {
-        if (index < group.length) {
-          result.push(group[index]);
-          addedAny = true;
-          if (result.length >= RATING_COMBOBOX_MAX_RESULTS) break;
-        }
-      }
-      if (!addedAny) break;
-    }
-    return { results: result, matchingCount: matching.length };
+    return needle ? options.filter((option) => describeRatingOption(option).toLowerCase().includes(needle)) : options;
   }, [options, query]);
+
+  // Only this slice is ever actually rendered -- see OPTIONS_ROW_HEIGHT's
+  // comment. Recomputed from scrollTop, not from the DOM, so it stays
+  // correct even for a scroll the user hasn't settled on yet.
+  const startIndex = Math.max(0, Math.floor(scrollTop / OPTIONS_ROW_HEIGHT) - OPTIONS_OVERSCAN_ROWS);
+  const endIndex = Math.min(
+    filtered.length,
+    Math.ceil((scrollTop + OPTIONS_VIEWPORT_ROWS * OPTIONS_ROW_HEIGHT) / OPTIONS_ROW_HEIGHT) + OPTIONS_OVERSCAN_ROWS,
+  );
+  const visibleSlice = filtered.slice(startIndex, endIndex);
 
   useEffect(() => {
     setHighlightedIndex(0);
+    setScrollTop(0);
+    if (optionsRef.current) optionsRef.current.scrollTop = 0;
   }, [query, isOpen]);
 
   useEffect(() => {
@@ -166,6 +155,24 @@ function RatingCombobox({
     setIsOpen(false);
   }
 
+  // Keyboard nav can move the highlight outside the currently-mounted
+  // (virtualized) slice -- scroll it into view directly rather than
+  // relying on scrollIntoView, which only works on elements that are
+  // actually mounted.
+  function moveHighlight(nextIndex: number) {
+    const clamped = Math.max(0, Math.min(nextIndex, filtered.length - 1));
+    setHighlightedIndex(clamped);
+    const rowTop = clamped * OPTIONS_ROW_HEIGHT;
+    const rowBottom = rowTop + OPTIONS_ROW_HEIGHT;
+    const viewportHeight = OPTIONS_VIEWPORT_ROWS * OPTIONS_ROW_HEIGHT;
+    if (!optionsRef.current) return;
+    if (rowTop < scrollTop) {
+      optionsRef.current.scrollTop = rowTop;
+    } else if (rowBottom > scrollTop + viewportHeight) {
+      optionsRef.current.scrollTop = rowBottom - viewportHeight;
+    }
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape') {
       setIsOpen(false);
@@ -174,12 +181,12 @@ function RatingCombobox({
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       setIsOpen(true);
-      setHighlightedIndex((current) => Math.min(current + 1, filtered.length - 1));
+      moveHighlight(highlightedIndex + 1);
       return;
     }
     if (event.key === 'ArrowUp') {
       event.preventDefault();
-      setHighlightedIndex((current) => Math.max(current - 1, 0));
+      moveHighlight(highlightedIndex - 1);
       return;
     }
     if (event.key === 'Enter') {
@@ -212,41 +219,51 @@ function RatingCombobox({
         onKeyDown={handleKeyDown}
       />
       {isOpen && (
-        <ul className="rating-combobox-options" role="listbox" id={listboxId}>
+        <div
+          className="rating-combobox-options"
+          ref={optionsRef}
+          onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        >
           {filtered.length === 0 ? (
-            <li className="rating-combobox-empty">No ratings match "{query}"</li>
+            <p className="rating-combobox-empty">No ratings match "{query}"</p>
           ) : (
-            <>
-              {filtered.map((option, index) => (
-                <li key={option.ratingRowId} role="option" aria-selected={option.ratingRowId === value}>
-                  <button
-                    type="button"
-                    className={
-                      index === highlightedIndex
-                        ? 'rating-combobox-option highlighted'
-                        : 'rating-combobox-option'
-                    }
-                    onMouseEnter={() => setHighlightedIndex(index)}
-                    // onMouseDown (not onClick) so this fires before the input's
-                    // own onBlur/the outside-click handler can close the list first.
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      select(option);
-                    }}
+            <ul
+              role="listbox"
+              id={listboxId}
+              style={{ position: 'relative', height: filtered.length * OPTIONS_ROW_HEIGHT, margin: 0, padding: 0 }}
+            >
+              {visibleSlice.map((option, sliceIndex) => {
+                const index = startIndex + sliceIndex;
+                return (
+                  <li
+                    key={option.ratingRowId}
+                    role="option"
+                    aria-selected={option.ratingRowId === value}
+                    style={{ position: 'absolute', top: index * OPTIONS_ROW_HEIGHT, left: 0, right: 0 }}
                   >
-                    {describeRatingOption(option)}
-                  </button>
-                </li>
-              ))}
-              {matchingCount > RATING_COMBOBOX_MAX_RESULTS && (
-                <li className="rating-combobox-hint">
-                  Showing {RATING_COMBOBOX_MAX_RESULTS} of {matchingCount} matches, spread across every matching day
-                  — keep typing to narrow down.
-                </li>
-              )}
-            </>
+                    <button
+                      type="button"
+                      className={
+                        index === highlightedIndex
+                          ? 'rating-combobox-option highlighted'
+                          : 'rating-combobox-option'
+                      }
+                      onMouseEnter={() => setHighlightedIndex(index)}
+                      // onMouseDown (not onClick) so this fires before the input's
+                      // own onBlur/the outside-click handler can close the list first.
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        select(option);
+                      }}
+                    >
+                      {describeRatingOption(option)}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           )}
-        </ul>
+        </div>
       )}
     </div>
   );

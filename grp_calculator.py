@@ -402,6 +402,60 @@ def compatible_time_slot(input_time, candidate_time_band):
     return normalize_text(input_time) == normalize_text(candidate_time_band)
 
 
+def _time_overlap_mask(row_times, candidate_ranges):
+    """(R, C) boolean matrix: True wherever row i's own time_band/airtime
+    text (`row_times`) falls inside or overlaps candidate j's time range
+    (`candidate_ranges`, pre-parsed via _parse_range_seconds -- None for an
+    unparseable candidate, which never matches anything). Mirrors
+    time_band_contains()'s point-vs-range semantics exactly (half-open
+    [start, end) for a bare point, strict overlap across a +/-24h wrap for
+    two ranges) but scores a whole group of rows against a whole group of
+    candidates in two batches of numpy comparisons, not one regex-parsing
+    scalar call per (row, candidate) pair -- see build_unmatched_suggestions,
+    this function's only caller, for why that distinction matters at scale."""
+    rows = len(row_times)
+    cols = len(candidate_ranges)
+    result = np.zeros((rows, cols), dtype=bool)
+
+    valid_cols = [j for j, r in enumerate(candidate_ranges) if r is not None]
+    if not valid_cols:
+        return result
+    cand_start = np.array([candidate_ranges[j][0] for j in valid_cols], dtype=np.float64)
+    cand_end = np.array([candidate_ranges[j][1] for j in valid_cols], dtype=np.float64)
+
+    range_rows, range_bounds = [], []
+    point_rows, point_seconds_list = [], []
+    for i, value in enumerate(row_times):
+        parsed_range = _parse_range_seconds(value)
+        if parsed_range is not None:
+            range_rows.append(i)
+            range_bounds.append(parsed_range)
+            continue
+        seconds = clock_seconds(value)
+        if seconds is not None:
+            point_rows.append(i)
+            point_seconds_list.append(seconds)
+
+    if range_rows:
+        point_start = np.array([b[0] for b in range_bounds], dtype=np.float64)[:, None]
+        point_end = np.array([b[1] for b in range_bounds], dtype=np.float64)[:, None]
+        overlap = np.zeros((len(range_rows), len(valid_cols)), dtype=bool)
+        for offset in (-24 * 60 * 60, 0, 24 * 60 * 60):
+            overlap |= (cand_start[None, :] < point_end + offset) & (point_start + offset < cand_end[None, :])
+        result[np.ix_(range_rows, valid_cols)] = overlap
+
+    if point_rows:
+        seconds = np.array(point_seconds_list, dtype=np.float64)[:, None]
+        contains = (
+            (cand_start[None, :] <= seconds) & (seconds < cand_end[None, :])
+        ) | (
+            (cand_start[None, :] <= seconds + 24 * 60 * 60) & (seconds + 24 * 60 * 60 < cand_end[None, :])
+        )
+        result[np.ix_(point_rows, valid_cols)] = contains
+
+    return result
+
+
 def station_programme_key(medium, channel, day, programme):
     return '|'.join([
         normalize_text(medium),
@@ -1248,6 +1302,26 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         programme_scores = process.cdist(
             [info[2] for info in group_rows], choices, scorer=fuzz.ratio,
         ).astype(np.float64)
+
+        # Some ratings datasets carry no real Programme column at all (a
+        # documented, common shape for radio/TV audience-reach exports --
+        # see parsing.py's RATINGS_OPTIONAL_MAPPING_FIELDS comment) and
+        # resolve_effective_programme() falls back to that rating's own Time
+        # Band text as a stand-in "programme" value. Scoring that stand-in
+        # against a spend row's *real* programme name with plain text
+        # similarity (e.g. "LIVING THE LIFE (CBN)" vs "11:15:00-11:30:00")
+        # scores ~0 -- nothing textual ties them together -- which drops
+        # every genuinely time-compatible candidate before compatible_time_
+        # slot() below ever gets a chance to see it, leaving rows unmatched
+        # even though a rating exists for their exact slot. For any
+        # candidate whose "programme" text is itself a bare time-band (no
+        # real programme name to compare against), substitute an actual
+        # time-overlap score for the meaningless text ratio.
+        timeband_columns = [idx for idx, choice in enumerate(choices) if is_time_band_range(choice)]
+        if timeband_columns:
+            candidate_ranges = [_parse_range_seconds(candidate_rows[idx][6]) for idx in timeband_columns]
+            overlap_mask = _time_overlap_mask([info[3] for info in group_rows], candidate_ranges)
+            programme_scores[:, timeband_columns] = np.where(overlap_mask, 100.0, 0.0)
 
         # Mirrors process.extract(..., score_cutoff=..., limit=...): for
         # every row at once, its candidates at/above the cutoff, top

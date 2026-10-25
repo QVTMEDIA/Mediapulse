@@ -395,6 +395,81 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(len(suggestions), 1)
         self.assertEqual(suggestions.loc[0, 'Suggested Rating (%)'], 1.0)
 
+    def test_unmatched_suggestions_time_overlap_survives_when_ratings_have_no_real_programme(self):
+        # Real incident: a ratings file with no distinct Programme column at
+        # all (common for TV/radio audience-reach exports -- see
+        # resolve_effective_programme's docstring) resolves every rating
+        # row's "programme" to its own Time Band text, e.g. "11:15:00-
+        # 11:30:00". The spend file, in contrast, carries a real programme
+        # name per spot ("LIVING THE LIFE (CBN)"). Scoring those two values
+        # against each other as plain text always comes back ~0 similarity
+        # -- a real name and a clock range share nothing textually -- which
+        # used to drop every candidate before compatible_time_slot() ever
+        # got a chance to see that the spot's own airtime (11:27:10) falls
+        # squarely inside the rating's slot. 322/401 real unmatched rows in
+        # one project traced back to exactly this. The station name is an
+        # exact match here so there's no ambiguity about what should win.
+        ratings = pd.DataFrame({
+            'Medium': ['TV'],
+            'Channel / Station': ['PRTV Jos'],
+            'Day': ['Wed'],
+            'Programme / Time Band': ['11:15:00-11:30:00'],
+            'Time Band': ['11:15:00-11:30:00'],
+            'Rating (%)': [4.2],
+        })
+        ratings['Match Key'] = calc.make_key(
+            ratings['Medium'], ratings['Channel / Station'], ratings['Day'], ratings['Programme / Time Band']
+        )
+        media = pd.DataFrame({
+            'Brand': ['Brand A'],
+            'Source File': ['spend.xlsx'],
+            'Medium': ['Terrestrial TV'],
+            'Channel / Station': ['PRTV JOS'],
+            'Day': ['Wednesday'],
+            'Programme / Time Band': ['LIVING THE LIFE (CBN)'],
+            'Daypart': ['11:27:10'],
+            'Match Status': ['NO RATING MATCH'],
+            'Match Key': ['TV|PRTV JOS|WED|LIVING THE LIFE (CBN)'],
+        })
+
+        suggestions = calc.build_unmatched_suggestions(media, ratings)
+
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions.loc[0, 'Suggested Rating (%)'], 4.2)
+        self.assertEqual(suggestions.loc[0, 'Suggested Programme / Time Band'], '11:15:00-11:30:00')
+
+    def test_unmatched_suggestions_still_requires_real_time_overlap_for_timeband_programme(self):
+        # Sibling of the test above: when a candidate's "programme" is a
+        # bare time-band stand-in, the override must still reject a
+        # genuinely incompatible slot rather than rubber-stamping every
+        # same medium/channel/day candidate as a match.
+        ratings = pd.DataFrame({
+            'Medium': ['TV'],
+            'Channel / Station': ['PRTV Jos'],
+            'Day': ['Wed'],
+            'Programme / Time Band': ['18:00:00-18:15:00'],
+            'Time Band': ['18:00:00-18:15:00'],
+            'Rating (%)': [3.1],
+        })
+        ratings['Match Key'] = calc.make_key(
+            ratings['Medium'], ratings['Channel / Station'], ratings['Day'], ratings['Programme / Time Band']
+        )
+        media = pd.DataFrame({
+            'Brand': ['Brand A'],
+            'Source File': ['spend.xlsx'],
+            'Medium': ['Terrestrial TV'],
+            'Channel / Station': ['PRTV JOS'],
+            'Day': ['Wednesday'],
+            'Programme / Time Band': ['LIVING THE LIFE (CBN)'],
+            'Daypart': ['11:27:10'],
+            'Match Status': ['NO RATING MATCH'],
+            'Match Key': ['TV|PRTV JOS|WED|LIVING THE LIFE (CBN)'],
+        })
+
+        suggestions = calc.build_unmatched_suggestions(media, ratings, min_score=0.1)
+
+        self.assertEqual(len(suggestions), 0)
+
     def test_unmatched_suggestions_break_score_ties_by_original_candidate_order(self):
         # build_unmatched_suggestions scores a whole group of rows against
         # its shared candidate list in one batched rapidfuzz call (see the

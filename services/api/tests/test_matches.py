@@ -419,6 +419,44 @@ def test_compute_matches_does_not_suggest_incompatible_time_band():
     assert result[0].matched_rating_id is None
 
 
+def test_compute_matches_suggests_slot_match_when_ratings_have_no_real_programme():
+    # Real incident: a ratings file with no distinct Programme column (a
+    # common shape for TV/radio audience-reach exports) resolves every
+    # rating's "programme" to its own Time Band text via
+    # grp_calculator.resolve_effective_programme. The exact-key path misses
+    # (the activity's own airtime, "17:54:25", is a single instant, not the
+    # rating's "17:45:00-18:00:00" range -- see make_exact_match_key), and
+    # the station name differs just enough ("CHANNELS TV LAGOS TJ" vs
+    # "Channels TV Lagos") to miss the exact-key slot-fallback dict lookup
+    # too, so this has to fall through to the fuzzy suggestion engine. That
+    # engine used to score the activity's real programme name ("ROS") against
+    # the rating's time-band-shaped stand-in programme as plain text --
+    # ~0 similarity, nothing textual ties them together -- and silently drop
+    # a candidate whose time slot the spot's airtime actually falls inside.
+    activity = _media_activity(
+        medium='Terrestrial TV',
+        station='CHANNELS TV LAGOS TJ',
+        day='Tuesday',
+        programme='ROS',
+        time_band='17:54:25',
+    )
+    rating = _rating_row(
+        'rating-channels',
+        medium='TV',
+        station='Channels TV Lagos',
+        day='Tue',
+        programme='17:45:00-18:00:00',
+        time_band='17:45:00-18:00:00',
+        rating=2.4,
+    )
+
+    result = compute_matches([activity], [rating])
+
+    assert len(result) == 1
+    assert result[0].match_status == 'suggested'
+    assert result[0].matched_rating_id == 'rating-channels'
+
+
 def test_compute_matches_exact_only_skips_fuzzy_suggestions(monkeypatch):
     activity = _media_activity(programme='Morning Shw')
     rating = _rating_row('rating-best', programme='Morning Show')

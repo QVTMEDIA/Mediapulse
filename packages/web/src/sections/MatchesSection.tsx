@@ -107,16 +107,43 @@ function RatingCombobox({
 
   const selected = value ? options.find((option) => option.ratingRowId === value) ?? null : null;
 
-  const filtered = useMemo(() => {
+  const { results: filtered, matchingCount } = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const matches: RatingRow[] = [];
-    for (const option of options) {
-      if (!needle || describeRatingOption(option).toLowerCase().includes(needle)) {
-        matches.push(option);
-        if (matches.length >= RATING_COMBOBOX_MAX_RESULTS) break;
-      }
+    const matching = needle
+      ? options.filter((option) => describeRatingOption(option).toLowerCase().includes(needle))
+      : options;
+    if (matching.length <= RATING_COMBOBOX_MAX_RESULTS) return { results: matching, matchingCount: matching.length };
+
+    // Found live: searching a station name (e.g. "channel") surfaced only
+    // that station's Friday slots, because a station with a fine-grained
+    // (e.g. 15-minute) time-band breakdown can have ~96 rows for a single
+    // day -- more than the whole cap on its own -- and options is sorted
+    // by station/day/programme, so a plain first-N-in-order scan exhausted
+    // the cap on day one before ever reaching any other day for that same
+    // station. Grouping by station+day and taking matches round-robin
+    // across groups instead guarantees every matching day (and station)
+    // gets a fair share of the cap, however dense any single group is.
+    const groups = new Map<string, RatingRow[]>();
+    for (const option of matching) {
+      const key = `${option.station}|${option.day}`;
+      const group = groups.get(key);
+      if (group) group.push(option);
+      else groups.set(key, [option]);
     }
-    return matches;
+    const groupLists = Array.from(groups.values());
+    const result: RatingRow[] = [];
+    for (let index = 0; result.length < RATING_COMBOBOX_MAX_RESULTS; index += 1) {
+      let addedAny = false;
+      for (const group of groupLists) {
+        if (index < group.length) {
+          result.push(group[index]);
+          addedAny = true;
+          if (result.length >= RATING_COMBOBOX_MAX_RESULTS) break;
+        }
+      }
+      if (!addedAny) break;
+    }
+    return { results: result, matchingCount: matching.length };
   }, [options, query]);
 
   useEffect(() => {
@@ -211,9 +238,10 @@ function RatingCombobox({
                   </button>
                 </li>
               ))}
-              {filtered.length >= RATING_COMBOBOX_MAX_RESULTS && options.length > RATING_COMBOBOX_MAX_RESULTS && (
+              {matchingCount > RATING_COMBOBOX_MAX_RESULTS && (
                 <li className="rating-combobox-hint">
-                  Showing first {RATING_COMBOBOX_MAX_RESULTS} matches of {options.length} — keep typing to narrow down.
+                  Showing {RATING_COMBOBOX_MAX_RESULTS} of {matchingCount} matches, spread across every matching day
+                  — keep typing to narrow down.
                 </li>
               )}
             </>

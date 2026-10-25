@@ -1174,6 +1174,15 @@ def build_validation_summary(media, invalid_ratings=None, report_issues=None, du
     return pd.DataFrame(rows, columns=['Area', 'Count', 'Status', 'Notes'])
 
 
+# How many same-score candidates a single row is allowed to drag into the
+# station-similarity tie-break below -- see build_unmatched_suggestions'
+# top_k comment for the real-data incident that requires this. Comfortably
+# above any realistic count of distinct stations airing on one day/medium,
+# while still bounding the per-row token_set_ratio work a pathological
+# group could otherwise demand.
+_TIE_SAFETY_CEILING = 300
+
+
 def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_score=0.55, on_progress=None):
     """on_progress, if given, is called with however many `media` rows just
     got a real, final suggestion decision (found some, or none at all) --
@@ -1331,7 +1340,25 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         # pool and thousands of rows, a per-row numpy call's own overhead
         # can outweigh what it saves, the same trap as calling into
         # rapidfuzz once per row in the first place.
-        top_k = min(extract_limit, programme_scores.shape[1])
+        #
+        # Regression: a plain top-`extract_limit` cut silently drops a real
+        # match whenever more than extract_limit (15) candidates tie at the
+        # best score -- which the time-overlap override above makes routine
+        # in the "same medium and day" tier: every station broadcasting
+        # anywhere near a given point in time scores an identical 100, and
+        # a real project can have 100+ stations all airing something on the
+        # same day. Reproduced directly against a real project: a spot on
+        # "BCOS TV IBADAN" scored 100 against 9,792 same-day candidates
+        # across every station in the library, and the real BCOS Ibadan
+        # rating lost its spot in the top 15 to whichever 15 unrelated
+        # stations happened to sort first by original candidate order --
+        # station-name similarity (computed below) never got a chance to
+        # break that tie in the right direction. `_TIE_SAFETY_CEILING` caps
+        # how many candidates can win a tie-break this way per row, well
+        # above any real station count, rather than removing the cap
+        # entirely and risking a pathological group making every row
+        # re-score its full candidate list for station similarity.
+        top_k = min(max(extract_limit, _TIE_SAFETY_CEILING), programme_scores.shape[1])
         top_order = np.argsort(-programme_scores, axis=1, kind='stable')[:, :top_k]
         top_scores = np.take_along_axis(programme_scores, top_order, axis=1)
         keep_counts = np.count_nonzero(top_scores >= score_cutoff, axis=1)

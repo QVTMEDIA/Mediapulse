@@ -504,6 +504,54 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(len(suggestions), 1)
         self.assertEqual(suggestions.loc[0, 'Suggested Rating (%)'], 1.0)  # the earlier-indexed candidate wins the tie
 
+    def test_unmatched_suggestions_tie_break_survives_more_than_extract_limit_candidates(self):
+        # Real incident, found right after the time-overlap fix above
+        # shipped: in the "same medium and day" tier (station isn't part of
+        # the lookup key), it's routine for far more than extract_limit (15)
+        # candidates to tie on programme-text score -- every station airing
+        # a generic value like "ROS", or (the exact real case) every station
+        # scoring a perfect 100 via the time-overlap override once a
+        # ratings file has no real Programme column. The previous top-15
+        # cut (by original candidate order) silently dropped a real match
+        # whenever the real station sorted in at position 16 or later:
+        # reproduced directly against a real project where a spot on "BCOS
+        # TV IBADAN" scored 100 against 9,792 same-day candidates across
+        # every station in the library, and the real "BCOS Channel 28
+        # Ibadan" rating lost its spot in the top 15 to unrelated stations
+        # that merely happened to sort first -- station-name similarity
+        # (which should have broken the tie) never got a chance to run on
+        # it. 20 unrelated stations here (more than extract_limit) share an
+        # identical generic programme value with the real near-match
+        # station, which is deliberately placed last (index 20) so a plain
+        # top-15-by-order cut would drop it.
+        station_count = 20
+        ratings = pd.DataFrame({
+            'Medium': ['TV'] * (station_count + 1),
+            'Channel / Station': [f'Unrelated Station {i}' for i in range(station_count)] + ['BCOS Channel 28 Ibadan'],
+            'Day': ['Sun'] * (station_count + 1),
+            'Programme / Time Band': ['ROS'] * (station_count + 1),
+            'Rating (%)': [1.0] * station_count + [9.0],
+        })
+        ratings['Match Key'] = calc.make_key(
+            ratings['Medium'], ratings['Channel / Station'], ratings['Day'], ratings['Programme / Time Band']
+        )
+        media = pd.DataFrame({
+            'Brand': ['Brand A'],
+            'Source File': ['spend.xlsx'],
+            'Medium': ['Terrestrial TV'],
+            'Channel / Station': ['BCOS TV IBADAN'],
+            'Day': ['Sunday'],
+            'Programme / Time Band': ['ROS'],
+            'Match Status': ['NO RATING MATCH'],
+            'Match Key': ['TV|BCOS TV IBADAN|SUN|ROS'],
+        })
+
+        suggestions = calc.build_unmatched_suggestions(media, ratings, max_suggestions_per_row=1)
+
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions.loc[0, 'Suggested Channel / Station'], 'BCOS Channel 28 Ibadan')
+        self.assertEqual(suggestions.loc[0, 'Suggested Rating (%)'], 9.0)
+
     def test_unmatched_suggestions_stay_fast_at_scale(self):
         # Regression guard for the batched-scoring rework: build_unmatched_
         # suggestions used to call rapidfuzz once per unresolved row, then

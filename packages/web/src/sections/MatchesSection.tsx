@@ -77,7 +77,34 @@ function describeMatchedRating(match: RatingMatch, ratingsById: Map<string, Rati
   return describeRating(ratingsById.get(match.matchedRatingId));
 }
 
-export default function MatchesSection({ project }: { project: Project | null }) {
+interface MatchesCacheEntry {
+  signal: number;
+  matches: RatingMatch[];
+  activityById: Map<string, MediaActivityRow>;
+  ratingsById: Map<string, RatingRow>;
+}
+
+interface AssignableRatingsCacheEntry {
+  signal: number;
+  assignableRatingsById: Map<string, RatingRow>;
+}
+
+// Both survive MatchesSection unmounting -- App.tsx renders every nav
+// section through a mutually-exclusive ternary, so switching away from
+// Matches and back fully unmounts and remounts this component. Without
+// this, every single visit re-ran the 'ensure' matching job and refetched
+// everything from scratch, even for a project that was already fully
+// matched with nothing new since the last visit. Keyed by project id;
+// refreshSignal (passed down from App.tsx's projectDataVersion, bumped
+// after an upload, a Calculate run, or a ratings attach/reorder -- see
+// RatingsSection's onRatingsDataChanged) decides whether a cached entry is
+// still good. An explicit action on this page (a manual correction, Fast
+// recompute/Full scan) always does the real thing regardless of the
+// cache, then writes its fresh result back into it.
+const matchesCache = new Map<string, MatchesCacheEntry>();
+const assignableRatingsCache = new Map<string, AssignableRatingsCacheEntry>();
+
+export default function MatchesSection({ project, refreshSignal }: { project: Project | null; refreshSignal: number }) {
   const [matches, setMatches] = useState<RatingMatch[]>([]);
   const [activityById, setActivityById] = useState<Map<string, MediaActivityRow>>(new Map());
   // Only the ratings actually referenced by a confirmed/suggested match --
@@ -126,7 +153,7 @@ export default function MatchesSection({ project }: { project: Project | null })
   // correctly, since it wasn't.
   const activeProjectIdRef = useRef<string | null>(null);
 
-  const refresh = useCallback(async (projectId: string) => {
+  const refresh = useCallback(async (projectId: string, signal: number) => {
     setLoading(true);
     setLoadError(null);
     setLoadProgress(null);
@@ -153,9 +180,12 @@ export default function MatchesSection({ project }: { project: Project | null })
       // specific rating it points to.
       const [matchResults, matchedRatings] = await Promise.all([listMatches(projectId), listMatchedRatings(projectId)]);
       if (activeProjectIdRef.current !== projectId) return; // stale -- project changed while this was in flight
+      const activityMap = new Map(activityResults.map((row) => [row.mediaActivityId, row]));
+      const ratingsMap = new Map(matchedRatings.map((row) => [row.ratingRowId, row]));
       setMatches(matchResults);
-      setActivityById(new Map(activityResults.map((row) => [row.mediaActivityId, row])));
-      setRatingsById(new Map(matchedRatings.map((row) => [row.ratingRowId, row])));
+      setActivityById(activityMap);
+      setRatingsById(ratingsMap);
+      matchesCache.set(projectId, { signal, matches: matchResults, activityById: activityMap, ratingsById: ratingsMap });
     } catch (error) {
       if (activeProjectIdRef.current !== projectId) return;
       setLoadError(error instanceof ApiError ? error.message : 'Could not load matches.');
@@ -172,7 +202,7 @@ export default function MatchesSection({ project }: { project: Project | null })
   // project with a very large ratings library doesn't block the whole page
   // behind this fetch. Runs in the background; the assign picker just shows
   // "Loading ratings…" until it resolves.
-  const refreshAssignableRatings = useCallback(async (projectId: string) => {
+  const refreshAssignableRatings = useCallback(async (projectId: string, signal: number) => {
     setAssignableRatingsLoading(true);
     try {
       const datasets = await listProjectRatingsDatasets(projectId);
@@ -183,6 +213,7 @@ export default function MatchesSection({ project }: { project: Project | null })
         for (const row of rows) ratingsMap.set(row.ratingRowId, row);
       }
       setAssignableRatingsById(ratingsMap);
+      assignableRatingsCache.set(projectId, { signal, assignableRatingsById: ratingsMap });
     } catch {
       // Non-critical: the rest of the Matches screen already loaded fine.
       // A human can still see and correct matches; only the manual-assign
@@ -196,15 +227,34 @@ export default function MatchesSection({ project }: { project: Project | null })
   useEffect(() => {
     activeProjectIdRef.current = project ? project.projectId : null;
     if (project) {
-      void refresh(project.projectId);
-      void refreshAssignableRatings(project.projectId);
+      const cached = matchesCache.get(project.projectId);
+      if (cached && cached.signal === refreshSignal) {
+        // Nothing matching-relevant has changed since this was last
+        // loaded (same refreshSignal) -- show it immediately instead of
+        // re-running the 'ensure' job and refetching everything again.
+        setMatches(cached.matches);
+        setActivityById(cached.activityById);
+        setRatingsById(cached.ratingsById);
+        setLoading(false);
+        setLoadError(null);
+      } else {
+        void refresh(project.projectId, refreshSignal);
+      }
+
+      const cachedAssignable = assignableRatingsCache.get(project.projectId);
+      if (cachedAssignable && cachedAssignable.signal === refreshSignal) {
+        setAssignableRatingsById(cachedAssignable.assignableRatingsById);
+        setAssignableRatingsLoading(false);
+      } else {
+        void refreshAssignableRatings(project.projectId, refreshSignal);
+      }
     } else {
       setMatches([]);
       setActivityById(new Map());
       setRatingsById(new Map());
       setAssignableRatingsById(new Map());
     }
-  }, [project, refresh, refreshAssignableRatings]);
+  }, [project, refreshSignal, refresh, refreshAssignableRatings]);
 
   async function handleCorrect(match: RatingMatch, matchedRatingId: string | null) {
     if (!project) return;
@@ -217,7 +267,7 @@ export default function MatchesSection({ project }: { project: Project | null })
         delete next[match.ratingMatchId];
         return next;
       });
-      await refresh(project.projectId);
+      await refresh(project.projectId, refreshSignal);
     } catch (error) {
       setActionError(error instanceof ApiError ? error.message : 'Could not update that match.');
     } finally {
@@ -243,7 +293,7 @@ export default function MatchesSection({ project }: { project: Project | null })
       }
       if (jobResult.status === 'failed') throw new ApiError(500, jobResult.error ?? 'Matching failed.');
       setRecomputeProgress(jobResult.total > 0 ? { processed: jobResult.processed, total: jobResult.total } : null);
-      await refresh(project.projectId);
+      await refresh(project.projectId, refreshSignal);
     } catch (error) {
       setActionError(error instanceof ApiError ? error.message : 'Could not recompute matches.');
     } finally {

@@ -1401,3 +1401,28 @@ def test_export_matches_still_shows_the_rating_after_its_dataset_is_detached(cli
 def test_export_matches_rejects_missing_project(client):
     response = client.get('/api/projects/does-not-exist/matches/export')
     assert response.status_code == 404
+
+
+def test_match_job_store_evicts_entries_older_than_the_retention_window():
+    # Same bug/fix as calculation_jobs.py's equivalent test -- the highest-
+    # frequency of this codebase's three job stores, since an 'ensure' job
+    # starts on every single visit to the Matches screen (see
+    # MatchesSection.tsx's refresh(), not just the explicit Fast recompute/
+    # Full scan buttons).
+    from app import match_jobs
+
+    stale = match_jobs.MatchJob(id='stale-match-job', project_id='p1')
+    stale.created_at -= match_jobs._JOB_RETENTION_SECONDS + 1
+    fresh = match_jobs.MatchJob(id='fresh-match-job', project_id='p1')
+    with match_jobs._jobs_lock:
+        match_jobs._jobs['stale-match-job'] = stale
+        match_jobs._jobs['fresh-match-job'] = fresh
+
+    try:
+        match_jobs._evict_stale_jobs()
+        assert 'stale-match-job' not in match_jobs._jobs
+        assert 'fresh-match-job' in match_jobs._jobs
+    finally:
+        with match_jobs._jobs_lock:
+            match_jobs._jobs.pop('stale-match-job', None)
+            match_jobs._jobs.pop('fresh-match-job', None)

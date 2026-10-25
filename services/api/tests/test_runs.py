@@ -711,3 +711,29 @@ def test_trend_excludes_rows_with_no_date(client, project):
 def test_trend_rejects_missing_run(client, project):
     response = client.get(f"/api/projects/{project['projectId']}/runs/does-not-exist/trend")
     assert response.status_code == 404
+
+
+def test_calculation_job_store_evicts_entries_older_than_the_retention_window():
+    # Regression: start_calculation_job() never removed anything from
+    # _jobs -- every single Calculate click left its job dict entry behind
+    # forever, for the life of the process (same bug in match_jobs.py and
+    # upload_jobs.py -- see their own equivalent tests). _evict_stale_jobs()
+    # is now called on every new job start; this exercises the eviction
+    # logic itself directly, without waiting a real hour.
+    from app import calculation_jobs
+
+    stale = calculation_jobs.CalculationJob(id='stale-calc-job', project_id='p1')
+    stale.created_at -= calculation_jobs._JOB_RETENTION_SECONDS + 1
+    fresh = calculation_jobs.CalculationJob(id='fresh-calc-job', project_id='p1')
+    with calculation_jobs._jobs_lock:
+        calculation_jobs._jobs['stale-calc-job'] = stale
+        calculation_jobs._jobs['fresh-calc-job'] = fresh
+
+    try:
+        calculation_jobs._evict_stale_jobs()
+        assert 'stale-calc-job' not in calculation_jobs._jobs
+        assert 'fresh-calc-job' in calculation_jobs._jobs
+    finally:
+        with calculation_jobs._jobs_lock:
+            calculation_jobs._jobs.pop('stale-calc-job', None)
+            calculation_jobs._jobs.pop('fresh-calc-job', None)

@@ -1,12 +1,26 @@
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from .matches import compute_matches
+
+# How long a finished (or abandoned) job stays in _jobs before
+# start_match_job() reaps it -- see _evict_stale_jobs(). Nothing ever
+# removed an entry before this: 'ensure' jobs start on every single visit
+# to the Matches screen (see MatchesSection.tsx's refresh(), called from a
+# useEffect on mount/project-change, not just the explicit Fast recompute/
+# Full scan buttons), so _jobs grew by one dict entry on every page view,
+# forever, for as long as this process stayed up -- the highest-frequency
+# of this codebase's three job stores (see calculation_jobs.py/
+# upload_jobs.py for the other two, same issue, same fix). Long enough
+# that a slow poller still finds its job; short enough that a long-running
+# deploy's own job history can't grow without bound.
+_JOB_RETENTION_SECONDS = 3600
 
 
 @dataclass
@@ -29,11 +43,22 @@ class MatchJob:
     # finished, instead of climbing during it.
     total: int = 0
     processed: int = 0
+    # Monotonic, not wall-clock -- immune to the system clock ever being
+    # adjusted. Only used by _evict_stale_jobs() below; never serialized.
+    created_at: float = field(default_factory=time.monotonic)
 
 
 _jobs: dict[str, MatchJob] = {}
 _jobs_lock = threading.Lock()
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='match-job')
+
+
+def _evict_stale_jobs() -> None:
+    cutoff = time.monotonic() - _JOB_RETENTION_SECONDS
+    with _jobs_lock:
+        stale_ids = [job_id for job_id, job in _jobs.items() if job.created_at < cutoff]
+        for job_id in stale_ids:
+            del _jobs[job_id]
 
 
 def _set_status(job_id: str, status: str, error: Optional[str] = None) -> None:
@@ -126,6 +151,7 @@ def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo,
 
 
 def start_match_job(project_id, mode, matches_repo, uploads_repo, ratings_repo) -> MatchJob:
+    _evict_stale_jobs()
     job = MatchJob(id=str(uuid.uuid4()), project_id=project_id)
     with _jobs_lock:
         _jobs[job.id] = job

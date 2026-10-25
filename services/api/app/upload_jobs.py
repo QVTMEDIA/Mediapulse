@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 # Shared background-job engine for the three upload kinds (project media
@@ -16,6 +17,19 @@ from typing import Any, Optional
 # *JobOut response wrapping this generic total/processed/result shape --
 # this module only owns the generic "run a function in the background and
 # let a poller watch its status/progress" machinery.
+
+# How long a finished (or abandoned) job stays in _jobs before
+# start_upload_job() reaps it -- see _evict_stale_jobs(). Nothing ever
+# removed an entry before this: _jobs grew by one dict entry, forever, for
+# every single upload (project report, ratings, or SOE Explorer) for as
+# long as this process stayed up -- each one holding its full `result`
+# (UploadBatchOut/RatingsDatasetOut/SoeUploadOut, which can carry up to 100
+# dropped-row `issues` plus mapping warnings) long after any poller could
+# still be looking at it. calculation_jobs.py/match_jobs.py have the same
+# issue and the same fix. Long enough that a slow poller still finds its
+# job; short enough that a long-running deploy's own job history can't
+# grow without bound.
+_JOB_RETENTION_SECONDS = 3600
 
 
 @dataclass
@@ -40,11 +54,22 @@ class UploadJob:
     # this into its own typed *Out schema (UploadBatchOut/RatingsDatasetOut/
     # SoeUploadOut) rather than this module knowing about any of them.
     result: Optional[Any] = None
+    # Monotonic, not wall-clock -- immune to the system clock ever being
+    # adjusted. Only used by _evict_stale_jobs() below; never serialized.
+    created_at: float = field(default_factory=time.monotonic)
 
 
 _jobs: dict[str, UploadJob] = {}
 _jobs_lock = threading.Lock()
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='upload-job')
+
+
+def _evict_stale_jobs() -> None:
+    cutoff = time.monotonic() - _JOB_RETENTION_SECONDS
+    with _jobs_lock:
+        stale_ids = [job_id for job_id, job in _jobs.items() if job.created_at < cutoff]
+        for job_id in stale_ids:
+            del _jobs[job_id]
 
 
 def _set_status(job_id: str, status: str, *, error: Optional[str] = None, result: Optional[Any] = None) -> None:
@@ -87,6 +112,7 @@ def start_upload_job(fn, *args, scope: Optional[str] = None, **kwargs) -> Upload
     scope is this job's own UploadJob.scope (see its field comment), kept
     as a keyword-only argument so it's never mistaken for one of fn's own
     positional args."""
+    _evict_stale_jobs()
     job = UploadJob(id=str(uuid.uuid4()), scope=scope)
     with _jobs_lock:
         _jobs[job.id] = job

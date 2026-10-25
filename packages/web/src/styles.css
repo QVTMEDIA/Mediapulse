@@ -1166,19 +1166,26 @@ h3.subsection {
   right: 0;
   max-height: 260px;
   overflow-y: auto;
-  margin: 0;
   padding: 4px;
-  list-style: none;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(23, 33, 31, 0.12);
 }
 
+.rating-combobox-options ul {
+  list-style: none;
+}
+
+/* Height must match OPTIONS_ROW_HEIGHT in MatchesSection.tsx exactly --
+   the virtualized list positions every row by index * that constant. */
 .rating-combobox-option {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
-  padding: 7px 9px;
+  height: 32px;
+  box-sizing: border-box;
+  padding: 0 9px;
   background: none;
   border: none;
   border-radius: 6px;
@@ -1187,14 +1194,17 @@ h3.subsection {
   font-size: 13px;
   color: var(--ink);
   cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rating-combobox-option.highlighted {
   background: var(--surface);
 }
 
-.rating-combobox-empty,
-.rating-combobox-hint {
+.rating-combobox-empty {
+  margin: 0;
   padding: 7px 9px;
   font-size: 12px;
   color: var(--muted);

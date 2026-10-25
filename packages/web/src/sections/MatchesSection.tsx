@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Download } from 'lucide-react';
 import {
   ApiError,
@@ -75,6 +75,153 @@ function describeRating(row?: RatingRow) {
 function describeMatchedRating(match: RatingMatch, ratingsById: Map<string, RatingRow>) {
   if (!match.matchedRatingId) return 'Confirmed as unmatched — no rating assigned';
   return describeRating(ratingsById.get(match.matchedRatingId));
+}
+
+// Rendering one <option> per attached rating in every visible Unmatched
+// row's assign dropdown used to mean up to ROW_PAGE_SIZE (20) rows times
+// the WHOLE attached ratings library (a real project in this codebase's
+// own history runs 15,000-17,000+ rows) -- up to ~340,000 DOM nodes,
+// rebuilt on every render. A search-as-you-type combobox never mounts
+// more than RATING_COMBOBOX_MAX_RESULTS options at once, regardless of
+// how large the ratings library is.
+const RATING_COMBOBOX_MAX_RESULTS = 50;
+
+function RatingCombobox({
+  options,
+  value,
+  onChange,
+  disabled,
+}: {
+  // Already sorted, unfiltered -- the full assignable-ratings list for
+  // this project (see ratingOptions below).
+  options: RatingRow[];
+  value: string;
+  onChange: (ratingRowId: string) => void;
+  disabled?: boolean;
+}) {
+  const [query, setQuery] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const listboxId = useRef(`rating-combobox-${Math.random().toString(36).slice(2)}`).current;
+
+  const selected = value ? options.find((option) => option.ratingRowId === value) ?? null : null;
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const matches: RatingRow[] = [];
+    for (const option of options) {
+      if (!needle || describeRatingOption(option).toLowerCase().includes(needle)) {
+        matches.push(option);
+        if (matches.length >= RATING_COMBOBOX_MAX_RESULTS) break;
+      }
+    }
+    return matches;
+  }, [options, query]);
+
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [query, isOpen]);
+
+  useEffect(() => {
+    function handleOutsideClick(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  function select(option: RatingRow) {
+    onChange(option.ratingRowId);
+    setQuery('');
+    setIsOpen(false);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'Escape') {
+      setIsOpen(false);
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setIsOpen(true);
+      setHighlightedIndex((current) => Math.min(current + 1, filtered.length - 1));
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setHighlightedIndex((current) => Math.max(current - 1, 0));
+      return;
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      const option = filtered[highlightedIndex];
+      if (option) select(option);
+    }
+  }
+
+  return (
+    <div className="rating-combobox" ref={containerRef}>
+      <input
+        type="text"
+        role="combobox"
+        aria-expanded={isOpen}
+        aria-controls={listboxId}
+        aria-autocomplete="list"
+        className="rating-combobox-input"
+        placeholder="Search ratings…"
+        disabled={disabled}
+        value={isOpen ? query : selected ? describeRatingOption(selected) : ''}
+        onFocus={() => {
+          setIsOpen(true);
+          setQuery('');
+        }}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setIsOpen(true);
+        }}
+        onKeyDown={handleKeyDown}
+      />
+      {isOpen && (
+        <ul className="rating-combobox-options" role="listbox" id={listboxId}>
+          {filtered.length === 0 ? (
+            <li className="rating-combobox-empty">No ratings match "{query}"</li>
+          ) : (
+            <>
+              {filtered.map((option, index) => (
+                <li key={option.ratingRowId} role="option" aria-selected={option.ratingRowId === value}>
+                  <button
+                    type="button"
+                    className={
+                      index === highlightedIndex
+                        ? 'rating-combobox-option highlighted'
+                        : 'rating-combobox-option'
+                    }
+                    onMouseEnter={() => setHighlightedIndex(index)}
+                    // onMouseDown (not onClick) so this fires before the input's
+                    // own onBlur/the outside-click handler can close the list first.
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      select(option);
+                    }}
+                  >
+                    {describeRatingOption(option)}
+                  </button>
+                </li>
+              ))}
+              {filtered.length >= RATING_COMBOBOX_MAX_RESULTS && options.length > RATING_COMBOBOX_MAX_RESULTS && (
+                <li className="rating-combobox-hint">
+                  Showing first {RATING_COMBOBOX_MAX_RESULTS} matches of {options.length} — keep typing to narrow down.
+                </li>
+              )}
+            </>
+          )}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 interface MatchesCacheEntry {
@@ -324,18 +471,33 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
     );
   }
 
-  const counts = matches.reduce<Record<string, number>>((acc, match) => {
-    acc[match.matchStatus] = (acc[match.matchStatus] ?? 0) + 1;
-    return acc;
-  }, {});
-  const suggested = matches.filter((match) => match.matchStatus === 'suggested');
-  const unmatched = matches.filter((match) => match.matchStatus === 'unmatched');
-  const resolved = matches.filter((match) => match.matchStatus === 'exact' || match.matchStatus === 'manual');
+  // Memoized: without this, every state update anywhere in this component
+  // (e.g. typing in the rating combobox search box on one row) re-ran all
+  // of these over the full matches/ratings-library arrays on every render
+  // -- cheap individually, but ratingOptions' locale-aware sort over a
+  // large attached ratings library (this codebase has real projects with
+  // 15,000-17,000+ rows) was measurably expensive done repeatedly.
+  const counts = useMemo(() => {
+    return matches.reduce<Record<string, number>>((acc, match) => {
+      acc[match.matchStatus] = (acc[match.matchStatus] ?? 0) + 1;
+      return acc;
+    }, {});
+  }, [matches]);
+  const suggested = useMemo(() => matches.filter((match) => match.matchStatus === 'suggested'), [matches]);
+  const unmatched = useMemo(() => matches.filter((match) => match.matchStatus === 'unmatched'), [matches]);
+  const resolved = useMemo(
+    () => matches.filter((match) => match.matchStatus === 'exact' || match.matchStatus === 'manual'),
+    [matches],
+  );
   const showSuggested = matchFilter === 'all' || matchFilter === 'suggested';
   const showUnmatched = matchFilter === 'all' || matchFilter === 'unmatched';
   const showResolved = matchFilter === 'all' || matchFilter === 'matched';
-  const ratingOptions = Array.from(assignableRatingsById.values()).sort((a, b) =>
-    `${a.station} ${a.day} ${a.programme}`.localeCompare(`${b.station} ${b.day} ${b.programme}`),
+  const ratingOptions = useMemo(
+    () =>
+      Array.from(assignableRatingsById.values()).sort((a, b) =>
+        `${a.station} ${a.day} ${a.programme}`.localeCompare(`${b.station} ${b.day} ${b.programme}`),
+      ),
+    [assignableRatingsById],
   );
   const limitedSuggested = useLimitedRows(suggested);
   const limitedUnmatched = useLimitedRows(unmatched);
@@ -524,19 +686,14 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
                   </p>
                 ) : (
                   <div className="form-actions">
-                    <select
+                    <RatingCombobox
+                      options={ratingOptions}
                       value={assignSelections[match.ratingMatchId] ?? ''}
-                      onChange={(event) =>
-                        setAssignSelections((current) => ({ ...current, [match.ratingMatchId]: event.target.value }))
+                      onChange={(ratingRowId) =>
+                        setAssignSelections((current) => ({ ...current, [match.ratingMatchId]: ratingRowId }))
                       }
-                    >
-                      <option value="">Assign a rating…</option>
-                      {ratingOptions.map((rating) => (
-                        <option value={rating.ratingRowId} key={rating.ratingRowId}>
-                          {describeRatingOption(rating)}
-                        </option>
-                      ))}
-                    </select>
+                      disabled={correctingId === match.ratingMatchId}
+                    />
                     <button
                       type="button"
                       className="secondary-button"

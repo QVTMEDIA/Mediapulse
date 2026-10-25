@@ -655,9 +655,12 @@ function Workspace({
         {activeSection === 'overview' ? (
           <OverviewSection project={activeProject} />
         ) : activeSection === 'ratings' ? (
-          <RatingsSection project={activeProject} />
+          <RatingsSection
+            project={activeProject}
+            onRatingsDataChanged={() => setProjectDataVersion((current) => current + 1)}
+          />
         ) : activeSection === 'matches' ? (
-          <MatchesSection project={activeProject} />
+          <MatchesSection project={activeProject} refreshSignal={projectDataVersion} />
         ) : activeSection === 'activity' ? (
           <ActivitySection project={activeProject} />
         ) : activeSection === 'reports' ? (

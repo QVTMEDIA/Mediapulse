@@ -146,7 +146,21 @@ function RatingsDatasetRow({
   );
 }
 
-export default function RatingsSection({ project }: { project: Project | null }) {
+export default function RatingsSection({
+  project,
+  onRatingsDataChanged,
+}: {
+  project: Project | null;
+  // Called after attaching, uploading-and-attaching, or reordering a
+  // dataset -- anything that changes what this project's matching engine
+  // sees. App.tsx wires this to bump projectDataVersion, which
+  // MatchesSection's refreshSignal prop uses to know its own cached
+  // matches are stale and a real re-match is actually needed, instead of
+  // re-matching on every single visit to the Matches tab regardless of
+  // whether anything changed. Optional so RatingsSection stays usable
+  // standalone (e.g. in tests) without a caller that cares.
+  onRatingsDataChanged?: () => void;
+}) {
   const [attached, setAttached] = useState<RatingsDataset[]>([]);
   const [library, setLibrary] = useState<RatingsDataset[]>([]);
   const [loading, setLoading] = useState(false);
@@ -335,6 +349,7 @@ export default function RatingsSection({ project }: { project: Project | null })
       }
       setSelectedDatasetId(dataset.ratingsDatasetId);
       await refresh(project.projectId);
+      onRatingsDataChanged?.();
     } catch (error) {
       setUploadError(error instanceof ApiError ? error.message : 'Could not upload the ratings file.');
     } finally {
@@ -353,6 +368,7 @@ export default function RatingsSection({ project }: { project: Project | null })
       setAttachSelection('');
       setSelectedDatasetId(attachedId);
       await refresh(project.projectId);
+      onRatingsDataChanged?.();
     } catch (error) {
       setAttachError(error instanceof ApiError ? error.message : 'Could not attach that dataset.');
     } finally {
@@ -377,6 +393,7 @@ export default function RatingsSection({ project }: { project: Project | null })
         reordered.map((dataset) => dataset.ratingsDatasetId),
       );
       setAttached(updated);
+      onRatingsDataChanged?.();
     } catch (error) {
       setReorderError(error instanceof ApiError ? error.message : 'Could not reorder ratings sources.');
     } finally {

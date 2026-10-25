@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from .calculations import compute_run, resolve_rating_by_id
 from .repositories.calculations import GrpRunRecord
+
+# How long a finished (or abandoned) job stays in _jobs before start_
+# calculation_job() reaps it -- see _evict_stale_jobs(). Nothing ever
+# removed an entry before this: _jobs grew by one dict entry, forever, for
+# every single Calculate click for as long as this process stays up. Long
+# enough that a slow poller (or a human who walked away mid-job) still
+# finds its job; short enough that a long-running deploy's own job history
+# can't grow without bound.
+_JOB_RETENTION_SECONDS = 3600
 
 # compute_run()'s GRP aggregation and the matching engine's own fuzzy-
 # suggestion scoring are both vectorized (pandas/rapidfuzz) rather than a
@@ -29,11 +39,22 @@ class CalculationJob:
     run: Optional[GrpRunRecord] = None
     total: int = CALCULATION_STAGE_COUNT
     processed: int = 0
+    # Monotonic, not wall-clock -- immune to the system clock ever being
+    # adjusted. Only used by _evict_stale_jobs() below; never serialized.
+    created_at: float = field(default_factory=time.monotonic)
 
 
 _jobs: dict[str, CalculationJob] = {}
 _jobs_lock = threading.Lock()
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='calculation-job')
+
+
+def _evict_stale_jobs() -> None:
+    cutoff = time.monotonic() - _JOB_RETENTION_SECONDS
+    with _jobs_lock:
+        stale_ids = [job_id for job_id, job in _jobs.items() if job.created_at < cutoff]
+        for job_id in stale_ids:
+            del _jobs[job_id]
 
 
 def _set_status(
@@ -86,6 +107,7 @@ def _run_calculation(job_id, project_id, uploads_repo, ratings_repo, matches_rep
 
 
 def start_calculation_job(project_id, uploads_repo, ratings_repo, matches_repo, calculations_repo) -> CalculationJob:
+    _evict_stale_jobs()
     job = CalculationJob(id=str(uuid.uuid4()), project_id=project_id)
     with _jobs_lock:
         _jobs[job.id] = job

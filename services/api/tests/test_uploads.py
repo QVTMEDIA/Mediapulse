@@ -366,3 +366,27 @@ def test_get_upload_job_rejects_job_from_another_project(client, project, brand)
 def test_get_upload_job_rejects_unknown_job_id(client, project):
     response = client.get(f"/api/projects/{project['projectId']}/uploads/jobs/does-not-exist")
     assert response.status_code == 404
+
+
+def test_upload_job_store_evicts_entries_older_than_the_retention_window():
+    # Same bug/fix as calculation_jobs.py's equivalent test -- shared across
+    # all three upload kinds (project report, ratings, SOE Explorer), each
+    # holding its full `result` (including up to 100 dropped-row `issues`
+    # plus mapping warnings) long after any poller could still be using it.
+    from app import upload_jobs
+
+    stale = upload_jobs.UploadJob(id='stale-upload-job', scope='p1')
+    stale.created_at -= upload_jobs._JOB_RETENTION_SECONDS + 1
+    fresh = upload_jobs.UploadJob(id='fresh-upload-job', scope='p1')
+    with upload_jobs._jobs_lock:
+        upload_jobs._jobs['stale-upload-job'] = stale
+        upload_jobs._jobs['fresh-upload-job'] = fresh
+
+    try:
+        upload_jobs._evict_stale_jobs()
+        assert 'stale-upload-job' not in upload_jobs._jobs
+        assert 'fresh-upload-job' in upload_jobs._jobs
+    finally:
+        with upload_jobs._jobs_lock:
+            upload_jobs._jobs.pop('stale-upload-job', None)
+            upload_jobs._jobs.pop('fresh-upload-job', None)

@@ -12,7 +12,7 @@ same medium+channel, then same medium+day) and text-similarity scoring.
 import logging
 from dataclasses import dataclass
 from datetime import timezone
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import grp_calculator as calc
 import pandas as pd
@@ -233,7 +233,21 @@ def describe_unmatched_reason(activity, context: UnmatchedReasonContext) -> str:
     return 'Station and Day match, but no rating entry for this Programme/Time Band'
 
 
-def compute_matches(media_activity_records, rating_records, *, include_suggestions: bool = True) -> List[ComputedMatch]:
+def compute_matches(
+    media_activity_records, rating_records, *, include_suggestions: bool = True,
+    on_progress: Optional[Callable[[int], None]] = None,
+) -> List[ComputedMatch]:
+    """on_progress, if given, is called with however many rows just got a
+    real, final match decision -- never a simulated tick. Exact matches
+    (a dict lookup, genuinely O(1) each) report one row at a time as the
+    loop below resolves them; fuzzy-suggestion rows report in the same
+    real chunks grp_calculator.build_unmatched_suggestions() already scores
+    together internally (see _suggest_matches), since that's the actual
+    unit of completed work for that phase, not an arbitrary batch size
+    picked just to make a progress bar move. Summed across every branch
+    below, on_progress's calls always add up to exactly
+    len(media_activity_records) -- see match_jobs.py's job runner, the
+    only caller that currently uses this."""
     if not media_activity_records:
         return []
 
@@ -265,6 +279,8 @@ def compute_matches(media_activity_records, rating_records, *, include_suggestio
             )
         if rating is not None:
             exact_results.append(ComputedMatch(activity.id, 'exact', rating.id, None, key))
+            if on_progress:
+                on_progress(1)
         else:
             unresolved.append((activity, key))
 
@@ -272,9 +288,19 @@ def compute_matches(media_activity_records, rating_records, *, include_suggestio
         return exact_results
 
     if not include_suggestions:
+        if on_progress:
+            on_progress(len(unresolved))
         return exact_results + _unmatched_results(unresolved)
 
     suggestion_unresolved = _filter_station_covered_unresolved(unresolved, rating_records)
+    # Rows with no candidate station at all resolve to unmatched instantly,
+    # no fuzzy scoring needed -- credit them as processed right away rather
+    # than only once the (possibly much slower) suggestion_unresolved batch
+    # below finishes.
+    uncovered_count = len(unresolved) - len(suggestion_unresolved)
+    if on_progress and uncovered_count:
+        on_progress(uncovered_count)
+
     if len(suggestion_unresolved) > FUZZY_SUGGESTION_ROW_LIMIT:
         logger.warning(
             'Skipping fuzzy suggestion matching for %d rows (limit %d) -- leaving them unmatched. '
@@ -282,8 +308,13 @@ def compute_matches(media_activity_records, rating_records, *, include_suggestio
             "'Full scan' once the count needing a fuzzy scan drops back under the cap.",
             len(suggestion_unresolved), FUZZY_SUGGESTION_ROW_LIMIT,
         )
+        if on_progress:
+            on_progress(len(suggestion_unresolved))
         suggestion_unresolved = []
-    best_suggestion_by_key = _suggest_matches(suggestion_unresolved, rating_records) if suggestion_unresolved else {}
+    best_suggestion_by_key = (
+        _suggest_matches(suggestion_unresolved, rating_records, on_progress=on_progress)
+        if suggestion_unresolved else {}
+    )
 
     suggested_results = []
     for activity, key in unresolved:
@@ -297,11 +328,32 @@ def compute_matches(media_activity_records, rating_records, *, include_suggestio
     return exact_results + suggested_results
 
 
-def _suggest_matches(unresolved, rating_records) -> Dict[str, tuple]:
+def _suggest_matches(unresolved, rating_records, on_progress: Optional[Callable[[int], None]] = None) -> Dict[str, tuple]:
     """Returns {input_match_key: (suggested_rating_id, confidence)} for the
     best (highest-similarity) suggestion per key, using grp_calculator's
-    real suggestion engine."""
+    real suggestion engine.
+
+    on_progress, if given, is credited for every row in `unresolved`
+    exactly once by the time this returns, regardless of which branch below
+    actually runs. The real scoring work only happens once per distinct
+    match key (`unique_unresolved`) -- build_unmatched_suggestions() reports
+    progress as it finishes each real batch of those (see its own
+    on_progress), tracked here via `credited`. Any row in `unresolved`
+    sharing an already-scored key resolves "for free" (the same dict lookup
+    every other duplicate of that key already paid for) and is credited in
+    one lump sum as `remainder` just before returning, rather than
+    re-scored or left uncounted."""
+    credited = 0
+
+    def _credit(count: int) -> None:
+        nonlocal credited
+        credited += count
+        if on_progress:
+            on_progress(count)
+
     if not rating_records:
+        if on_progress:
+            on_progress(len(unresolved))
         return {}
 
     unique_unresolved = list({key: (activity, key) for activity, key in unresolved}.values())
@@ -330,7 +382,7 @@ def _suggest_matches(unresolved, rating_records) -> Dict[str, tuple]:
     for rating, key in zip(rating_records, ratings_df['Match Key']):
         ratings_by_key.setdefault(key, rating)
 
-    suggestions = calc.build_unmatched_suggestions(media_df, ratings_df)
+    suggestions = calc.build_unmatched_suggestions(media_df, ratings_df, on_progress=_credit if on_progress else None)
 
     best: Dict[str, tuple] = {}
     for _, row in suggestions.iterrows():
@@ -341,4 +393,9 @@ def _suggest_matches(unresolved, rating_records) -> Dict[str, tuple]:
         if suggested_rating is None:
             continue
         best[input_key] = (suggested_rating.id, float(row['Similarity Score']))
+
+    if on_progress:
+        remainder = len(unresolved) - credited
+        if remainder > 0:
+            on_progress(remainder)
     return best

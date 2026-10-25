@@ -1120,7 +1120,15 @@ def build_validation_summary(media, invalid_ratings=None, report_issues=None, du
     return pd.DataFrame(rows, columns=['Area', 'Count', 'Status', 'Notes'])
 
 
-def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_score=0.55):
+def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_score=0.55, on_progress=None):
+    """on_progress, if given, is called with however many `media` rows just
+    got a real, final suggestion decision (found some, or none at all) --
+    never a simulated tick. A row with no candidate group at all resolves
+    instantly (no rapidfuzz work), credited one at a time below as each is
+    found; a row that does get scored is only ever scored as part of its
+    whole `rows_by_group` batch (the real unit of work process.cdist does
+    in one call -- see that loop's own comment), so it's credited in that
+    same real batch size once scoring for the batch finishes, not before."""
     if ratings is None or len(ratings) == 0 or len(media) == 0:
         return pd.DataFrame(columns=SUGGESTION_COLUMNS)
     if 'Match Status' not in media.columns:
@@ -1206,6 +1214,8 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
                 basis = candidate_basis
                 break
         if candidate_indexes is None:
+            if on_progress:
+                on_progress(1)
             continue
 
         rows_by_group.setdefault(candidate_indexes, []).append(
@@ -1319,6 +1329,9 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
                     'Input Match Key': row.get('Match Key', ''),
                     'Suggested Match Key': candidate[5],
                 })
+
+        if on_progress:
+            on_progress(len(group_rows))
 
     return pd.DataFrame(suggestions, columns=SUGGESTION_COLUMNS)
 

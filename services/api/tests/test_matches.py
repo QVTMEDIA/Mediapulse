@@ -150,6 +150,91 @@ def _rating_row(
     )
 
 
+def test_compute_matches_on_progress_reports_one_row_at_a_time_for_exact_matches():
+    # Regression: on_progress used to not exist at all -- a caller (see
+    # match_jobs.py) could only advance its own progress counter in a
+    # separate loop *after* compute_matches() had already returned its
+    # full, already-computed result list, which made a progress bar jump
+    # straight from 0 to N in one tick once the whole (possibly slow)
+    # computation finished, instead of climbing during it. Exact matching
+    # (a dict lookup, genuinely O(1) per row) is the common case, so it
+    # should report true per-row progress, not one combined call at the end.
+    activities = [_media_activity(f'activity-{i}', station=f'Station {i}') for i in range(50)]
+    ratings = [_rating_row(f'rating-{i}', station=f'Station {i}') for i in range(50)]
+    calls = []
+
+    result = compute_matches(activities, ratings, on_progress=calls.append)
+
+    assert len(result) == 50
+    assert all(r.match_status == 'exact' for r in result)
+    assert len(calls) == 50  # one on_progress call per row, not one lump call at the end
+    assert calls == [1] * 50
+    assert sum(calls) == 50 == len(activities)
+
+
+def test_compute_matches_on_progress_credits_rows_with_no_candidate_station_immediately():
+    # A row whose station has no candidate anywhere in the ratings library
+    # resolves to 'unmatched' instantly -- no fuzzy scoring needed -- so it
+    # should be credited as processed right away rather than only once a
+    # separate, possibly slower, fuzzy-suggestion batch for OTHER rows
+    # finishes.
+    activities = [_media_activity(f'activity-{i}', station=f'Nowhere FM {i}') for i in range(10)]
+    ratings = [_rating_row('rating-1', station='Totally Different Station')]
+    calls = []
+
+    result = compute_matches(activities, ratings, on_progress=calls.append)
+
+    assert len(result) == 10
+    assert all(r.match_status == 'unmatched' for r in result)
+    assert sum(calls) == 10
+
+
+def test_compute_matches_on_progress_reports_multiple_real_batches_for_fuzzy_suggestions():
+    # Two distinct, unrelated stations each with their own near-miss
+    # (not-quite-exact) activities should form two separate candidate
+    # groups in grp_calculator.build_unmatched_suggestions()'s own
+    # per-group rapidfuzz batching -- on_progress should be called once per
+    # real group finishing, not once for the whole fuzzy phase combined
+    # (which would still be a disguised "jump to done").
+    activities = [
+        _media_activity('activity-tvc', medium='TV', station='TVC Lagos', day='Monday', programme='Prime Time'),
+        _media_activity('activity-ait', medium='TV', station='AIT Abuja', day='Tuesday', programme='News Hour'),
+    ]
+    ratings = [
+        _rating_row('rating-tvc', medium='TV', station='TVC', day='Monday', programme='Prime Time'),
+        _rating_row('rating-ait', medium='TV', station='AIT', day='Tuesday', programme='News Hour'),
+    ]
+    calls = []
+
+    result = compute_matches(activities, ratings, on_progress=calls.append)
+
+    assert len(result) == 2
+    assert all(r.match_status == 'suggested' for r in result)
+    assert len(calls) >= 2  # at least one real call per distinct candidate group, not a single combined call
+    assert sum(calls) == 2
+
+
+def test_compute_matches_on_progress_credits_duplicate_match_keys_exactly_once_each():
+    # Two activities sharing an identical match key (same medium/station/
+    # day/programme/time_band -- e.g. the same weekly slot on two different
+    # dates) get scored together as one unique key by _suggest_matches, with
+    # the second resolving "for free" off the first's already-computed
+    # suggestion. Progress must still credit both rows, not just the one
+    # that was actually scored.
+    activities = [
+        _media_activity('activity-1', station='TVC Lagos', day='Monday', programme='Prime Time'),
+        _media_activity('activity-2', station='TVC Lagos', day='Monday', programme='Prime Time'),
+    ]
+    ratings = [_rating_row('rating-1', station='TVC', day='Monday', programme='Prime Time')]
+    calls = []
+
+    result = compute_matches(activities, ratings, on_progress=calls.append)
+
+    assert len(result) == 2
+    assert all(r.match_status == 'suggested' for r in result)
+    assert sum(calls) == 2
+
+
 def test_compute_matches_prefers_highest_scored_fuzzy_suggestion():
     activity = _media_activity(programme='Morning Shw')
     ratings = [

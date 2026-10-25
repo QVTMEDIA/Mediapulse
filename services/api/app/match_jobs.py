@@ -17,11 +17,16 @@ class MatchJob:
     error: Optional[str] = None
     # Real for both 'ensure' and 'recompute' jobs (see _run_ensure/
     # _run_recompute) — each sets total once, up front, to however many
-    # rows it's about to visit, then advances processed by one per row
-    # visited (whether or not it ends up matched), so a polling client can
-    # render `processed / total` as a real percentage instead of an
-    # indeterminate spinner — the real bottleneck on a slow/cold-started
-    # backend is exactly this per-row persistence loop.
+    # rows it's about to visit, then advances processed via
+    # compute_matches()'s on_progress callback as it actually finishes real
+    # chunks of matching work (one row at a time for exact matches, in
+    # whatever real batch size grp_calculator.build_unmatched_suggestions()
+    # scores together for the fuzzy-suggestion phase -- see matches.py's
+    # compute_matches docstring). Earlier version advanced processed in a
+    # separate loop *after* compute_matches() had already returned its full,
+    # already-computed result list -- which made processed jump straight
+    # from 0 to total in one tick once the (possibly slow) real computation
+    # finished, instead of climbing during it.
     total: int = 0
     processed: int = 0
 
@@ -46,11 +51,11 @@ def _set_total(job_id: str, total: int) -> None:
             job.total = total
 
 
-def _increment_processed(job_id: str) -> None:
+def _advance_processed(job_id: str, by: int = 1) -> None:
     with _jobs_lock:
         job = _jobs.get(job_id)
         if job:
-            job.processed += 1
+            job.processed += by
 
 
 def _run_ensure(job_id, project_id, matches_repo, uploads_repo, ratings_repo):
@@ -67,16 +72,13 @@ def _run_ensure(job_id, project_id, matches_repo, uploads_repo, ratings_repo):
         _set_total(job_id, len(pending))
         if pending:
             rating_rows = ratings_repo.list_project_rating_rows(project_id)
-            # Same reasoning as _run_recompute below: compute_matches() is
-            # still one call (its own fuzzy-suggestion scoring is batched/
-            # vectorized, not a per-row loop worth breaking up further),
-            # but writing is now a separate bulk insert_matches() call
-            # instead of happening inside that one call, so processed can
-            # advance per row visited here before the write.
-            computed = []
-            for result in compute_matches(pending, rating_rows):
-                computed.append(result)
-                _increment_processed(job_id)
+            # processed advances from inside compute_matches() itself, as
+            # real chunks of matching work actually finish -- not in a
+            # separate loop over its already-complete return value (see
+            # MatchJob.total's comment for why that used to make the bar
+            # jump straight from 0 to total). Writing is still a separate
+            # bulk insert_matches() call after every row has a result.
+            computed = compute_matches(pending, rating_rows, on_progress=lambda n: _advance_processed(job_id, n))
             matches_repo.insert_matches(project_id, computed)
         _set_status(job_id, 'completed')
     except Exception as exc:
@@ -101,17 +103,22 @@ def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo,
             # (db.py's get_connection() is one connection per call), so
             # resolving thousands of previously-unmatched rows meant
             # thousands of sequential connection round trips in this loop
-            # alone. processed still advances per row visited here (in
-            # memory, no DB cost) so the progress bar stays accurate even
-            # though the actual writes now happen after this loop finishes.
+            # alone. processed advances from inside compute_matches() itself
+            # (see _run_ensure above / MatchJob.total's comment) so the
+            # progress bar climbs during the real matching work, even though
+            # the actual writes still happen afterward, once every row has a
+            # result, in one bulk call.
+            results = compute_matches(
+                unmatched_activity, rating_rows, include_suggestions=include_suggestions,
+                on_progress=lambda n: _advance_processed(job_id, n),
+            )
             updates = []
-            for result in compute_matches(unmatched_activity, rating_rows, include_suggestions=include_suggestions):
+            for result in results:
                 if result.match_status != 'unmatched':
                     existing_match = unmatched_by_activity_id[result.media_activity_id]
                     updates.append((
                         existing_match.id, result.matched_rating_id, result.match_status, result.match_confidence
                     ))
-                _increment_processed(job_id)
             matches_repo.update_matches_bulk(updates)
         _set_status(job_id, 'completed')
     except Exception as exc:

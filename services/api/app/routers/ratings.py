@@ -309,6 +309,33 @@ def list_ratings_dataset_rows(
     )
 
 
+@router.get('/ratings-datasets/{ratings_dataset_id}/rows/all', response_model=list[RatingRowOut])
+def list_all_ratings_dataset_rows(
+    ratings_dataset_id: str,
+    repo: RatingsRepository = Depends(get_ratings_repository),
+):
+    """Every row of one dataset in a single response, with no
+    duplicateSiblings computed (every entry comes back with an empty list)
+    -- for callers that need every raw row but never look at that field.
+    Today: MatchesSection's manual-assign picker, via api/client.ts's
+    listRatingRows(), which used to page through GET .../rows (above)
+    LIST_ALL_RATING_ROWS_CHUNK_SIZE rows at a time. That reused the
+    paginated route's repository method, which re-fetches and re-groups
+    the ENTIRE dataset from scratch on every single page call to compute
+    duplicateSiblings/storedInvalidRows (correct for that route's own
+    use, which does need them) -- multiplied by one call per page, a
+    project with several large attached datasets could end up doing many
+    redundant full-dataset fetches and O(dataset size) regroupings just to
+    populate an assign-a-rating dropdown that was going to ignore
+    duplicateSiblings anyway, visible live as the picker showing a
+    permanent "Loading ratings…" for a project with a large ratings
+    library. list_all_rows() does one plain SELECT per dataset instead."""
+    records = repo.list_all_rows(ratings_dataset_id)
+    if records is None:
+        raise HTTPException(status_code=404, detail='Ratings dataset not found')
+    return [_row_to_out(record) for record in records]
+
+
 @router.post('/projects/{project_id}/ratings-datasets/{ratings_dataset_id}/attach', status_code=204)
 def attach_ratings_dataset(
     project_id: str,

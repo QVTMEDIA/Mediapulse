@@ -151,6 +151,15 @@ class RatingsRepository(Protocol):
 
     def list_rows_page(self, ratings_dataset_id: str, *, limit: int, offset: int) -> Optional[RatingsRowsPage]: ...
 
+    def list_all_rows(self, ratings_dataset_id: str) -> Optional[List[RatingRowRecord]]:
+        """Every row of one dataset, with none of list_rows_page's duplicate-
+        sibling/stored-invalid-count work -- for callers that need every raw
+        row (today: MatchesSection's manual-assign picker, via
+        routers/ratings.py's GET .../rows/all) but never look at
+        duplicateSiblings. Returns None if the dataset doesn't exist, same
+        convention as list_rows_page."""
+        ...
+
     def attach_to_project(self, project_id: str, ratings_dataset_id: str) -> bool: ...
 
     def detach_from_project(self, project_id: str, ratings_dataset_id: str) -> bool: ...
@@ -292,6 +301,15 @@ class PostgresRatingsRepository:
             ).fetchall()
         records = [_rating_row_to_record(row) for row in rows]
         return _build_rows_page(records, limit=limit, offset=offset)
+
+    def list_all_rows(self, ratings_dataset_id):
+        if self.get_dataset(ratings_dataset_id) is None:
+            return None
+        with get_connection() as conn:
+            rows = conn.execute(
+                'SELECT * FROM ratings WHERE ratings_dataset_id = %s ORDER BY id', [ratings_dataset_id]
+            ).fetchall()
+        return [_rating_row_to_record(row) for row in rows]
 
     def attach_to_project(self, project_id, ratings_dataset_id):
         if self.get_dataset(ratings_dataset_id) is None:
@@ -464,6 +482,11 @@ class InMemoryRatingsRepository:
         if ratings_dataset_id not in self._datasets:
             return None
         return _build_rows_page(self._rows.get(ratings_dataset_id, []), limit=limit, offset=offset)
+
+    def list_all_rows(self, ratings_dataset_id):
+        if ratings_dataset_id not in self._datasets:
+            return None
+        return list(self._rows.get(ratings_dataset_id, []))
 
     def attach_to_project(self, project_id, ratings_dataset_id):
         if ratings_dataset_id not in self._datasets:

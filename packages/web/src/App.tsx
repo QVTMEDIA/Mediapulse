@@ -525,7 +525,19 @@ function Workspace({
         </div>
 
         <div className="sidebar-user">
-          <div className="sidebar-user-identity">
+          <div
+            className="sidebar-user-identity"
+            role="button"
+            tabIndex={0}
+            aria-label="Open your profile"
+            onClick={() => setActiveSection('settings')}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setActiveSection('settings');
+              }
+            }}
+          >
             <AvatarCircle user={currentUser} size={32} />
             <div>
               <strong>{currentUser.displayName || currentUser.email}</strong>

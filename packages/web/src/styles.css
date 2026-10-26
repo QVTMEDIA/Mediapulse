@@ -160,6 +160,15 @@ button:disabled {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  padding: 4px;
+  margin: -4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.sidebar-user-identity:hover,
+.sidebar-user-identity:focus-visible {
+  background: #1c4c46;
 }
 
 .sidebar-user-identity > div {

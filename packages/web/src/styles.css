@@ -334,7 +334,8 @@ button:disabled {
   background: #8f1b11;
 }
 
-.match-filter-bar {
+.match-filter-bar,
+.section-tab-bar {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;

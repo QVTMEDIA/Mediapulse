@@ -409,6 +409,9 @@ export default function SoeExplorerSection() {
   }
 
   async function handleDeleteUpload(uploadId: string) {
+    const fileName = uploads.find((upload) => upload.uploadId === uploadId)?.fileName ?? 'this file';
+    const confirmed = window.confirm(`Delete "${fileName}"? This removes every row it mapped. This cannot be undone.`);
+    if (!confirmed) return;
     setDeletingUploadId(uploadId);
     setDeleteError(null);
     try {

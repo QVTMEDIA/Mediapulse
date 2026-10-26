@@ -140,6 +140,10 @@ export default function ProjectManagePanel({
   }
 
   async function handleDeleteUpload(upload: UploadBatch) {
+    const confirmed = window.confirm(
+      `Delete "${upload.fileName}"? This removes every row this upload mapped. This cannot be undone.`,
+    );
+    if (!confirmed) return;
     setPendingActionId(upload.uploadId);
     setDataError(null);
     try {
@@ -153,6 +157,10 @@ export default function ProjectManagePanel({
   }
 
   async function handleDeleteBrand(brand: Brand) {
+    const confirmed = window.confirm(
+      `Delete "${brand.name}"? This removes every spot tagged to this brand. This cannot be undone.`,
+    );
+    if (!confirmed) return;
     setPendingActionId(brand.brandId);
     setDataError(null);
     try {
@@ -166,6 +174,10 @@ export default function ProjectManagePanel({
   }
 
   async function handleDetachDataset(dataset: RatingsDataset) {
+    const confirmed = window.confirm(
+      `Detach "${dataset.provider || 'this dataset'}" from ${project.projectName}? It will no longer be available for matching new spots.`,
+    );
+    if (!confirmed) return;
     setPendingActionId(dataset.ratingsDatasetId);
     setDataError(null);
     try {
@@ -183,10 +195,10 @@ export default function ProjectManagePanel({
     // anything already part of a calculated run), deleting the whole
     // project has no such guard on the backend — every upload, brand,
     // match, calculated run, and attached-ratings-dataset link cascades
-    // away with it, permanently. A plain click-to-delete icon button (this
-    // app's usual pattern for the smaller deletes above) isn't enough
-    // friction for something this size, so this is the one destructive
-    // action in the app with a confirmation prompt.
+    // away with it, permanently. Every destructive action in this panel
+    // (and Sign Out, and the SOE Explorer's own upload delete) now confirms
+    // first, but this one gets the most explicit wording since nothing
+    // backs it out.
     const confirmed = window.confirm(
       `Permanently delete "${project.projectName}"? This removes every upload, brand, match, and calculated run in it. This cannot be undone.`,
     );

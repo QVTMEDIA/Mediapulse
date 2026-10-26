@@ -1004,6 +1004,7 @@ function App() {
   }
 
   function handleSignOut() {
+    if (!window.confirm('Sign out of Mediapulse?')) return;
     setAuthToken(null);
     setAuthState({ status: 'signedOut', user: null });
   }

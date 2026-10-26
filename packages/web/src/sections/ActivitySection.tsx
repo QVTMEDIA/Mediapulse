@@ -2,8 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApiError, getLatestRun, listCalculations } from '../api/client';
 import type { GrpCalculationRow, GrpRunSummary, Project } from '../api/contracts';
 import { LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
+import QualitySection from './QualitySection';
+
+type ActivityTab = 'grp' | 'quality';
 
 export default function ActivitySection({ project }: { project: Project | null }) {
+  const [tab, setTab] = useState<ActivityTab>('grp');
   const [run, setRun] = useState<GrpRunSummary | null>(null);
   const [rows, setRows] = useState<GrpCalculationRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -45,56 +49,83 @@ export default function ActivitySection({ project }: { project: Project | null }
   }
 
   return (
-    <div className="panel">
-      <div className="panel-header">
-        <div>
-          <h2>Spot-level GRP</h2>
-          <p>
-            {loading
-              ? 'Loading…'
-              : run
-                ? `Run generated ${run.generatedAt} — every calculated row traces back to its spot`
-                : 'No calculation yet — go to Projects and click Calculate'}
-          </p>
-        </div>
+    <>
+      <div className="section-tab-bar" role="tablist" aria-label="Activity view">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'grp'}
+          className={tab === 'grp' ? 'primary-button' : 'secondary-button'}
+          onClick={() => setTab('grp')}
+        >
+          Spot-level GRP
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'quality'}
+          className={tab === 'quality' ? 'primary-button' : 'secondary-button'}
+          onClick={() => setTab('quality')}
+        >
+          Data Quality
+        </button>
       </div>
-      {loadError && <p className="inline-error">{loadError}</p>}
-      {!loading && run && rows.length === 0 && (
-        <p className="empty-state">This run has no matched rows — nothing to calculate yet.</p>
-      )}
-      {rows.length > 0 && (
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Brand</th>
-                <th>Station</th>
-                <th>Programme</th>
-                <th>Day</th>
-                <th>Medium</th>
-                <th className="num">Spots</th>
-                <th className="num">Rating</th>
-                <th className="num">GRP</th>
-              </tr>
-            </thead>
-            <tbody>
-              {limitedRows.visibleRows.map((row) => (
-                <tr key={row.grpCalculationId}>
-                  <td>{row.brand}</td>
-                  <td>{row.station}</td>
-                  <td>{row.programme || '—'}</td>
-                  <td>{row.day}</td>
-                  <td>{row.medium}</td>
-                  <td className="num">{row.spots}</td>
-                  <td className="num">{row.rating.toFixed(2)}</td>
-                  <td className="num">{row.grp.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <LimitedRowsControls {...limitedRows} total={rows.length} />
+
+      {tab === 'quality' ? (
+        <QualitySection project={project} />
+      ) : (
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Spot-level GRP</h2>
+              <p>
+                {loading
+                  ? 'Loading…'
+                  : run
+                    ? `Run generated ${run.generatedAt} — every calculated row traces back to its spot`
+                    : 'No calculation yet — go to Projects and click Calculate'}
+              </p>
+            </div>
+          </div>
+          {loadError && <p className="inline-error">{loadError}</p>}
+          {!loading && run && rows.length === 0 && (
+            <p className="empty-state">This run has no matched rows — nothing to calculate yet.</p>
+          )}
+          {rows.length > 0 && (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Brand</th>
+                    <th>Station</th>
+                    <th>Programme</th>
+                    <th>Day</th>
+                    <th>Medium</th>
+                    <th className="num">Spots</th>
+                    <th className="num">Rating</th>
+                    <th className="num">GRP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {limitedRows.visibleRows.map((row) => (
+                    <tr key={row.grpCalculationId}>
+                      <td>{row.brand}</td>
+                      <td>{row.station}</td>
+                      <td>{row.programme || '—'}</td>
+                      <td>{row.day}</td>
+                      <td>{row.medium}</td>
+                      <td className="num">{row.spots}</td>
+                      <td className="num">{row.rating.toFixed(2)}</td>
+                      <td className="num">{row.grp.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <LimitedRowsControls {...limitedRows} total={rows.length} />
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </>
   );
 }

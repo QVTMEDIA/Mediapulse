@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
   Activity as ActivityIcon,
-  AlertTriangle,
   Archive,
   ArchiveRestore,
   ArrowLeft,
@@ -47,7 +46,6 @@ import MatchesSection from './sections/MatchesSection';
 import OverviewSection from './sections/OverviewSection';
 import ProjectDetailSection from './sections/ProjectDetailSection';
 import ProjectManagePanel from './sections/ProjectManagePanel';
-import QualitySection from './sections/QualitySection';
 import RatingsSection from './sections/RatingsSection';
 import ReportsSection from './sections/ReportsSection';
 import SettingsSection, { AvatarCircle } from './sections/SettingsSection';
@@ -65,7 +63,6 @@ type SectionKey =
   | 'reports'
   | 'spendIntelligence'
   | 'soeExplorer'
-  | 'quality'
   | 'exports'
   | 'settings';
 
@@ -81,7 +78,6 @@ const SECTION_LABELS: Record<SectionKey, string> = {
   reports: 'Reports',
   spendIntelligence: 'Spend Intelligence',
   soeExplorer: 'SOE Explorer',
-  quality: 'Quality',
   exports: 'Exports',
   settings: 'Settings',
 };
@@ -90,11 +86,10 @@ const SECTION_DESCRIPTIONS: Partial<Record<SectionKey, string>> = {
   overview: 'Executive GRP/SOV dashboard for this project — KPI cards, brand ranking, and weak-inventory flags.',
   ratings: 'Upload ratings, or attach an existing dataset from the shared library.',
   matches: 'Review fuzzy-matched and unmatched spots before calculating.',
-  activity: 'Every calculated row, traceable back to its spot — the audit trail behind the brand totals.',
+  activity: 'Every calculated row, traceable back to its spot, plus missing ratings, duplicate keys, and skipped upload rows.',
   reports: 'Station and programme contribution, weekly trend, and brand-vs-brand comparison.',
   spendIntelligence: 'Media spend, Share of Expenditure, and cost-per-GRP efficiency by brand.',
   soeExplorer: 'Filter Share of Expenditure by brand, medium, station, region, day, or date range.',
-  quality: 'Missing ratings, duplicate keys, and skipped upload rows for this project.',
   settings: 'Your account, and — for owners and admins — everyone else on this deployment.',
   exports: 'Generate and download the full Excel workbook for this project.',
 };
@@ -108,7 +103,6 @@ const navItems: { key: SectionKey; icon: typeof FolderOpen }[] = [
   { key: 'reports', icon: FileSpreadsheet },
   { key: 'spendIntelligence', icon: DollarSign },
   { key: 'soeExplorer', icon: SlidersHorizontal },
-  { key: 'quality', icon: AlertTriangle },
   { key: 'exports', icon: Upload },
   { key: 'settings', icon: Settings },
 ];
@@ -669,8 +663,6 @@ function Workspace({
           <SpendIntelligenceSection project={activeProject} />
         ) : activeSection === 'soeExplorer' ? (
           <SoeExplorerSection />
-        ) : activeSection === 'quality' ? (
-          <QualitySection project={activeProject} />
         ) : activeSection === 'settings' ? (
           <SettingsSection currentUser={currentUser} onUserUpdated={onUserUpdated} />
         ) : activeSection === 'exports' ? (

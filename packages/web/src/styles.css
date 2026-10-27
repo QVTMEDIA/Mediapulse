@@ -196,6 +196,41 @@ button:disabled {
   padding: 0 8px;
 }
 
+.sign-out-anchor {
+  position: relative;
+}
+
+.sign-out-confirm {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 220px;
+  padding: 12px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(23, 33, 31, 0.2);
+}
+
+.sign-out-confirm p {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.sign-out-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.sign-out-confirm-actions button {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
 .workspace {
   min-width: 0;
   padding: 24px;

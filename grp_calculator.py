@@ -325,6 +325,20 @@ def clock_seconds(value):
             return None
         hour = hour % 12 + (12 if meridiem.upper() == 'PM' else 0)
     elif hour > 23:
+        # "24:00:00" is the standard (ISO 8601-sanctioned) way broadcast
+        # schedules write the exact end of a calendar day -- real data: a
+        # ratings file's last hourly slot of every station's day, written
+        # "23:00:00-24:00:00" rather than wrapping to "00:00:00". Rejecting
+        # it as an invalid hour made that whole slot's time_band
+        # unparseable (_parse_range_seconds returned None because its end
+        # didn't parse), so time_band_contains() always returned False for
+        # it -- the rating row itself was valid and visible in the manual-
+        # assign picker, just never matched automatically. 3,535 rows
+        # across 504 stations in one real ratings file used this notation.
+        # Nothing else about 24-as-an-hour is valid, so only the exact
+        # "24:00:00" instant (zero minutes, zero seconds) is accepted.
+        if hour == 24 and minute == 0 and second == 0:
+            return 24 * 3600
         return None
     return hour * 3600 + minute * 60 + second
 

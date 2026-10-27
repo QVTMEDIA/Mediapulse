@@ -358,6 +358,29 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertTrue(calc.compatible_time_slot('14:32:10', '14:00-15:00'))
         self.assertFalse(calc.compatible_time_slot('16:32:10', '14:00-15:00'))
 
+    def test_clock_seconds_accepts_24_00_00_as_end_of_day(self):
+        # Real incident: a ratings file's last hourly slot of every station's
+        # day was written "23:00:00-24:00:00" (3,535 rows across 504
+        # stations in one real file) -- the standard way broadcast schedules
+        # denote the exact end of a calendar day, rather than wrapping to
+        # "00:00:00". clock_seconds() rejected any hour > 23, which made
+        # _parse_range_seconds() treat the whole range as unparseable (its
+        # end didn't parse), so time_band_contains() always returned False
+        # for that slot -- the rating row itself was valid and visible in
+        # the manual-assign picker, it just never matched automatically.
+        self.assertEqual(calc.clock_seconds('24:00:00'), 24 * 3600)
+        # Nothing else about hour 24 is a real time -- only the exact
+        # end-of-day instant is accepted.
+        self.assertIsNone(calc.clock_seconds('24:00:01'))
+        self.assertIsNone(calc.clock_seconds('24:30:00'))
+        self.assertIsNone(calc.clock_seconds('25:00:00'))
+
+        self.assertEqual(calc._parse_range_seconds('23:00:00-24:00:00'), (23 * 3600, 24 * 3600))
+        self.assertTrue(calc.time_band_contains('23:00:00-24:00:00', '23:11:11'))
+        self.assertTrue(calc.time_band_contains('23:00:00-24:00:00', '23:59:59'))
+        self.assertFalse(calc.time_band_contains('23:00:00-24:00:00', '22:59:59'))
+        self.assertFalse(calc.time_band_contains('23:00:00-24:00:00', '00:00:00'))
+
     def test_unmatched_suggestions_match_same_range_in_different_text_formats(self):
         # End-to-end reproduction of a real project shape: a radio file with
         # no named Programme column, only a Timeband range column (fed

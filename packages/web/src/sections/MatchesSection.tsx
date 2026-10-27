@@ -15,6 +15,7 @@ import {
 import type { MatchJobMode } from '../api/client';
 import type { MediaActivityRow, Project, RatingMatch, RatingRow } from '../api/contracts';
 import { LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
+import { metricValueFontSize } from './SpendIntelligenceSection';
 
 type MatchFilter = 'all' | 'matched' | 'suggested' | 'unmatched';
 
@@ -588,22 +589,22 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
       <section className="metric-grid" aria-label="Match summary">
         <div className="metric-panel">
           <span>Total Spots</span>
-          <strong>{matches.length}</strong>
+          <strong style={{ fontSize: metricValueFontSize(String(matches.length)) }}>{matches.length}</strong>
           <small>{loading ? (loadProgress ? `Matching… ${loadProgress.processed}/${loadProgress.total}` : 'Matching…') : ' '}</small>
         </div>
         <div className="metric-panel">
           <span>Exact + Manual</span>
-          <strong>{(counts.exact ?? 0) + (counts.manual ?? 0)}</strong>
+          <strong style={{ fontSize: metricValueFontSize(String((counts.exact ?? 0) + (counts.manual ?? 0))) }}>{(counts.exact ?? 0) + (counts.manual ?? 0)}</strong>
           <small>confirmed matches</small>
         </div>
         <div className="metric-panel warning-panel">
           <span>Suggested</span>
-          <strong>{counts.suggested ?? 0}</strong>
+          <strong style={{ fontSize: metricValueFontSize(String(counts.suggested ?? 0)) }}>{counts.suggested ?? 0}</strong>
           <small>need review</small>
         </div>
         <div className="metric-panel warning-panel">
           <span>Unmatched</span>
-          <strong>{counts.unmatched ?? 0}</strong>
+          <strong style={{ fontSize: metricValueFontSize(String(counts.unmatched ?? 0)) }}>{counts.unmatched ?? 0}</strong>
           <small>no rating found</small>
         </div>
       </section>

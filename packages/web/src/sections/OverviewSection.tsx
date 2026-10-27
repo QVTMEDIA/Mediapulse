@@ -3,7 +3,7 @@ import { AlertTriangle, BarChart3, PieChart } from 'lucide-react';
 import { ApiError, getLatestRun, listBrandShares, listSpotEfficiency } from '../api/client';
 import type { BrandShare, GrpRunSummary, Project, SpotEfficiency } from '../api/contracts';
 import { LimitedRows } from '../components/LimitedRows';
-import { BrandSpendRow, formatNumber, HIGH_COST_MIN_SPOTS, HIGH_COST_RATIO } from './SpendIntelligenceSection';
+import { BrandSpendRow, formatNumber, HIGH_COST_MIN_SPOTS, HIGH_COST_RATIO, metricValueFontSize } from './SpendIntelligenceSection';
 
 // Moved from App.tsx's "Projects" tab, which used to double as the
 // dashboard — PRODUCT_ROADMAP.md's Overview row always described this as
@@ -211,6 +211,9 @@ export default function OverviewSection({ project }: { project: Project | null }
   // brandShares arrives sorted by totalGrps descending (both repository
   // backends sort it that way), so the first entry is already the leader.
   const leadingBrand = brandShares[0] ?? null;
+  const matchedActivityText = matchedActivityPct !== null ? `${matchedActivityPct.toFixed(0)}%` : '—';
+  const costPerGrpText = categoryCostPerGrp !== null ? formatNumber(categoryCostPerGrp) : '—';
+  const leadingBrandText = leadingBrand ? leadingBrand.brand : '—';
   const spendRanked = [...brandShares].sort((a, b) => b.totalSpend - a.totalSpend);
   const weakBuys = spotEfficiency.filter((row) => row.isWeak);
   const readingInsights = buildReadingOfThePeriod(brandShares);
@@ -232,27 +235,27 @@ export default function OverviewSection({ project }: { project: Project | null }
           <section className="metric-grid" aria-label="Executive summary">
             <div className="metric-panel">
               <span>Total GRPs</span>
-              <strong>{formatNumber(run.totalGrps)}</strong>
+              <strong style={{ fontSize: metricValueFontSize(formatNumber(run.totalGrps)) }}>{formatNumber(run.totalGrps)}</strong>
               <small>Run generated {run.generatedAt}</small>
             </div>
             <div className="metric-panel">
               <span>Total Spots</span>
-              <strong>{formatNumber(run.totalSpots)}</strong>
+              <strong style={{ fontSize: metricValueFontSize(formatNumber(run.totalSpots)) }}>{formatNumber(run.totalSpots)}</strong>
               <small>{run.totalBrands} brand{run.totalBrands === 1 ? '' : 's'}</small>
             </div>
             <div className="metric-panel">
               <span>Matched Activity</span>
-              <strong>{matchedActivityPct !== null ? `${matchedActivityPct.toFixed(0)}%` : '—'}</strong>
+              <strong style={{ fontSize: metricValueFontSize(matchedActivityText) }}>{matchedActivityText}</strong>
               <small>{run.matchedRows} matched, {run.unmatchedRows} unmatched</small>
             </div>
             <div className="metric-panel">
               <span>Cost per GRP</span>
-              <strong>{categoryCostPerGrp !== null ? formatNumber(categoryCostPerGrp) : '—'}</strong>
+              <strong style={{ fontSize: metricValueFontSize(costPerGrpText) }}>{costPerGrpText}</strong>
               <small>category average</small>
             </div>
             <div className="metric-panel">
               <span>Leading Brand</span>
-              <strong>{leadingBrand ? leadingBrand.brand : '—'}</strong>
+              <strong style={{ fontSize: metricValueFontSize(leadingBrandText) }}>{leadingBrandText}</strong>
               <small>
                 {leadingBrand
                   ? `${leadingBrand.sov.toFixed(1)}% SOV${leadingBrand.totalSpend > 0 ? ` · ${leadingBrand.soe.toFixed(1)}% SOE` : ''}`
@@ -261,7 +264,7 @@ export default function OverviewSection({ project }: { project: Project | null }
             </div>
             <div className="metric-panel">
               <span>Total Spend</span>
-              <strong>{formatNumber(run.totalSpend)}</strong>
+              <strong style={{ fontSize: metricValueFontSize(formatNumber(run.totalSpend)) }}>{formatNumber(run.totalSpend)}</strong>
               <small>{run.totalSpend === 0 ? 'No cost/rate column mapped yet' : ' '}</small>
             </div>
           </section>

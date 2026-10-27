@@ -4,7 +4,7 @@ import { ApiError, getLatestRun, listBrandShares, listVersions, restoreVersion }
 import type { BrandShare, GrpRunSummary, Project, ProjectVersion, User } from '../api/contracts';
 import { LimitedRows, LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
 import { BrandShareRow } from './OverviewSection';
-import { BrandSpendRow, formatNumber } from './SpendIntelligenceSection';
+import { BrandSpendRow, formatNumber, metricValueFontSize } from './SpendIntelligenceSection';
 
 const statusClass = {
   Setup: 'status status-setup',
@@ -98,6 +98,10 @@ export default function ProjectDetailSection({
   const maxSpend = Math.max(1, ...brandShares.map((share) => share.totalSpend));
   const spendRanked = [...brandShares].sort((a, b) => b.totalSpend - a.totalSpend);
   const brandsWithSpend = brandShares.filter((share) => share.totalSpend > 0).length;
+  const matchedActivityText =
+    run && run.matchedRows + run.unmatchedRows > 0
+      ? `${((run.matchedRows / (run.matchedRows + run.unmatchedRows)) * 100).toFixed(0)}%`
+      : '—';
   const limitedVersions = useLimitedRows(versions);
 
   return (
@@ -144,22 +148,22 @@ export default function ProjectDetailSection({
         <section className="metric-grid" aria-label="Project totals">
           <div className="metric-panel">
             <span>Total GRPs</span>
-            <strong>{formatNumber(run.totalGrps)}</strong>
+            <strong style={{ fontSize: metricValueFontSize(formatNumber(run.totalGrps)) }}>{formatNumber(run.totalGrps)}</strong>
             <small>Run generated {run.generatedAt}</small>
           </div>
           <div className="metric-panel">
             <span>Total Spots</span>
-            <strong>{formatNumber(run.totalSpots)}</strong>
+            <strong style={{ fontSize: metricValueFontSize(formatNumber(run.totalSpots)) }}>{formatNumber(run.totalSpots)}</strong>
             <small>{run.totalBrands} brand{run.totalBrands === 1 ? '' : 's'}</small>
           </div>
           <div className="metric-panel">
             <span>Total Spend</span>
-            <strong>{formatNumber(run.totalSpend)}</strong>
+            <strong style={{ fontSize: metricValueFontSize(formatNumber(run.totalSpend)) }}>{formatNumber(run.totalSpend)}</strong>
             <small>{run.totalSpend === 0 ? 'No cost/rate column mapped yet' : `${brandsWithSpend} brand${brandsWithSpend === 1 ? '' : 's'} with spend`}</small>
           </div>
           <div className="metric-panel">
             <span>Matched Activity</span>
-            <strong>{run.matchedRows + run.unmatchedRows > 0 ? `${((run.matchedRows / (run.matchedRows + run.unmatchedRows)) * 100).toFixed(0)}%` : '—'}</strong>
+            <strong style={{ fontSize: metricValueFontSize(matchedActivityText) }}>{matchedActivityText}</strong>
             <small>{run.matchedRows} matched, {run.unmatchedRows} unmatched</small>
           </div>
         </section>

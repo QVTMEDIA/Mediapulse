@@ -8,6 +8,30 @@ export function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(value);
 }
 
+// .metric-panel strong (styles.css) carries a flat 34px font so every value
+// reads as a bold headline figure -- fine for a short one like "96%" or
+// "512", but a longer formatted number ("338,039.1") or brand name
+// ("PANADOL") doesn't fit a card's width (as narrow as ~140px on the
+// 2-column mobile layout, see that CSS rule's own comment) at that size, so
+// the browser wraps it mid-character via overflow-wrap: anywhere rather
+// than shrinking to fit. Scales the font down in steps as the string gets
+// longer instead -- thresholds picked empirically (a standalone harness
+// measuring each tier's natural, unwrapped text width against real
+// .metric-panel column widths at both a wide desktop viewport and the
+// forced-2-column mobile breakpoint) so every value this app actually
+// renders here (GRP/spend figures, percentages, brand names) stays on one
+// line; overflow-wrap: anywhere remains as a last-resort safety net for
+// anything longer than this was tuned for.
+export function metricValueFontSize(value: string): string {
+  const length = value.length;
+  if (length <= 5) return '34px';
+  if (length <= 8) return '28px';
+  if (length <= 10) return '21px';
+  if (length <= 13) return '18px';
+  if (length <= 18) return '15px';
+  return '13px';
+}
+
 // A brand/station is flagged "high cost" when its own cost-per-GRP is more
 // than 50% above the category's average for the run, at 5+ spots so a
 // single expensive placement doesn't trigger it — the mirror image of
@@ -101,6 +125,8 @@ export default function SpendIntelligenceSection({ project }: { project: Project
   // spender is a different question from the leading brand on Overview.
   const leadingSpender = spendRanked[0] ?? null;
   const brandsWithSpend = brandShares.filter((share) => share.totalSpend > 0).length;
+  const costPerGrpText = categoryCostPerGrp !== null ? formatNumber(categoryCostPerGrp) : '—';
+  const leadingSpenderText = leadingSpender && leadingSpender.totalSpend > 0 ? leadingSpender.brand : '—';
 
   const costEfficiency = brandShares
     .filter((share) => share.totalSpend > 0 && share.totalGrps > 0)
@@ -141,22 +167,22 @@ export default function SpendIntelligenceSection({ project }: { project: Project
           <section className="metric-grid" aria-label="Spend summary">
             <div className="metric-panel">
               <span>Total Spend</span>
-              <strong>{formatNumber(run.totalSpend)}</strong>
+              <strong style={{ fontSize: metricValueFontSize(formatNumber(run.totalSpend)) }}>{formatNumber(run.totalSpend)}</strong>
               <small>{run.totalSpend === 0 ? 'No cost/rate column mapped yet' : `Run generated ${run.generatedAt}`}</small>
             </div>
             <div className="metric-panel">
               <span>Cost per GRP</span>
-              <strong>{categoryCostPerGrp !== null ? formatNumber(categoryCostPerGrp) : '—'}</strong>
+              <strong style={{ fontSize: metricValueFontSize(costPerGrpText) }}>{costPerGrpText}</strong>
               <small>category average</small>
             </div>
             <div className="metric-panel">
               <span>Leading Spender</span>
-              <strong>{leadingSpender && leadingSpender.totalSpend > 0 ? leadingSpender.brand : '—'}</strong>
+              <strong style={{ fontSize: metricValueFontSize(leadingSpenderText) }}>{leadingSpenderText}</strong>
               <small>{leadingSpender && leadingSpender.totalSpend > 0 ? `${leadingSpender.soe.toFixed(1)}% SOE` : ' '}</small>
             </div>
             <div className="metric-panel">
               <span>Brands with Spend</span>
-              <strong>{brandsWithSpend}</strong>
+              <strong style={{ fontSize: metricValueFontSize(String(brandsWithSpend)) }}>{brandsWithSpend}</strong>
               <small>of {brandShares.length} total</small>
             </div>
           </section>

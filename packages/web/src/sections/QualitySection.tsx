@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApiError, listValidationIssues } from '../api/client';
 import type { Project, ValidationIssue } from '../api/contracts';
 import { LimitedRows } from '../components/LimitedRows';
+import { metricValueFontSize } from './SpendIntelligenceSection';
 
 export default function QualitySection({ project }: { project: Project | null }) {
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
@@ -44,12 +45,12 @@ export default function QualitySection({ project }: { project: Project | null })
       <section className="metric-grid" aria-label="Data quality summary">
         <div className="metric-panel">
           <span>Open Issues</span>
-          <strong>{issues.length}</strong>
+          <strong style={{ fontSize: metricValueFontSize(String(issues.length)) }}>{issues.length}</strong>
           <small>{loading ? 'Loading…' : ' '}</small>
         </div>
         <div className="metric-panel warning-panel">
           <span>Rows Affected</span>
-          <strong>{totalRows}</strong>
+          <strong style={{ fontSize: metricValueFontSize(String(totalRows)) }}>{totalRows}</strong>
           <small>across ratings and uploads</small>
         </div>
       </section>

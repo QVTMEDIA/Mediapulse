@@ -457,6 +457,39 @@ def test_compute_matches_suggests_slot_match_when_ratings_have_no_real_programme
     assert result[0].matched_rating_id == 'rating-channels'
 
 
+def test_compute_matches_slot_fallback_handles_24_00_00_end_of_day_rating():
+    # Real incident: a radio ratings file wrote every station's last hourly
+    # slot as "23:00:00-24:00:00" (the standard end-of-day notation) rather
+    # than wrapping to "00:00:00". clock_seconds() used to reject any hour
+    # > 23, so that range was entirely unparseable and time_band_contains()
+    # always returned False for it -- 6 real spots across every weekday for
+    # one station stayed unmatched despite an exact same-day, same-hour
+    # rating existing (same station text both sides, so the exact-key slot-
+    # fallback path should have found it with no fuzzy scoring needed).
+    activity = _media_activity(
+        medium='Radio',
+        station='Wazobia 95.1 FM, Lagos',
+        day='Thursday',
+        programme='ROS',
+        time_band='23:11:11',
+    )
+    rating = _rating_row(
+        'rating-wazobia',
+        medium='Radio',
+        station='Wazobia 95.1 FM, Lagos',
+        day='Thu',
+        programme='23:00:00-24:00:00',
+        time_band='23:00:00-24:00:00',
+        rating=0.03,
+    )
+
+    result = compute_matches([activity], [rating])
+
+    assert len(result) == 1
+    assert result[0].match_status == 'exact'
+    assert result[0].matched_rating_id == 'rating-wazobia'
+
+
 def test_compute_matches_exact_only_skips_fuzzy_suggestions(monkeypatch):
     activity = _media_activity(programme='Morning Shw')
     rating = _rating_row('rating-best', programme='Morning Show')

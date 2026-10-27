@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
   Activity as ActivityIcon,
   Archive,
@@ -196,6 +196,33 @@ function Workspace({
   onUserUpdated: (user: User) => void;
 }) {
   const [activeSection, setActiveSection] = useState<SectionKey>('overview');
+  // window.confirm() is a native browser dialog -- the page can't control
+  // where it renders, so it always lands centered/top of the viewport
+  // rather than near the button that opened it (reported directly, with a
+  // screenshot: "The pop up card is too far up, it should be close to the
+  // sign out icon"). A small anchored popover, positioned relative to this
+  // button via signOutRef, replaces it here; the other confirm() dialogs
+  // (brand/upload/dataset/project delete) keep the native one for now.
+  const [isSignOutConfirmOpen, setIsSignOutConfirmOpen] = useState(false);
+  const signOutRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isSignOutConfirmOpen) return;
+    function handleOutsideClick(event: MouseEvent) {
+      if (signOutRef.current && !signOutRef.current.contains(event.target as Node)) {
+        setIsSignOutConfirmOpen(false);
+      }
+    }
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') setIsSignOutConfirmOpen(false);
+    }
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isSignOutConfirmOpen]);
   const [projects, setProjects] = useState<Project[]>([]);
   const limitedProjects = useLimitedRows(projects);
   const [projectsLoading, setProjectsLoading] = useState(true);
@@ -544,9 +571,38 @@ function Workspace({
               <small>{currentUser.role}</small>
             </div>
           </div>
-          <button type="button" className="icon-button" title="Sign out" aria-label="Sign out" onClick={onSignOut}>
-            <LogOut size={16} aria-hidden />
-          </button>
+          <div className="sign-out-anchor" ref={signOutRef}>
+            <button
+              type="button"
+              className="icon-button"
+              title="Sign out"
+              aria-label="Sign out"
+              aria-expanded={isSignOutConfirmOpen}
+              onClick={() => setIsSignOutConfirmOpen((current) => !current)}
+            >
+              <LogOut size={16} aria-hidden />
+            </button>
+            {isSignOutConfirmOpen && (
+              <div className="sign-out-confirm" role="dialog" aria-label="Confirm sign out">
+                <p>Sign out of Mediapulse?</p>
+                <div className="sign-out-confirm-actions">
+                  <button type="button" className="secondary-button" onClick={() => setIsSignOutConfirmOpen(false)}>
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="danger-button"
+                    onClick={() => {
+                      setIsSignOutConfirmOpen(false);
+                      onSignOut();
+                    }}
+                  >
+                    Sign out
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -1003,8 +1059,9 @@ function App() {
     setAuthState({ status: 'signedIn', user: session.user });
   }
 
+  // Confirmation lives in Workspace's own anchored popover now (see
+  // signOutRef) -- this runs only once the user has already confirmed.
   function handleSignOut() {
-    if (!window.confirm('Sign out of Mediapulse?')) return;
     setAuthToken(null);
     setAuthState({ status: 'signedOut', user: null });
   }

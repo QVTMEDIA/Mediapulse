@@ -11,8 +11,8 @@
   --ink: #161c2c;
   --panel: #ffffff;
   --surface: #f5f7fb;
-  --primary: #1d4ed8;
-  --primary-dark: #1e40af;
+  --primary: #9f1239;
+  --primary-dark: #881337;
   --blue: #2764b0;
   --violet: #6d28d9;
   --amber: #a15c05;
@@ -57,9 +57,9 @@ button:disabled {
   flex-direction: column;
   gap: 24px;
   padding: 24px 16px;
-  color: #f4f6fb;
-  background: #0e1b3a;
-  border-right: 1px solid #0a1530;
+  color: var(--ink);
+  background: #fcfcfd;
+  border-right: 1px solid var(--border);
   /* .app-shell only ever sets min-height: 100vh (it grows with content,
      not capped to it), so without this the whole document -- sidebar
      included -- scrolls as one unit whenever .workspace's content is
@@ -93,7 +93,7 @@ button:disabled {
 .brand-mark span,
 .sidebar-note span,
 .sidebar-note small {
-  color: #b7c0de;
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -103,8 +103,8 @@ button:disabled {
   height: 40px;
   place-items: center;
   border-radius: 10px;
-  color: #0e1b3a;
-  background: #dbe3fb;
+  color: var(--primary-dark);
+  background: #fbe3ea;
 }
 
 .nav-list {
@@ -118,7 +118,7 @@ button:disabled {
   gap: 10px;
   min-height: 40px;
   padding: 0 10px;
-  color: #c7d1f0;
+  color: var(--muted);
   background: transparent;
   border: 1px solid transparent;
   border-radius: 8px;
@@ -127,9 +127,9 @@ button:disabled {
 
 .nav-item.active,
 .nav-item:hover {
-  color: #ffffff;
-  background: #1b2b5c;
-  border-color: #2c3f7a;
+  color: var(--primary-dark);
+  background: #fbe3ea;
+  border-color: #f3c3d2;
 }
 
 .sidebar-note {
@@ -137,9 +137,9 @@ button:disabled {
   gap: 6px;
   margin-top: auto;
   padding: 14px;
-  border: 1px solid #2c3f7a;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #13234a;
+  background: var(--surface);
 }
 
 .sidebar-note strong {
@@ -152,9 +152,9 @@ button:disabled {
   justify-content: space-between;
   gap: 8px;
   padding: 10px 12px;
-  border: 1px solid #2c3f7a;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #0e1b3a;
+  background: var(--surface);
 }
 
 .sidebar-user-identity {
@@ -170,7 +170,7 @@ button:disabled {
 
 .sidebar-user-identity:hover,
 .sidebar-user-identity:focus-visible {
-  background: #1c2f61;
+  background: #eceef2;
 }
 
 .sidebar-user-identity > div {
@@ -187,7 +187,7 @@ button:disabled {
 
 .sidebar-user small {
   display: block;
-  color: #b7c0de;
+  color: var(--muted);
   font-size: 11px;
   text-transform: capitalize;
 }

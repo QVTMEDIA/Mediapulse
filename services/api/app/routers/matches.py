@@ -7,11 +7,13 @@ from ..auth import get_current_user
 from ..calculations import resolve_rating_by_id
 from ..match_jobs import get_match_job, start_match_job
 from ..matches import build_unmatched_reason_context, compute_matches, describe_unmatched_reason
+from ..repositories.activity_log import ActivityLogRepository, get_activity_log_repository
 from ..repositories.brands import BrandsRepository, get_brands_repository
 from ..repositories.matches import MatchesRepository, RatingMatchRecord, get_matches_repository
 from ..repositories.projects import ProjectsRepository, get_projects_repository
 from ..repositories.ratings import RatingsRepository, get_ratings_repository
 from ..repositories.uploads import UploadsRepository, get_uploads_repository
+from ..repositories.users import UserRecord
 from ..schemas.matches import MatchCorrection, MatchJobOut, RatingMatchOut
 from ..schemas.ratings import RatingRowOut
 
@@ -62,12 +64,28 @@ def start_job(
     uploads_repo: UploadsRepository = Depends(get_uploads_repository),
     ratings_repo: RatingsRepository = Depends(get_ratings_repository),
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
+    current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
-    if projects_repo.get_project(project_id) is None:
+    project = projects_repo.get_project(project_id)
+    if project is None:
         raise HTTPException(status_code=404, detail='Project not found')
     if mode not in ('ensure', 'recompute', 'recompute_exact'):
         raise HTTPException(status_code=422, detail='mode must be ensure, recompute, or recompute_exact')
     job = start_match_job(project_id, mode, matches_repo, uploads_repo, ratings_repo)
+    # 'ensure' fires automatically every time the Matches screen is opened
+    # (see MatchesSection.tsx) -- logging that would flood the activity feed
+    # with noise on every visit, not a real human action. Only 'recompute'/
+    # 'recompute_exact' are explicit button clicks (Fast recompute/Full
+    # scan), logged on job start for the same reason as the upload/calculate
+    # job routes above.
+    if mode != 'ensure':
+        label = 'Full scan' if mode == 'recompute_exact' else 'Fast recompute'
+        activity_repo.record(
+            actor_id=current_user.id, actor_name=current_user.display_name, action='match.recompute',
+            summary=f'{current_user.display_name} ran a {label} on project "{project.name}".',
+            project_id=project.id, project_name=project.name,
+        )
     return _job_to_out(job)
 
 
@@ -239,8 +257,11 @@ def correct_match(
     matches_repo: MatchesRepository = Depends(get_matches_repository),
     ratings_repo: RatingsRepository = Depends(get_ratings_repository),
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
+    current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
-    if projects_repo.get_project(project_id) is None:
+    project = projects_repo.get_project(project_id)
+    if project is None:
         raise HTTPException(status_code=404, detail='Project not found')
     if matches_repo.get_match_for_project(project_id, rating_match_id) is None:
         raise HTTPException(status_code=404, detail='Match not found for this project')
@@ -256,6 +277,12 @@ def correct_match(
                 status_code=422, detail='matchedRatingId is not a rating attached to this project'
             )
     record = matches_repo.correct_match(rating_match_id, payload.matched_rating_id)
+    verb = 'confirmed a match' if payload.matched_rating_id is not None else 'cleared a match'
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='match.corrected',
+        summary=f'{current_user.display_name} {verb} in project "{project.name}".',
+        project_id=project.id, project_name=project.name,
+    )
     return _to_out(record)
 
 

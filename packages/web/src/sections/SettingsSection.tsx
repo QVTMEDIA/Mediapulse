@@ -7,10 +7,10 @@ import {
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { Camera, Users, X } from 'lucide-react';
-import { ApiError, listUsers, removeAvatar, updateAvatar, updateProfile, updateUserRole } from '../api/client';
-import type { User, UserRole } from '../api/contracts';
-import { LimitedRowsControls, useLimitedRows } from '../components/LimitedRows';
+import { Camera, Clock, Users, X } from 'lucide-react';
+import { ApiError, listActivityLog, listUsers, removeAvatar, updateAvatar, updateProfile, updateUserRole } from '../api/client';
+import type { ActivityLogEntry, User, UserRole } from '../api/contracts';
+import { LimitedRowsControls, ROW_PAGE_SIZE, useLimitedRows } from '../components/LimitedRows';
 
 const ROLES: UserRole[] = ['owner', 'admin', 'member'];
 
@@ -498,6 +498,62 @@ function PasswordPanel({ onUserUpdated }: { onUserUpdated: (user: User) => void 
   );
 }
 
+function ActivityLogPanel() {
+  const [entries, setEntries] = useState<ActivityLogEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const refresh = useCallback(async (requestedPage: number) => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const result = await listActivityLog({ limit: ROW_PAGE_SIZE, offset: (requestedPage - 1) * ROW_PAGE_SIZE });
+      setEntries(result.entries);
+      setTotal(result.total);
+    } catch (error) {
+      setLoadError(error instanceof ApiError ? error.message : 'Could not load the activity log.');
+      setEntries([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh(page);
+  }, [page, refresh]);
+
+  const pageCount = Math.max(1, Math.ceil(total / ROW_PAGE_SIZE));
+
+  return (
+    <div className="panel">
+      <div className="panel-header">
+        <div>
+          <h2>Activity log</h2>
+          <p>Every account and project action across this deployment — who did what, and when.</p>
+        </div>
+        <Clock size={20} aria-hidden />
+      </div>
+      {loadError && <p className="inline-error">{loadError}</p>}
+      {!loading && entries.length === 0 && !loadError && <p className="empty-state">Nothing logged yet.</p>}
+      <div className="match-list">
+        {entries.map((entry) => (
+          <div className="match-row" key={entry.entryId}>
+            <p className="match-input">{entry.summary}</p>
+            <small>
+              {entry.actorName}
+              {entry.projectName ? ` · ${entry.projectName}` : ''} · {entry.createdAt}
+            </small>
+          </div>
+        ))}
+      </div>
+      <LimitedRowsControls visibleRows={entries} total={total} page={page} pageCount={pageCount} goToPage={setPage} />
+    </div>
+  );
+}
+
 export default function SettingsSection({
   currentUser,
   onUserUpdated,
@@ -505,6 +561,7 @@ export default function SettingsSection({
   currentUser: User;
   onUserUpdated: (user: User) => void;
 }) {
+  const [tab, setTab] = useState<'profile' | 'activityLog'>('profile');
   const canManageTeam = currentUser.role === 'owner' || currentUser.role === 'admin';
   const [users, setUsers] = useState<User[]>([]);
   const limitedUsers = useLimitedRows(users);
@@ -544,75 +601,102 @@ export default function SettingsSection({
 
   return (
     <>
-      <ProfilePhotoPanel currentUser={currentUser} onUserUpdated={onUserUpdated} />
-      <PersonalInformationPanel currentUser={currentUser} onUserUpdated={onUserUpdated} />
-      <PasswordPanel onUserUpdated={onUserUpdated} />
+      <div className="section-tab-bar" role="tablist" aria-label="Settings view">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'profile'}
+          className={tab === 'profile' ? 'primary-button' : 'secondary-button'}
+          onClick={() => setTab('profile')}
+        >
+          Profile
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'activityLog'}
+          className={tab === 'activityLog' ? 'primary-button' : 'secondary-button'}
+          onClick={() => setTab('activityLog')}
+        >
+          Activity log
+        </button>
+      </div>
 
-      {canManageTeam ? (
-        <div className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Team</h2>
-              <p>{loading ? 'Loading…' : `${users.length} account${users.length === 1 ? '' : 's'} on this deployment`}</p>
-            </div>
-            <Users size={20} aria-hidden />
-          </div>
-          {loadError && <p className="inline-error">{loadError}</p>}
-          {actionError && <p className="inline-error">{actionError}</p>}
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Joined</th>
-                </tr>
-              </thead>
-              <tbody>
-                {limitedUsers.visibleRows.map((user) => {
-                  // Only an owner can change roles (services/api's
-                  // require_role('owner') on PATCH /users/{id}/role); an
-                  // admin can see the team but not edit it. An owner also
-                  // can't demote themselves — the same rule the API
-                  // enforces, mirrored here so the control just looks
-                  // disabled instead of the user hitting a 422.
-                  const canEditThisRow = currentUser.role === 'owner' && user.userId !== currentUser.userId;
-                  return (
-                    <tr key={user.userId}>
-                      <td>{user.displayName || '—'}</td>
-                      <td>{user.email}</td>
-                      <td>
-                        {canEditThisRow ? (
-                          <select
-                            value={user.role}
-                            disabled={pendingUserId === user.userId}
-                            onChange={(event) => handleRoleChange(user.userId, event.target.value)}
-                          >
-                            {ROLES.map((role) => (
-                              <option value={role} key={role}>
-                                {role}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <RoleBadge role={user.role} />
-                        )}
-                      </td>
-                      <td>{user.createdAt}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-            <LimitedRowsControls {...limitedUsers} total={users.length} />
-          </div>
-        </div>
+      {tab === 'activityLog' ? (
+        <ActivityLogPanel />
       ) : (
-        <div className="panel placeholder-panel">
-          <h2>Team management</h2>
-          <p>Only an owner or admin can view and manage other accounts on this deployment.</p>
-        </div>
+        <>
+          <ProfilePhotoPanel currentUser={currentUser} onUserUpdated={onUserUpdated} />
+          <PersonalInformationPanel currentUser={currentUser} onUserUpdated={onUserUpdated} />
+          <PasswordPanel onUserUpdated={onUserUpdated} />
+
+          {canManageTeam ? (
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <h2>Team</h2>
+                  <p>{loading ? 'Loading…' : `${users.length} account${users.length === 1 ? '' : 's'} on this deployment`}</p>
+                </div>
+                <Users size={20} aria-hidden />
+              </div>
+              {loadError && <p className="inline-error">{loadError}</p>}
+              {actionError && <p className="inline-error">{actionError}</p>}
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Joined</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {limitedUsers.visibleRows.map((user) => {
+                      // Only an owner can change roles (services/api's
+                      // require_role('owner') on PATCH /users/{id}/role); an
+                      // admin can see the team but not edit it. An owner also
+                      // can't demote themselves — the same rule the API
+                      // enforces, mirrored here so the control just looks
+                      // disabled instead of the user hitting a 422.
+                      const canEditThisRow = currentUser.role === 'owner' && user.userId !== currentUser.userId;
+                      return (
+                        <tr key={user.userId}>
+                          <td>{user.displayName || '—'}</td>
+                          <td>{user.email}</td>
+                          <td>
+                            {canEditThisRow ? (
+                              <select
+                                value={user.role}
+                                disabled={pendingUserId === user.userId}
+                                onChange={(event) => handleRoleChange(user.userId, event.target.value)}
+                              >
+                                {ROLES.map((role) => (
+                                  <option value={role} key={role}>
+                                    {role}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <RoleBadge role={user.role} />
+                            )}
+                          </td>
+                          <td>{user.createdAt}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <LimitedRowsControls {...limitedUsers} total={users.length} />
+              </div>
+            </div>
+          ) : (
+            <div className="panel placeholder-panel">
+              <h2>Team management</h2>
+              <p>Only an owner or admin can view and manage other accounts on this deployment.</p>
+            </div>
+          )}
+        </>
       )}
     </>
   );

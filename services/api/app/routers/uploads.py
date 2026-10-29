@@ -6,6 +6,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from ..auth import get_current_user, require_role
 from ..parsing import ParsedMediaRow, parse_brand_report, parse_composite_report
+from ..repositories.activity_log import ActivityLogRepository, get_activity_log_repository
 from ..repositories.brands import BrandsRepository, get_brands_repository
 from ..repositories.calculations import CalculationsRepository, get_calculations_repository
 from ..repositories.mapping_templates import MappingTemplatesRepository, get_mapping_templates_repository
@@ -18,6 +19,7 @@ from ..repositories.uploads import (
     UploadsRepository,
     get_uploads_repository,
 )
+from ..repositories.users import UserRecord
 from ..parsing import MappingWarning
 from ..schemas.common import MappingWarningOut
 from ..schemas.uploads import MediaActivityRowOut, UploadBatchOut, UploadJobOut
@@ -105,6 +107,8 @@ async def create_upload(
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
     brands_repo: BrandsRepository = Depends(get_brands_repository),
     templates_repo: MappingTemplatesRepository = Depends(get_mapping_templates_repository),
+    current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
     """kind='brand_report' needs brand_id (one brand per file). kind=
     'composite_report' ignores brand_id — it reads a Brand column from the
@@ -123,7 +127,8 @@ async def create_upload(
     auto-detection would have picked for this file — see parsing.py's
     MappingWarning for why that's worth surfacing rather than silently
     trusting the template."""
-    if projects_repo.get_project(project_id) is None:
+    project = projects_repo.get_project(project_id)
+    if project is None:
         raise HTTPException(status_code=404, detail='Project not found')
     if kind not in SUPPORTED_UPLOAD_KINDS:
         raise HTTPException(
@@ -192,6 +197,11 @@ async def create_upload(
 
     upload_record, _activity_records = await run_in_threadpool(
         repo.create_upload_with_activity, project_id, upload_brand_id, file_name, kind, inserts, issue_rows=issue_rows
+    )
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='upload.media_report',
+        summary=f'{current_user.display_name} uploaded "{file_name}" to project "{project.name}".',
+        project_id=project.id, project_name=project.name,
     )
     return _upload_to_out(upload_record, mapping_warnings)
 
@@ -266,12 +276,15 @@ async def start_upload_job_route(
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
     brands_repo: BrandsRepository = Depends(get_brands_repository),
     templates_repo: MappingTemplatesRepository = Depends(get_mapping_templates_repository),
+    current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
     """Job-based twin of POST .../uploads, for a real progress bar (see
     app/upload_jobs.py) instead of blocking the whole request until
     parsing + the insert finish -- same validation, parsing, and mapping-
     template behavior otherwise. Poll via GET .../uploads/jobs/{jobId}."""
-    if projects_repo.get_project(project_id) is None:
+    project = projects_repo.get_project(project_id)
+    if project is None:
         raise HTTPException(status_code=404, detail='Project not found')
     if kind not in SUPPORTED_UPLOAD_KINDS:
         raise HTTPException(
@@ -296,6 +309,17 @@ async def start_upload_job_route(
         source_label, save_as_template, existing_template, repo, brands_repo, templates_repo,
         scope=project_id,
     )
+    # Logged on job start, not completion -- the job itself runs in a
+    # background thread with no request-scoped activity_repo/current_user
+    # to call back into (same reasoning covers the ratings-upload and
+    # calculate job routes below). A job that goes on to fail mid-parse is
+    # a rare enough case that "the upload was attempted" still reads as
+    # accurate activity history.
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='upload.media_report',
+        summary=f'{current_user.display_name} uploaded "{file_name}" to project "{project.name}".',
+        project_id=project.id, project_name=project.name,
+    )
     return _upload_job_to_out(job)
 
 
@@ -319,7 +343,8 @@ def delete_upload(
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
     matches_repo: MatchesRepository = Depends(get_matches_repository),
     calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
-    _current_user=Depends(require_role('owner', 'admin')),
+    current_user: UserRecord = Depends(require_role('owner', 'admin')),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
     """Data-management action (PRODUCT_ROADMAP.md's Project Settings row).
     Refuses (409) if any of this upload's media_activity rows were ever
@@ -327,10 +352,12 @@ def delete_upload(
     run's audit trail, which the whole point of grp_calculations is to
     prevent. An upload that was never calculated (a duplicate, a mistake
     caught before clicking Calculate) can always be removed."""
-    if projects_repo.get_project(project_id) is None:
+    project = projects_repo.get_project(project_id)
+    if project is None:
         raise HTTPException(status_code=404, detail='Project not found')
+    upload = next((u for u in repo.list_uploads(project_id) if u.id == upload_id), None)
     activity_ids = [a.id for a in repo.list_media_activity(project_id) if a.upload_id == upload_id]
-    if not activity_ids and not any(u.id == upload_id for u in repo.list_uploads(project_id)):
+    if not activity_ids and upload is None:
         raise HTTPException(status_code=404, detail='Upload not found for this project')
     if calculations_repo.has_calculations_for_media_activity(activity_ids):
         raise HTTPException(
@@ -341,6 +368,12 @@ def delete_upload(
     matches_repo.delete_matches_for_media_activity(activity_ids)
     if not repo.delete_upload(project_id, upload_id):
         raise HTTPException(status_code=404, detail='Upload not found for this project')
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='upload.deleted',
+        summary=f'{current_user.display_name} deleted upload "{upload.file_name if upload else upload_id}" '
+        f'from project "{project.name}".',
+        project_id=project.id, project_name=project.name,
+    )
 
 
 @router.get('/media-activity', response_model=list[MediaActivityRowOut])

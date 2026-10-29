@@ -462,6 +462,22 @@ export interface RatingRowsPage {
   storedInvalidRows: number;
 }
 
+export interface ActivityLogEntry {
+  entryId: string;
+  actorId: string | null;
+  actorName: string;
+  action: string;
+  summary: string;
+  projectId: string | null;
+  projectName: string | null;
+  createdAt: string;
+}
+
+export interface ActivityLogPage {
+  entries: ActivityLogEntry[];
+  total: number;
+}
+
 export interface GrpCalculationRow {
   grpCalculationId: string;
   runId: string;

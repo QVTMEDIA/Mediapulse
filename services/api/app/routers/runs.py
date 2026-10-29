@@ -3,12 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..auth import get_current_user
 from ..calculations import compute_run, resolve_rating_by_id
 from ..calculation_jobs import get_calculation_job, start_calculation_job
+from ..repositories.activity_log import ActivityLogRepository, get_activity_log_repository
 from ..repositories.brands import BrandsRepository, get_brands_repository
 from ..repositories.calculations import CalculationsRepository, get_calculations_repository
 from ..repositories.matches import MatchesRepository, get_matches_repository
 from ..repositories.projects import ProjectsRepository, get_projects_repository
 from ..repositories.ratings import RatingsRepository, get_ratings_repository
 from ..repositories.uploads import UploadsRepository, get_uploads_repository
+from ..repositories.users import UserRecord
 from ..schemas.calculations import (
     BrandShareOut,
     CalculationJobOut,
@@ -89,13 +91,16 @@ def calculate(
     ratings_repo: RatingsRepository = Depends(get_ratings_repository),
     matches_repo: MatchesRepository = Depends(get_matches_repository),
     calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
+    current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
     """Ensures matches are computed (same lazy-compute as GET .../matches,
     so calling this directly without having called GET .../matches first
     still works), then calculates a new run. Every call creates a new run —
     there's no dedup/"nothing changed" short-circuit yet, so recalculating
     an unchanged project produces a second identical-looking run."""
-    if projects_repo.get_project(project_id) is None:
+    project = projects_repo.get_project(project_id)
+    if project is None:
         raise HTTPException(status_code=404, detail='Project not found')
 
     media_activity = uploads_repo.list_media_activity(project_id)
@@ -107,6 +112,11 @@ def calculate(
 
     result = compute_run(media_activity, match_by_activity_id, rating_by_id)
     run_record = calculations_repo.create_run(project_id, result)
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='calculate.run',
+        summary=f'{current_user.display_name} ran a GRP calculation for project "{project.name}".',
+        project_id=project.id, project_name=project.name,
+    )
     return _run_to_out(run_record)
 
 
@@ -118,10 +128,20 @@ def start_calculate_job(
     ratings_repo: RatingsRepository = Depends(get_ratings_repository),
     matches_repo: MatchesRepository = Depends(get_matches_repository),
     calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
+    current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
-    if projects_repo.get_project(project_id) is None:
+    project = projects_repo.get_project(project_id)
+    if project is None:
         raise HTTPException(status_code=404, detail='Project not found')
     job = start_calculation_job(project_id, uploads_repo, ratings_repo, matches_repo, calculations_repo)
+    # Logged on job start -- see the equivalent comment on
+    # routers/uploads.py's start_upload_job_route.
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='calculate.run',
+        summary=f'{current_user.display_name} ran a GRP calculation for project "{project.name}".',
+        project_id=project.id, project_name=project.name,
+    )
     return _job_to_out(job)
 
 

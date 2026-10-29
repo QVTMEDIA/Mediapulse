@@ -90,7 +90,7 @@ const SECTION_DESCRIPTIONS: Partial<Record<SectionKey, string>> = {
   reports: 'Station and programme contribution, weekly trend, and brand-vs-brand comparison.',
   spendIntelligence: 'Media spend, Share of Expenditure, and cost-per-GRP efficiency by brand.',
   soeExplorer: 'Filter Share of Expenditure by brand, medium, station, region, day, or date range.',
-  settings: 'Your account, and — for owners and admins — everyone else on this deployment.',
+  settings: 'Your account, the activity log, and — for owners and admins — everyone else on this deployment.',
   exports: 'Generate and download the full Excel workbook for this project.',
 };
 

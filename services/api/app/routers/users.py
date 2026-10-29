@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import require_role
+from ..repositories.activity_log import ActivityLogRepository, get_activity_log_repository
 from ..repositories.users import VALID_ROLES, UserRecord, UsersRepository, get_users_repository
 from ..schemas.users import UpdateRoleIn, UserOut
 
@@ -31,6 +32,7 @@ def update_role(
     payload: UpdateRoleIn,
     users_repo: UsersRepository = Depends(get_users_repository),
     current_user: UserRecord = Depends(require_role('owner')),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
     if payload.role not in VALID_ROLES:
         raise HTTPException(status_code=422, detail=f'role must be one of {", ".join(VALID_ROLES)}.')
@@ -42,4 +44,8 @@ def update_role(
     record = users_repo.update_role(user_id, payload.role)
     if record is None:
         raise HTTPException(status_code=404, detail='User not found')
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='user.role_changed',
+        summary=f'{current_user.display_name} changed {record.display_name}\'s role to {record.role}.',
+    )
     return _to_out(record)

@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from ..auth import get_current_user
 from ..parsing import parse_ratings_file
+from ..repositories.activity_log import ActivityLogRepository, get_activity_log_repository
 from ..repositories.mapping_templates import MappingTemplatesRepository, get_mapping_templates_repository
 from ..repositories.projects import ProjectsRepository, get_projects_repository
 from ..repositories.ratings import (
@@ -13,6 +14,7 @@ from ..repositories.ratings import (
     RatingsRepository,
     get_ratings_repository,
 )
+from ..repositories.users import UserRecord
 from ..parsing import MappingWarning, RatingsRowIssue
 from ..schemas.common import MappingWarningOut
 from ..schemas.ratings import (
@@ -142,6 +144,8 @@ async def upload_ratings_dataset(
     file: UploadFile = File(...),
     repo: RatingsRepository = Depends(get_ratings_repository),
     templates_repo: MappingTemplatesRepository = Depends(get_mapping_templates_repository),
+    current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
     """Real spreadsheet parsing (header inference, column-synonym detection,
     the same 0-100 rating range / required-field validation grp_calculator's
@@ -189,6 +193,10 @@ async def upload_ratings_dataset(
         templates_repo.touch_used(source_label)
 
     dataset_record = await run_in_threadpool(repo.create_dataset, payload, extra_invalid_rows=parsed.dropped_invalid_rows)
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='ratings.dataset_uploaded',
+        summary=f'{current_user.display_name} uploaded ratings dataset "{file_name}".',
+    )
     return _dataset_to_out(
         dataset_record,
         issues=parsed.issues,
@@ -241,6 +249,8 @@ async def start_ratings_upload_job_route(
     file: UploadFile = File(...),
     repo: RatingsRepository = Depends(get_ratings_repository),
     templates_repo: MappingTemplatesRepository = Depends(get_mapping_templates_repository),
+    current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
     """Job-based twin of POST .../ratings-datasets/upload, for a real
     progress bar (see app/upload_jobs.py) instead of blocking the whole
@@ -272,6 +282,12 @@ async def start_ratings_upload_job_route(
     job = start_upload_job(
         _run_ratings_upload_job, parsed, payload, source_label, save_as_template, existing_template,
         templates_repo, repo,
+    )
+    # Logged on job start -- see the equivalent comment on
+    # routers/uploads.py's start_upload_job_route.
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='ratings.dataset_uploaded',
+        summary=f'{current_user.display_name} uploaded ratings dataset "{file_name}".',
     )
     return _ratings_upload_job_to_out(job)
 
@@ -336,17 +352,31 @@ def list_all_ratings_dataset_rows(
     return [_row_to_out(record) for record in records]
 
 
+def _dataset_label(dataset: RatingsDatasetRecord) -> str:
+    return f'{dataset.provider} {dataset.period}'.strip() or dataset.id
+
+
 @router.post('/projects/{project_id}/ratings-datasets/{ratings_dataset_id}/attach', status_code=204)
 def attach_ratings_dataset(
     project_id: str,
     ratings_dataset_id: str,
     repo: RatingsRepository = Depends(get_ratings_repository),
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
+    current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
-    if projects_repo.get_project(project_id) is None:
+    project = projects_repo.get_project(project_id)
+    if project is None:
         raise HTTPException(status_code=404, detail='Project not found')
+    dataset = repo.get_dataset(ratings_dataset_id)
     if not repo.attach_to_project(project_id, ratings_dataset_id):
         raise HTTPException(status_code=404, detail='Ratings dataset not found')
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='ratings.attached',
+        summary=f'{current_user.display_name} attached ratings dataset '
+        f'"{_dataset_label(dataset) if dataset else ratings_dataset_id}" to project "{project.name}".',
+        project_id=project.id, project_name=project.name,
+    )
 
 
 @router.delete('/projects/{project_id}/ratings-datasets/{ratings_dataset_id}/attach', status_code=204)
@@ -355,6 +385,8 @@ def detach_ratings_dataset(
     ratings_dataset_id: str,
     repo: RatingsRepository = Depends(get_ratings_repository),
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
+    current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
     """Data-management action (PRODUCT_ROADMAP.md's Project Settings row).
     Unlike deleting an upload/brand, this needs no audit-trail guard: it
@@ -363,10 +395,18 @@ def detach_ratings_dataset(
     use them), and so is anything already calculated — rating_matches and
     grp_calculations reference actual ratings rows directly, not the
     attachment. Detaching only affects future matching for this project."""
-    if projects_repo.get_project(project_id) is None:
+    project = projects_repo.get_project(project_id)
+    if project is None:
         raise HTTPException(status_code=404, detail='Project not found')
+    dataset = repo.get_dataset(ratings_dataset_id)
     if not repo.detach_from_project(project_id, ratings_dataset_id):
         raise HTTPException(status_code=404, detail='Ratings dataset is not attached to this project')
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='ratings.detached',
+        summary=f'{current_user.display_name} detached ratings dataset '
+        f'"{_dataset_label(dataset) if dataset else ratings_dataset_id}" from project "{project.name}".',
+        project_id=project.id, project_name=project.name,
+    )
 
 
 @router.get('/projects/{project_id}/ratings-datasets', response_model=list[RatingsDatasetOut])

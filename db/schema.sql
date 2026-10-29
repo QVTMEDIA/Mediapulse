@@ -587,6 +587,33 @@ create table exports (
 create index exports_project_idx on exports (project_id, generated_at desc);
 
 -- ---------------------------------------------------------------------------
+-- activity_log
+-- ---------------------------------------------------------------------------
+-- Account-wide activity feed (Settings > Activity log tab) -- who did what,
+-- across every project on this deployment, matching how `users.role` is
+-- already global rather than per-project (see that table's own comment).
+-- actor_name/project_name are denormalized snapshots taken at the moment of
+-- the action, not live joins -- so a later-renamed or deleted user/project
+-- doesn't rewrite or blank out history already in the log (the same
+-- reasoning projects.owner_name and grp_calculations' row-level snapshots
+-- already use elsewhere in this schema). actor_id/project_id are kept
+-- alongside the snapshots only for potential future filtering, not because
+-- anything currently reads them back out.
+
+create table activity_log (
+  id uuid primary key default gen_random_uuid(),
+  actor_id uuid references users(id) on delete set null,
+  actor_name text not null,
+  action text not null, -- machine-readable code, e.g. 'project.created'
+  summary text not null, -- human-readable sentence, already built server-side
+  project_id uuid references projects(id) on delete set null,
+  project_name text,
+  created_at timestamptz not null default now()
+);
+
+create index activity_log_created_at_idx on activity_log (created_at desc);
+
+-- ---------------------------------------------------------------------------
 -- Optional: Supabase Row Level Security
 -- ---------------------------------------------------------------------------
 -- Only relevant if/when this deploys on Supabase with Supabase Auth. Left

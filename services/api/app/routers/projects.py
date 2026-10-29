@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..auth import get_current_user, require_role
+from ..repositories.activity_log import ActivityLogRepository, get_activity_log_repository
 from ..repositories.projects import (
     ProjectRecord,
     ProjectsRepository,
@@ -55,8 +56,16 @@ def list_projects(
 def create_project(
     payload: ProjectCreate,
     repo: ProjectsRepository = Depends(get_projects_repository),
+    current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
-    return _to_out(repo.create_project(payload))
+    record = repo.create_project(payload)
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='project.created',
+        summary=f'{current_user.display_name} created project "{record.name}".',
+        project_id=record.id, project_name=record.name,
+    )
+    return _to_out(record)
 
 
 @router.get('/{project_id}', response_model=ProjectOut)
@@ -73,6 +82,7 @@ def update_project(
     payload: ProjectUpdate,
     repo: ProjectsRepository = Depends(get_projects_repository),
     current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
     # Archiving/unarchiving is a role-gated action; every other field on this
     # same endpoint is editable by any logged-in user. `exclude_unset` so a
@@ -82,6 +92,14 @@ def update_project(
     record = repo.update_project(project_id, payload)
     if record is None:
         raise HTTPException(status_code=404, detail='Project not found')
+    if 'archived' in payload.model_fields_set:
+        action = 'project.archived' if record.archived else 'project.unarchived'
+        verb = 'archived' if record.archived else 'unarchived'
+        activity_repo.record(
+            actor_id=current_user.id, actor_name=current_user.display_name, action=action,
+            summary=f'{current_user.display_name} {verb} project "{record.name}".',
+            project_id=record.id, project_name=record.name,
+        )
     return _to_out(record)
 
 
@@ -89,15 +107,33 @@ def update_project(
 def delete_project(
     project_id: str,
     repo: ProjectsRepository = Depends(get_projects_repository),
-    _current_user: UserRecord = Depends(require_role('owner', 'admin')),
+    current_user: UserRecord = Depends(require_role('owner', 'admin')),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
-    if not repo.delete_project(project_id):
+    # Fetched before deleting, purely so the activity-log entry below can
+    # name the project -- repo.delete_project itself only returns a bool.
+    record = repo.get_project(project_id)
+    if record is None or not repo.delete_project(project_id):
         raise HTTPException(status_code=404, detail='Project not found')
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='project.deleted',
+        summary=f'{current_user.display_name} deleted project "{record.name}".',
+    )
 
 
 @router.post('/{project_id}/duplicate', response_model=ProjectOut, status_code=201)
-def duplicate_project(project_id: str, repo: ProjectsRepository = Depends(get_projects_repository)):
+def duplicate_project(
+    project_id: str,
+    repo: ProjectsRepository = Depends(get_projects_repository),
+    current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
+):
     record = repo.duplicate_project(project_id)
     if record is None:
         raise HTTPException(status_code=404, detail='Project not found')
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='project.duplicated',
+        summary=f'{current_user.display_name} duplicated a project as "{record.name}".',
+        project_id=record.id, project_name=record.name,
+    )
     return _to_out(record)

@@ -1,4 +1,5 @@
 import type {
+  ActivityLogPage,
   AuthSession,
   Brand,
   BrandShare,
@@ -499,6 +500,12 @@ export function listRatingRowsPage(
   { limit, offset }: { limit: number; offset: number },
 ): Promise<RatingRowsPage> {
   return request<RatingRowsPage>(`/api/ratings-datasets/${ratingsDatasetId}/rows?limit=${limit}&offset=${offset}`);
+}
+
+// Account-wide, not scoped to a project -- see services/api/app/routers/
+// activity_log.py for why (matches Team's own account-wide visibility).
+export function listActivityLog({ limit, offset }: { limit: number; offset: number }): Promise<ActivityLogPage> {
+  return request<ActivityLogPage>(`/api/activity-log?limit=${limit}&offset=${offset}`);
 }
 
 // Every row of one dataset, via the lean GET .../rows/all route -- not

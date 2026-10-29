@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_user
 from ..config import get_settings
+from ..repositories.activity_log import ActivityLogRepository, get_activity_log_repository
 from ..repositories.projects import ProjectsRepository, get_projects_repository
 from ..repositories.users import UserRecord, UsersRepository, get_users_repository
 from ..schemas.users import (
@@ -38,7 +39,11 @@ def _token_for(record: UserRecord) -> TokenOut:
 
 
 @router.post('/register', response_model=TokenOut, status_code=201)
-def register(payload: RegisterIn, users_repo: UsersRepository = Depends(get_users_repository)):
+def register(
+    payload: RegisterIn,
+    users_repo: UsersRepository = Depends(get_users_repository),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
+):
     required_code = get_settings().register_invite_code
     # Checked before the duplicate-email lookup below, on purpose: an
     # unauthenticated caller with no invite code shouldn't be able to use
@@ -59,17 +64,29 @@ def register(payload: RegisterIn, users_repo: UsersRepository = Depends(get_user
         password_hash=hash_password(payload.password),
         role=role,
     )
+    activity_repo.record(
+        actor_id=record.id, actor_name=record.display_name, action='user.registered',
+        summary=f'{record.display_name} created an account ({role}).',
+    )
     return _token_for(record)
 
 
 @router.post('/login', response_model=TokenOut)
-def login(payload: LoginIn, users_repo: UsersRepository = Depends(get_users_repository)):
+def login(
+    payload: LoginIn,
+    users_repo: UsersRepository = Depends(get_users_repository),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
+):
     record = users_repo.get_by_email(payload.email)
     # Same 401 + message whether the email doesn't exist or the password is
     # wrong — distinguishing them would let a caller enumerate registered
     # emails one guess at a time.
     if record is None or not verify_password(payload.password, record.password_hash):
         raise HTTPException(status_code=401, detail='Incorrect email or password.')
+    activity_repo.record(
+        actor_id=record.id, actor_name=record.display_name, action='user.signed_in',
+        summary=f'{record.display_name} signed in.',
+    )
     return _token_for(record)
 
 
@@ -83,6 +100,7 @@ def update_me(
     payload: UpdateProfileIn,
     current_user: UserRecord = Depends(get_current_user),
     users_repo: UsersRepository = Depends(get_users_repository),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
     if payload.new_password is not None:
         # current_password is required to change it -- an already-valid
@@ -92,6 +110,20 @@ def update_me(
             raise HTTPException(status_code=401, detail='Incorrect current password.')
     password_hash = hash_password(payload.new_password) if payload.new_password is not None else None
     record = users_repo.update_profile(current_user.id, display_name=payload.display_name, password_hash=password_hash)
+    # Two independent, optionally-simultaneous changes on this one endpoint
+    # (see UpdateProfileIn's own docstring) -- logged as up to two separate
+    # entries rather than one combined one, so each reads clearly on its own
+    # in the activity feed.
+    if payload.display_name is not None and payload.display_name != current_user.display_name:
+        activity_repo.record(
+            actor_id=record.id, actor_name=record.display_name, action='user.profile_updated',
+            summary=f'{current_user.display_name} renamed their account to "{record.display_name}".',
+        )
+    if password_hash is not None:
+        activity_repo.record(
+            actor_id=record.id, actor_name=record.display_name, action='user.password_changed',
+            summary=f'{record.display_name} changed their password.',
+        )
     return _to_out(record)
 
 
@@ -100,8 +132,13 @@ def update_avatar(
     payload: UpdateAvatarIn,
     current_user: UserRecord = Depends(get_current_user),
     users_repo: UsersRepository = Depends(get_users_repository),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
     record = users_repo.update_avatar(current_user.id, payload.avatar_data_url)
+    activity_repo.record(
+        actor_id=record.id, actor_name=record.display_name, action='user.avatar_updated',
+        summary=f'{record.display_name} updated their profile photo.',
+    )
     return _to_out(record)
 
 
@@ -109,8 +146,13 @@ def update_avatar(
 def remove_avatar(
     current_user: UserRecord = Depends(get_current_user),
     users_repo: UsersRepository = Depends(get_users_repository),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
     record = users_repo.update_avatar(current_user.id, None)
+    activity_repo.record(
+        actor_id=record.id, actor_name=record.display_name, action='user.avatar_removed',
+        summary=f'{record.display_name} removed their profile photo.',
+    )
     return _to_out(record)
 
 

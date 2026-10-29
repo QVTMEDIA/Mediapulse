@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .routers import (
+    activity_log,
     auth,
     brands,
     exports,
@@ -59,6 +60,7 @@ app.include_router(versions.router)
 app.include_router(exports.router)
 app.include_router(soe.router)
 app.include_router(stubs.router)
+app.include_router(activity_log.router)
 
 
 @app.get('/api/health', tags=['health'])

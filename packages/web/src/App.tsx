@@ -715,7 +715,7 @@ function Workspace({
         )}
 
         {activeSection === 'overview' ? (
-          <OverviewSection project={activeProject} />
+          <OverviewSection project={activeProject} refreshSignal={projectDataVersion} />
         ) : activeSection === 'ratings' ? (
           <RatingsSection
             project={activeProject}

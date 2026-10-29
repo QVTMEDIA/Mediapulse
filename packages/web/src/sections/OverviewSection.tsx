@@ -136,7 +136,26 @@ function buildReadingOfThePeriod(brandShares: BrandShare[]): string[] {
   return insights;
 }
 
-export default function OverviewSection({ project }: { project: Project | null }) {
+interface OverviewCacheEntry {
+  signal: number;
+  run: GrpRunSummary | null;
+  brandShares: BrandShare[];
+  spotEfficiency: SpotEfficiency[];
+  efficiencyError: string | null;
+}
+
+// Survives OverviewSection unmounting -- App.tsx renders every nav section
+// through a mutually-exclusive ternary, so switching away from Overview and
+// back (or a page reload) fully unmounts and remounts this component. Same
+// gap MatchesSection/ProjectDetailSection already had fixed: without this,
+// every single visit re-fetched getLatestRun/listBrandShares/
+// listSpotEfficiency from scratch, even for a project with nothing new
+// since the last visit. Keyed by project id; refreshSignal (App.tsx's
+// projectDataVersion, bumped after a Calculate run, an upload, or a
+// ratings attach) decides whether a cached entry is still good.
+const overviewCache = new Map<string, OverviewCacheEntry>();
+
+export default function OverviewSection({ project, refreshSignal }: { project: Project | null; refreshSignal: number }) {
   const [run, setRun] = useState<GrpRunSummary | null>(null);
   const [brandShares, setBrandShares] = useState<BrandShare[]>([]);
   const [spotEfficiency, setSpotEfficiency] = useState<SpotEfficiency[]>([]);
@@ -144,7 +163,7 @@ export default function OverviewSection({ project }: { project: Project | null }
   const [loadError, setLoadError] = useState<string | null>(null);
   const [efficiencyError, setEfficiencyError] = useState<string | null>(null);
 
-  const refresh = useCallback(async (projectId: string) => {
+  const refresh = useCallback(async (projectId: string, signal: number) => {
     setLoading(true);
     setLoadError(null);
     setEfficiencyError(null);
@@ -156,20 +175,23 @@ export default function OverviewSection({ project }: { project: Project | null }
           listBrandShares(projectId, latestRun.runId),
           listSpotEfficiency(projectId, latestRun.runId),
         ]);
-        if (shares.status === 'fulfilled') {
-          setBrandShares(shares.value);
-        } else {
-          throw shares.reason;
-        }
+        const sharesValue = shares.status === 'fulfilled' ? shares.value : null;
+        if (sharesValue === null) throw shares.status === 'rejected' ? shares.reason : new Error('Could not load brand shares.');
+        setBrandShares(sharesValue);
+        let efficiencyValue: SpotEfficiency[] = [];
+        let efficiencyErrorValue: string | null = null;
         if (efficiency.status === 'fulfilled') {
-          setSpotEfficiency(efficiency.value);
+          efficiencyValue = efficiency.value;
         } else {
-          setSpotEfficiency([]);
-          setEfficiencyError(efficiency.reason instanceof Error ? efficiency.reason.message : 'Could not load spot efficiency.');
+          efficiencyErrorValue = efficiency.reason instanceof Error ? efficiency.reason.message : 'Could not load spot efficiency.';
         }
+        setSpotEfficiency(efficiencyValue);
+        setEfficiencyError(efficiencyErrorValue);
+        overviewCache.set(projectId, { signal, run: latestRun, brandShares: sharesValue, spotEfficiency: efficiencyValue, efficiencyError: efficiencyErrorValue });
       } else {
         setBrandShares([]);
         setSpotEfficiency([]);
+        overviewCache.set(projectId, { signal, run: null, brandShares: [], spotEfficiency: [], efficiencyError: null });
       }
     } catch (error) {
       setLoadError(error instanceof ApiError ? error.message : 'Could not load the overview.');
@@ -184,14 +206,26 @@ export default function OverviewSection({ project }: { project: Project | null }
 
   useEffect(() => {
     if (project) {
-      void refresh(project.projectId);
+      const cached = overviewCache.get(project.projectId);
+      if (cached && cached.signal === refreshSignal) {
+        // Nothing has changed since this was last loaded (same
+        // refreshSignal) -- show it immediately instead of re-fetching.
+        setRun(cached.run);
+        setBrandShares(cached.brandShares);
+        setSpotEfficiency(cached.spotEfficiency);
+        setEfficiencyError(cached.efficiencyError);
+        setLoading(false);
+        setLoadError(null);
+      } else {
+        void refresh(project.projectId, refreshSignal);
+      }
     } else {
       setRun(null);
       setBrandShares([]);
       setSpotEfficiency([]);
       setEfficiencyError(null);
     }
-  }, [project, refresh]);
+  }, [project, refreshSignal, refresh]);
 
   if (!project) {
     return (

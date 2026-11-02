@@ -1,24 +1,131 @@
 :root {
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #161c2c;
-  background: #eef1f7;
+  color: var(--ink);
+  background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  --bg: #eef1f7;
   --border: #d7dce6;
   --muted: #5b6577;
   --ink: #161c2c;
   --panel: #ffffff;
   --surface: #f5f7fb;
+  --sidebar-bg: #fcfcfd;
+  --hover-surface: #eceef2;
+  --track-bg: #dfe3ee;
+  --muted-tint: #e8eaf0;
+  --reading-bg: #eef2fc;
   --primary: #9f1239;
   --primary-dark: #881337;
+  --primary-tint: #fbe3ea;
+  --primary-tint-border: #f3c3d2;
   --blue: #2764b0;
+  --blue-tint: #eaf2ff;
   --violet: #6d28d9;
+  --violet-tint: #f0edff;
+  --violet-tint-border: #a99bff;
+  --violet-tint-text: #4c3ca8;
   --amber: #a15c05;
+  --amber-tint: #fff3db;
+  --amber-tint-border: #f2c98f;
+  --amber-text: #8a5a00;
   --red: #b42318;
+  --red-dark: #8f1b11;
+  --red-tint: #fdecea;
+  --red-tint-border: #f3b7b0;
   --success: #0f6f43;
+  --success-tint: #e7f6ed;
   --tv-color: #0f766e;
+  color-scheme: light;
+}
+
+/* Dark mode: follows the OS/browser preference until the user picks a side
+   explicitly via the sidebar toggle (App.tsx's useTheme hook), which then
+   sets data-theme on <html> and persists it to localStorage -- the same
+   three-state convention (system / explicit light / explicit dark) used
+   throughout. Every token above gets a dark-appropriate value here;
+   anything NOT redefined (box-shadow rgba()s based on --ink, the modal
+   scrim) is left as-is on purpose -- those shadows recede to near-
+   invisible on a dark background, which is the normal, acceptable outcome
+   for dark-mode card elevation (the --border color already does the real
+   separation work). Hue tokens (primary/blue/violet/amber/red/success/
+   tv-color) move to brighter, more saturated shades for both their text
+   and chart-fill uses -- darker tones chosen for light-background text
+   contrast would read as muddy/low-contrast against a near-black page. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d0e12;
+    --border: #2b2e38;
+    --muted: #9aa1b0;
+    --ink: #e9ebf1;
+    --panel: #1b1e25;
+    --surface: #15171d;
+    --sidebar-bg: #121419;
+    --hover-surface: #22252c;
+    --track-bg: #262932;
+    --muted-tint: #262932;
+    --reading-bg: #171a2b;
+    --primary: #fb7185;
+    --primary-dark: #fda4af;
+    --primary-tint: #3a1420;
+    --primary-tint-border: #5c2433;
+    --blue: #60a5fa;
+    --blue-tint: #122236;
+    --violet: #a78bfa;
+    --violet-tint: #241f3d;
+    --violet-tint-border: #6d5fb0;
+    --violet-tint-text: #c4b5fd;
+    --amber: #fbbf24;
+    --amber-tint: #3a2d0f;
+    --amber-tint-border: #6b5324;
+    --amber-text: #fcd34d;
+    --red: #f87171;
+    --red-dark: #fca5a5;
+    --red-tint: #3a1512;
+    --red-tint-border: #6b2b24;
+    --success: #34d399;
+    --success-tint: #0f2a1d;
+    --tv-color: #2dd4bf;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0d0e12;
+  --border: #2b2e38;
+  --muted: #9aa1b0;
+  --ink: #e9ebf1;
+  --panel: #1b1e25;
+  --surface: #15171d;
+  --sidebar-bg: #121419;
+  --hover-surface: #22252c;
+  --track-bg: #262932;
+  --muted-tint: #262932;
+  --reading-bg: #171a2b;
+  --primary: #fb7185;
+  --primary-dark: #fda4af;
+  --primary-tint: #3a1420;
+  --primary-tint-border: #5c2433;
+  --blue: #60a5fa;
+  --blue-tint: #122236;
+  --violet: #a78bfa;
+  --violet-tint: #241f3d;
+  --violet-tint-border: #6d5fb0;
+  --violet-tint-text: #c4b5fd;
+  --amber: #fbbf24;
+  --amber-tint: #3a2d0f;
+  --amber-tint-border: #6b5324;
+  --amber-text: #fcd34d;
+  --red: #f87171;
+  --red-dark: #fca5a5;
+  --red-tint: #3a1512;
+  --red-tint-border: #6b2b24;
+  --success: #34d399;
+  --success-tint: #0f2a1d;
+  --tv-color: #2dd4bf;
+  color-scheme: dark;
 }
 
 * {
@@ -58,7 +165,7 @@ button:disabled {
   gap: 24px;
   padding: 24px 16px;
   color: var(--ink);
-  background: #fcfcfd;
+  background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
   /* .app-shell only ever sets min-height: 100vh (it grows with content,
      not capped to it), so without this the whole document -- sidebar
@@ -104,7 +211,7 @@ button:disabled {
   place-items: center;
   border-radius: 10px;
   color: var(--primary-dark);
-  background: #fbe3ea;
+  background: var(--primary-tint);
 }
 
 .nav-list {
@@ -128,8 +235,8 @@ button:disabled {
 .nav-item.active,
 .nav-item:hover {
   color: var(--primary-dark);
-  background: #fbe3ea;
-  border-color: #f3c3d2;
+  background: var(--primary-tint);
+  border-color: var(--primary-tint-border);
 }
 
 .sidebar-note {
@@ -157,6 +264,12 @@ button:disabled {
   background: var(--surface);
 }
 
+.sidebar-user-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .sidebar-user-identity {
   display: flex;
   align-items: center;
@@ -170,7 +283,7 @@ button:disabled {
 
 .sidebar-user-identity:hover,
 .sidebar-user-identity:focus-visible {
-  background: #eceef2;
+  background: var(--hover-surface);
 }
 
 .sidebar-user-identity > div {
@@ -285,7 +398,7 @@ button:disabled {
   height: 40px;
   padding: 0 12px;
   color: var(--muted);
-  background: #ffffff;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
 }
@@ -342,7 +455,7 @@ button:disabled {
 .secondary-button,
 .icon-button {
   color: var(--ink);
-  background: #ffffff;
+  background: var(--panel);
   border-color: var(--border);
 }
 
@@ -354,9 +467,9 @@ button:disabled {
 .danger-zone {
   margin-top: 24px;
   padding: 16px;
-  border: 1px solid #f3b7b0;
+  border: 1px solid var(--red-tint-border);
   border-radius: 10px;
-  background: #fdecea;
+  background: var(--red-tint);
 }
 
 .danger-zone h3 {
@@ -377,7 +490,7 @@ button:disabled {
 }
 
 .danger-button:hover {
-  background: #8f1b11;
+  background: var(--red-dark);
 }
 
 .match-filter-bar,
@@ -421,9 +534,9 @@ button:disabled {
 
 .page-button:hover:not(:disabled),
 .page-button-active {
-  border-color: #a99bff;
-  color: #4c3ca8;
-  background: #f0edff;
+  border-color: var(--violet-tint-border);
+  color: var(--violet-tint-text);
+  background: var(--violet-tint);
 }
 
 .page-button:disabled {
@@ -489,8 +602,8 @@ button:disabled {
 }
 
 .warning-panel {
-  border-color: #f2c98f;
-  background: #fff8ed;
+  border-color: var(--amber-tint-border);
+  background: var(--amber-tint);
 }
 
 .content-grid {
@@ -518,7 +631,7 @@ button:disabled {
 
 .reading-panel {
   border-left: 3px solid var(--primary);
-  background: #eef2fc;
+  background: var(--reading-bg);
   padding: 16px 20px;
   display: grid;
   gap: 10px;
@@ -670,22 +783,22 @@ button:disabled {
 
 .status-setup {
   color: var(--blue);
-  background: #eaf2ff;
+  background: var(--blue-tint);
 }
 
 .status-review {
   color: var(--amber);
-  background: #fff3db;
+  background: var(--amber-tint);
 }
 
 .status-complete {
   color: var(--success);
-  background: #e7f6ed;
+  background: var(--success-tint);
 }
 
 .status-archived {
   color: var(--muted);
-  background: #e8eaf0;
+  background: var(--muted-tint);
 }
 
 .project-main-badges {
@@ -743,7 +856,7 @@ button:disabled {
 .bar-track {
   height: 8px;
   overflow: hidden;
-  background: #dfe3ee;
+  background: var(--track-bg);
   border-radius: 999px;
 }
 
@@ -911,7 +1024,7 @@ button:disabled {
   height: 40px;
   padding: 0 12px;
   color: var(--ink);
-  background: #ffffff;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
   font: inherit;
@@ -1092,7 +1205,7 @@ button:disabled {
   height: 36px;
   padding: 0 10px;
   color: var(--ink);
-  background: #ffffff;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   font: inherit;
@@ -1134,7 +1247,7 @@ h3.subsection {
   padding: 0 12px;
   width: 100%;
   color: var(--ink);
-  background: #ffffff;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
   font: inherit;
@@ -1192,7 +1305,7 @@ h3.subsection {
   height: 36px;
   padding: 0 10px;
   color: var(--ink);
-  background: #ffffff;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   font: inherit;
@@ -1298,7 +1411,7 @@ h3.subsection {
 }
 
 .data-table tbody tr.clickable-row:hover {
-  background: #fff3db;
+  background: var(--amber-tint);
 }
 
 .dataset-row {
@@ -1328,7 +1441,7 @@ h3.subsection {
   height: 40px;
   padding: 0 12px;
   color: var(--ink);
-  background: #ffffff;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   outline: none;
@@ -1348,8 +1461,8 @@ h3.subsection {
   padding: 10px 12px;
   color: var(--red);
   font-size: 13px;
-  background: #fdecea;
-  border: 1px solid #f3b7b0;
+  background: var(--red-tint);
+  border: 1px solid var(--red-tint-border);
   border-radius: 8px;
 }
 
@@ -1379,7 +1492,7 @@ h3.subsection {
   height: 40px;
   padding: 0 12px;
   color: var(--ink);
-  background: #ffffff;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   font: inherit;
@@ -1401,10 +1514,10 @@ h3.subsection {
 .inline-warning {
   margin: 0 0 12px;
   padding: 10px 12px;
-  color: #8a5a00;
+  color: var(--amber-text);
   font-size: 13px;
-  background: #fff8ed;
-  border: 1px solid #f2c98f;
+  background: var(--amber-tint);
+  border: 1px solid var(--amber-tint-border);
   border-radius: 8px;
 }
 
@@ -1424,7 +1537,7 @@ h3.subsection {
   place-items: center;
   min-height: 100vh;
   padding: 24px;
-  background: #eef1f7;
+  background: var(--bg);
 }
 
 .auth-card {
@@ -1468,7 +1581,7 @@ h3.subsection {
 
 .auth-tab.active {
   color: var(--ink);
-  background: #ffffff;
+  background: var(--panel);
   box-shadow: 0 1px 2px rgba(22, 28, 44, 0.12);
 }
 
@@ -1489,7 +1602,7 @@ h3.subsection {
   height: 40px;
   padding: 0 12px;
   color: var(--ink);
-  background: #ffffff;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   font: inherit;
@@ -1770,7 +1883,7 @@ h3.subsection {
   min-width: 260px;
   padding: 0 12px;
   color: var(--ink);
-  background: #ffffff;
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   font: inherit;

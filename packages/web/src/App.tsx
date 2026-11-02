@@ -13,9 +13,11 @@ import {
   GitCompare,
   LayoutDashboard,
   LogOut,
+  Moon,
   Search,
   Settings,
   SlidersHorizontal,
+  Sun,
   Upload,
 } from 'lucide-react';
 import AuthScreen from './AuthScreen';
@@ -52,6 +54,7 @@ import SettingsSection, { AvatarCircle } from './sections/SettingsSection';
 import SoeExplorerSection from './sections/SoeExplorerSection';
 import SpendIntelligenceSection from './sections/SpendIntelligenceSection';
 import { LimitedRowsControls, useLimitedRows } from './components/LimitedRows';
+import { useTheme } from './theme';
 
 type SectionKey =
   | 'overview'
@@ -205,6 +208,7 @@ function Workspace({
   // (brand/upload/dataset/project delete) keep the native one for now.
   const [isSignOutConfirmOpen, setIsSignOutConfirmOpen] = useState(false);
   const signOutRef = useRef<HTMLDivElement>(null);
+  const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
     if (!isSignOutConfirmOpen) return;
@@ -571,37 +575,48 @@ function Workspace({
               <small>{currentUser.role}</small>
             </div>
           </div>
-          <div className="sign-out-anchor" ref={signOutRef}>
+          <div className="sidebar-user-actions">
             <button
               type="button"
               className="icon-button"
-              title="Sign out"
-              aria-label="Sign out"
-              aria-expanded={isSignOutConfirmOpen}
-              onClick={() => setIsSignOutConfirmOpen((current) => !current)}
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              onClick={toggleTheme}
             >
-              <LogOut size={16} aria-hidden />
+              {theme === 'dark' ? <Sun size={16} aria-hidden /> : <Moon size={16} aria-hidden />}
             </button>
-            {isSignOutConfirmOpen && (
-              <div className="sign-out-confirm" role="dialog" aria-label="Confirm sign out">
-                <p>Sign out of Mediapulse?</p>
-                <div className="sign-out-confirm-actions">
-                  <button type="button" className="secondary-button" onClick={() => setIsSignOutConfirmOpen(false)}>
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="danger-button"
-                    onClick={() => {
-                      setIsSignOutConfirmOpen(false);
-                      onSignOut();
-                    }}
-                  >
-                    Sign out
-                  </button>
+            <div className="sign-out-anchor" ref={signOutRef}>
+              <button
+                type="button"
+                className="icon-button"
+                title="Sign out"
+                aria-label="Sign out"
+                aria-expanded={isSignOutConfirmOpen}
+                onClick={() => setIsSignOutConfirmOpen((current) => !current)}
+              >
+                <LogOut size={16} aria-hidden />
+              </button>
+              {isSignOutConfirmOpen && (
+                <div className="sign-out-confirm" role="dialog" aria-label="Confirm sign out">
+                  <p>Sign out of Mediapulse?</p>
+                  <div className="sign-out-confirm-actions">
+                    <button type="button" className="secondary-button" onClick={() => setIsSignOutConfirmOpen(false)}>
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="danger-button"
+                      onClick={() => {
+                        setIsSignOutConfirmOpen(false);
+                        onSignOut();
+                      }}
+                    >
+                      Sign out
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </aside>

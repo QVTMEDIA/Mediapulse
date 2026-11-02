@@ -4,6 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mediapulse</title>
+    <script>
+      // Applies a saved explicit theme choice before first paint, so a
+      // user who picked dark mode doesn't see a flash of the light theme
+      // while React boots. No saved value (never toggled -- the default)
+      // leaves data-theme unset and styles.css's prefers-color-scheme
+      // media query decides, matching the OS/browser setting; src/theme.ts
+      // keeps this key and this same resolution logic in sync.
+      (function () {
+        try {
+          var saved = localStorage.getItem('mediapulse.theme');
+          if (saved === 'light' || saved === 'dark') {
+            document.documentElement.setAttribute('data-theme', saved);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

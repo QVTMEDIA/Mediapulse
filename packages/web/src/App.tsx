@@ -97,17 +97,22 @@ const SECTION_DESCRIPTIONS: Partial<Record<SectionKey, string>> = {
   exports: 'Generate and download the full Excel workbook for this project.',
 };
 
-const navItems: { key: SectionKey; icon: typeof FolderOpen }[] = [
-  { key: 'overview', icon: LayoutDashboard },
-  { key: 'projects', icon: FolderOpen },
-  { key: 'ratings', icon: Database },
-  { key: 'matches', icon: GitCompare },
-  { key: 'activity', icon: ActivityIcon },
-  { key: 'reports', icon: FileSpreadsheet },
-  { key: 'spendIntelligence', icon: DollarSign },
-  { key: 'soeExplorer', icon: SlidersHorizontal },
-  { key: 'exports', icon: Upload },
-  { key: 'settings', icon: Settings },
+// Each nav icon keeps its own color always-on (not just while active) --
+// a distinct token per page so the sidebar reads at a glance, independent
+// of the semantic status colors (--blue/--violet/--amber/--red/--success)
+// used elsewhere for chart/badge meaning. Both light and dark values are
+// defined in styles.css's token blocks, same as every other color here.
+const navItems: { key: SectionKey; icon: typeof FolderOpen; color: string }[] = [
+  { key: 'overview', icon: LayoutDashboard, color: 'var(--nav-overview)' },
+  { key: 'projects', icon: FolderOpen, color: 'var(--nav-projects)' },
+  { key: 'ratings', icon: Database, color: 'var(--nav-ratings)' },
+  { key: 'matches', icon: GitCompare, color: 'var(--nav-matches)' },
+  { key: 'activity', icon: ActivityIcon, color: 'var(--nav-activity)' },
+  { key: 'reports', icon: FileSpreadsheet, color: 'var(--nav-reports)' },
+  { key: 'spendIntelligence', icon: DollarSign, color: 'var(--nav-spend)' },
+  { key: 'soeExplorer', icon: SlidersHorizontal, color: 'var(--nav-soe)' },
+  { key: 'exports', icon: Upload, color: 'var(--nav-exports)' },
+  { key: 'settings', icon: Settings, color: 'var(--nav-settings)' },
 ];
 
 const statusClass = {
@@ -542,7 +547,7 @@ function Workspace({
                 aria-current={isActive ? 'page' : undefined}
                 onClick={() => setActiveSection(item.key)}
               >
-                <Icon size={18} aria-hidden />
+                <Icon size={18} aria-hidden style={{ color: item.color }} />
                 <span>{SECTION_LABELS[item.key]}</span>
               </button>
             );

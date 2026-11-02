@@ -38,6 +38,19 @@
   --success: #0f6f43;
   --success-tint: #e7f6ed;
   --tv-color: #0f766e;
+  /* Sidebar nav icon colors -- one per page, always-on (not tied to the
+     active/hover state), independent of the semantic status hues above so
+     a colorful icon never reads as a status (warning/danger/success). */
+  --nav-overview: #4f46e5;
+  --nav-projects: #ea580c;
+  --nav-ratings: #0284c7;
+  --nav-matches: #7c3aed;
+  --nav-activity: #059669;
+  --nav-reports: #b45309;
+  --nav-spend: #0d9488;
+  --nav-soe: #db2777;
+  --nav-exports: #0891b2;
+  --nav-settings: #475569;
   color-scheme: light;
 }
 
@@ -88,6 +101,16 @@
     --success: #34d399;
     --success-tint: #0f2a1d;
     --tv-color: #2dd4bf;
+    --nav-overview: #818cf8;
+    --nav-projects: #fb923c;
+    --nav-ratings: #38bdf8;
+    --nav-matches: #a78bfa;
+    --nav-activity: #34d399;
+    --nav-reports: #fbbf24;
+    --nav-spend: #2dd4bf;
+    --nav-soe: #f472b6;
+    --nav-exports: #22d3ee;
+    --nav-settings: #94a3b8;
     color-scheme: dark;
   }
 }
@@ -125,6 +148,16 @@
   --success: #34d399;
   --success-tint: #0f2a1d;
   --tv-color: #2dd4bf;
+  --nav-overview: #818cf8;
+  --nav-projects: #fb923c;
+  --nav-ratings: #38bdf8;
+  --nav-matches: #a78bfa;
+  --nav-activity: #34d399;
+  --nav-reports: #fbbf24;
+  --nav-spend: #2dd4bf;
+  --nav-soe: #f472b6;
+  --nav-exports: #22d3ee;
+  --nav-settings: #94a3b8;
   color-scheme: dark;
 }
 

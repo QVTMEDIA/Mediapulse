@@ -1032,6 +1032,23 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+/* A section whose sibling panels/forms are stacked directly with no grid
+   of their own (e.g. SoeExplorerSection's Upload/Choose file/Filters/
+   results panels) -- without this, bare sibling .panels have no spacing
+   at all and visually run into each other ("the cards look stacked").
+   .upload-form's own margin-bottom exists for contexts with no such
+   wrapper (see .brand-drill-panel .upload-form below for the same
+   reasoning in reverse); neutralized here so it doesn't add extra space
+   on top of this gap when both apply to the same element. */
+.section-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.section-stack > .upload-form {
+  margin-bottom: 0;
+}
+
 .upload-form-row {
   display: flex;
   flex-wrap: wrap;

@@ -444,7 +444,7 @@ export default function SoeExplorerSection() {
   const maxSpend = Math.max(1, ...report.brands.map((brand) => brand.spend));
 
   return (
-    <>
+    <div className="section-stack">
       <form className="panel upload-form" onSubmit={handleUpload}>
         <div className="panel-header">
           <div>
@@ -498,7 +498,7 @@ export default function SoeExplorerSection() {
         {uploadSuccess && <p className="inline-success">{uploadSuccess}</p>}
       </form>
 
-      <div className="panel">
+      <div className="panel upload-form">
         <div className="panel-header">
           <div>
             <h2>Choose an uploaded file</h2>
@@ -674,6 +674,6 @@ export default function SoeExplorerSection() {
           onClose={() => setBrandDetailFor(null)}
         />
       )}
-    </>
+    </div>
   );
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -7,6 +8,8 @@ from typing import List, Optional, Protocol
 
 from ..config import get_settings
 from ..db import get_connection
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -39,7 +42,7 @@ class ActivityLogRepository(Protocol):
         summary: str,
         project_id: Optional[str] = None,
         project_name: Optional[str] = None,
-    ) -> ActivityLogEntryRecord: ...
+    ) -> Optional[ActivityLogEntryRecord]: ...
 
     def list_entries(self, *, limit: int, offset: int) -> ActivityLogPage: ...
 
@@ -61,16 +64,32 @@ class PostgresActivityLogRepository:
     """Reads/writes the `activity_log` table (db/schema.sql)."""
 
     def record(self, *, actor_id, actor_name, action, summary, project_id=None, project_name=None):
-        with get_connection() as conn:
-            row = conn.execute(
-                '''
-                INSERT INTO activity_log (actor_id, actor_name, action, summary, project_id, project_name)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING *
-                ''',
-                [actor_id, actor_name, action, summary, project_id, project_name],
-            ).fetchone()
-        return _row_to_record(row)
+        # Best-effort on purpose: every caller (login, uploads, Calculate,
+        # ...) fires this as a side effect of an action that has already
+        # succeeded and discards the return value, so a logging failure must
+        # never surface as that action's own failure. Deliberately a broad
+        # except, not a narrow one scoped to "table doesn't exist yet" --
+        # this project has already shipped exactly that incident once
+        # (see services/api/README.md's avatar_data_url writeup: a schema
+        # change landing in code before its migration reached the live
+        # database broke login entirely, with no error visible to the user
+        # beyond a browser-reported "blocked by CORS" red herring). Logged
+        # here instead of raised so it's still visible in the server's own
+        # logs for diagnosis.
+        try:
+            with get_connection() as conn:
+                row = conn.execute(
+                    '''
+                    INSERT INTO activity_log (actor_id, actor_name, action, summary, project_id, project_name)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING *
+                    ''',
+                    [actor_id, actor_name, action, summary, project_id, project_name],
+                ).fetchone()
+            return _row_to_record(row)
+        except Exception:
+            logger.exception('Could not record activity log entry (action=%s) -- continuing without it.', action)
+            return None
 
     def list_entries(self, *, limit, offset):
         with get_connection() as conn:

@@ -102,3 +102,23 @@ alter table ratings
 -- take the user row down with it.
 alter table users
   add column if not exists last_active_project_id uuid references projects(id) on delete set null;
+
+-- Account-wide Activity Log (Settings tab) -- services/api PR adding an
+-- audit trail of sign-ins, uploads, Calculate runs, etc. Missing this one
+-- on the live instance broke login entirely (activity_repo.record() was
+-- called unconditionally from POST /api/auth/login with nothing catching
+-- the failure) -- see services/api/README.md's incident writeup. The
+-- code has since been hardened to fail open if this table is still
+-- missing, but run this anyway so the Activity Log tab actually works.
+create table if not exists activity_log (
+  id uuid primary key default gen_random_uuid(),
+  actor_id uuid references users(id) on delete set null,
+  actor_name text not null,
+  action text not null,
+  summary text not null,
+  project_id uuid references projects(id) on delete set null,
+  project_name text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists activity_log_created_at_idx on activity_log (created_at desc);

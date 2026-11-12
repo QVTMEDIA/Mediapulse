@@ -1,11 +1,13 @@
 import base64
 import uuid
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.repositories.activity_log import get_activity_log_repository
 from app.repositories.projects import InMemoryProjectsRepository, get_projects_repository
 from app.repositories.users import InMemoryUsersRepository, _row_to_record, get_users_repository
 
@@ -504,3 +506,32 @@ def test_update_role_rejects_unknown_role(client):
         headers={'Authorization': f'Bearer {owner_token}'},
     )
     assert response.status_code == 422
+
+
+def test_register_and_login_survive_a_broken_activity_log(client):
+    """Regression test for a real incident shape this project has already
+    hit once with a different table (services/api/README.md's
+    avatar_data_url writeup): a schema change (here, the activity_log
+    table) lands in code before its migration reaches the live database,
+    and an unhandled failure recording it would otherwise take the whole
+    request down with it. Wires in the REAL PostgresActivityLogRepository
+    (not a stand-in) with its underlying DB connection mocked to raise
+    exactly the error a missing table would -- proving the try/except
+    inside PostgresActivityLogRepository.record() itself is what makes
+    register/login resilient, not just well-behaved callers."""
+    from app.repositories import activity_log as activity_log_module
+
+    app.dependency_overrides[get_activity_log_repository] = lambda: activity_log_module.PostgresActivityLogRepository()
+    with patch.object(activity_log_module, 'get_connection') as mock_get_connection:
+        mock_get_connection.side_effect = RuntimeError('relation "activity_log" does not exist')
+        try:
+            register_response = _register(client, email='resilient@example.com')
+            assert register_response.status_code == 201
+
+            login_response = client.post(
+                '/api/auth/login', json={'email': 'resilient@example.com', 'password': 'correct horse'}
+            )
+            assert login_response.status_code == 200
+            assert login_response.json()['accessToken']
+        finally:
+            del app.dependency_overrides[get_activity_log_repository]

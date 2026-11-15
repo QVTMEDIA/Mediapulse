@@ -752,7 +752,7 @@ function Workspace({
         ) : activeSection === 'soeExplorer' ? (
           <SoeExplorerSection />
         ) : activeSection === 'settings' ? (
-          <SettingsSection currentUser={currentUser} onUserUpdated={onUserUpdated} />
+          <SettingsSection currentUser={currentUser} onUserUpdated={onUserUpdated} onAliasesChanged={() => setProjectDataVersion((version) => version + 1)} />
         ) : activeSection === 'exports' ? (
           <ExportsSection project={activeProject} />
         ) : activeSection === 'projectDetail' ? (
@@ -1045,10 +1045,12 @@ function Workspace({
 function App() {
   // 'checking' avoids a flash of the login screen while a stored token is
   // still being validated against GET /auth/me on first load.
-  const [authState, setAuthState] = useState<{ status: 'checking' | 'signedOut' | 'signedIn'; user: User | null }>({
+  const [authState, setAuthState] = useState<{ status: 'checking' | 'signedOut' | 'signedIn' | 'unavailable'; user: User | null }>({
     status: 'checking',
     user: null,
   });
+  const [authCheckAttempt, setAuthCheckAttempt] = useState(0);
+  const [authCheckError, setAuthCheckError] = useState('');
 
   useEffect(() => {
     onAuthTokenRejected(() => setAuthState({ status: 'signedOut', user: null }));
@@ -1062,18 +1064,25 @@ function App() {
       return;
     }
     let cancelled = false;
+    setAuthState({ status: 'checking', user: null });
     void getCurrentUser()
       .then((user) => {
         if (!cancelled) setAuthState({ status: 'signedIn', user });
       })
-      .catch(() => {
-        setAuthToken(null);
-        if (!cancelled) setAuthState({ status: 'signedOut', user: null });
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        if (error instanceof ApiError && error.status === 401) {
+          setAuthToken(null);
+          setAuthState({ status: 'signedOut', user: null });
+        } else {
+          setAuthCheckError(error instanceof Error ? error.message : 'Could not connect to Mediapulse.');
+          setAuthState({ status: 'unavailable', user: null });
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authCheckAttempt]);
 
   function handleAuthenticated(session: AuthSession) {
     setAuthState({ status: 'signedIn', user: session.user });
@@ -1087,7 +1096,14 @@ function App() {
   }
 
   if (authState.status === 'checking') {
-    return <div className="auth-shell" aria-busy="true" />;
+    return <div className="auth-shell" aria-busy="true"><p role="status">Connecting to Mediapulse… The server may take a moment to wake up.</p></div>;
+  }
+  if (authState.status === 'unavailable') {
+    return <div className="auth-shell"><div className="auth-card">
+      <h1>Could not open Mediapulse</h1>
+      <p role="alert">{authCheckError}</p>
+      <button type="button" className="primary-button" onClick={() => setAuthCheckAttempt((attempt) => attempt + 1)}>Retry connection</button>
+    </div></div>;
   }
   if (authState.status === 'signedOut' || !authState.user) {
     return <AuthScreen onAuthenticated={handleAuthenticated} />;

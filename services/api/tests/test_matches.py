@@ -377,6 +377,86 @@ def test_compute_matches_station_alias_also_resolves_the_ratings_side():
     assert result[0].matched_rating_id == 'rating-tvc'
 
 
+@pytest.mark.parametrize('station', ['Lagos NTA Channel 10', 'Lagos, NTA Channel 10', 'NTA Lagos'])
+def test_nta_channel_label_and_word_order_match(station):
+    result = compute_matches([_media_activity(station='NTA Lagos')], [_rating_row('nta', station=station)], include_suggestions=False)
+    assert result[0].matched_rating_id == 'nta'
+
+
+def test_nta_different_city_does_not_match():
+    result = compute_matches([_media_activity(station='NTA Lagos')], [_rating_row('nta', station='Abuja NTA Channel 10')], include_suggestions=False)
+    assert result[0].match_status == 'unmatched'
+
+
+def test_alias_chains_resolve_both_files_without_mutating_records():
+    activity = _media_activity(station='NTA Lagos')
+    rating = _rating_row('nta', station='Lagos NTA Channel 10')
+    result = compute_matches([activity], [rating], include_suggestions=False, station_aliases={
+        'NTA LAGOS': 'NTA 10', 'NTA 10': 'Lagos NTA Channel 10',
+    })
+    assert result[0].matched_rating_id == 'nta'
+    assert activity.station == 'NTA Lagos'
+    assert rating.station == 'Lagos NTA Channel 10'
+
+
+def test_alias_cycles_resolve_consistently():
+    result = compute_matches([_media_activity(station='First')], [_rating_row('r', station='Second')],
+                             include_suggestions=False, station_aliases={'FIRST': 'Second', 'SECOND': 'First'})
+    assert result[0].matched_rating_id == 'r'
+
+
+@pytest.mark.parametrize('initial_status', ['unmatched', 'suggested', 'exact'])
+def test_saved_automatic_matches_follow_alias_updates_and_deletion(initial_status):
+    repo = InMemoryMatchesRepository()
+    activity = _media_activity(station='NTA 10')
+    ratings = [_rating_row('lagos', station='Lagos NTA Channel 10'),
+               _rating_row('abuja', station='Abuja NTA Channel 10')]
+    before = repo.ensure_matches_computed('project-1', [activity], ratings)[0]
+    repo.update_match(before.id, 'abuja' if initial_status != 'unmatched' else None, initial_status, None)
+    after = repo.ensure_matches_computed('project-1', [activity], ratings, {'NTA 10': 'Lagos NTA Channel 10'})[0]
+    assert after.id == before.id
+    assert after.match_status == 'exact'
+    assert after.matched_rating_id == 'lagos'
+    changed = repo.ensure_matches_computed('project-1', [activity], ratings, {'NTA 10': 'Abuja NTA Channel 10'})[0]
+    assert changed.matched_rating_id == 'abuja'
+    removed = repo.ensure_matches_computed('project-1', [activity], ratings, {})[0]
+    assert removed.match_status == 'unmatched'
+    assert removed.matched_rating_id is None
+
+
+def test_alias_refresh_preserves_manual_corrections():
+    repo = InMemoryMatchesRepository()
+    activity = _media_activity(station='NTA 10')
+    ratings = [_rating_row('lagos', station='Lagos NTA Channel 10')]
+    before = repo.ensure_matches_computed('project-1', [activity], ratings)[0]
+    repo.correct_match(before.id, None)
+    after = repo.ensure_matches_computed('project-1', [activity], ratings, {'NTA 10': 'Lagos NTA Channel 10'})[0]
+    assert after.match_status == 'manual'
+    assert after.matched_rating_id is None
+
+
+def test_ensure_job_repairs_saved_suggestions_after_an_alias_change():
+    from unittest.mock import MagicMock
+    from app.match_jobs import _run_ensure
+    repo = InMemoryMatchesRepository()
+    activity = _media_activity(station='TVC Lagos')
+    ratings = [_rating_row('tvc', station='Lagos, TV Continental (TVC E)')]
+    assert repo.ensure_matches_computed('project-1', [activity], ratings)[0].match_status == 'suggested'
+    uploads = MagicMock()
+    uploads.list_media_activity.return_value = [activity]
+    library = MagicMock()
+    library.list_project_rating_rows.return_value = ratings
+    aliases = MagicMock()
+    aliases.get_alias_map.return_value = {'TVC LAGOS': 'Lagos, TV Continental (TVC E)'}
+    _run_ensure('job-test', 'project-1', repo, uploads, library, aliases)
+    assert repo.list_matches('project-1')[0].match_status == 'exact'
+    library.list_project_rating_rows.assert_called_once()
+    library.reset_mock()
+    # Returning to an unchanged project must not reload its entire library.
+    _run_ensure('job-test', 'project-1', repo, uploads, library, aliases)
+    library.list_project_rating_rows.assert_not_called()
+
+
 def test_compute_matches_without_station_aliases_behaves_exactly_as_before():
     # station_aliases=None (the default) must be a true no-op -- every
     # existing caller that doesn't know about aliasing yet keeps working
@@ -427,6 +507,11 @@ def test_station_alias_created_via_the_api_resolves_a_real_mismatch_on_future_up
         '/api/station-aliases', json={'aliasName': 'TVC Lagos', 'canonicalName': 'Lagos, TV Continental (TVC E)'}
     )
     assert alias_response.status_code == 201
+
+    # An alias must repair the SAME project's saved suggestion as well.
+    repaired = client.get(f'/api/projects/{first_project_id}/matches').json()
+    assert repaired[0]['matchStatus'] == 'exact'
+    assert repaired[0]['ratingMatchId'] == before[0]['ratingMatchId']
 
     second_project_id = _tvc_lagos_project(client)
     after = client.get(f'/api/projects/{second_project_id}/matches').json()

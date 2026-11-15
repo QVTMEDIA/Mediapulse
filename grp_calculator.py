@@ -335,6 +335,10 @@ def normalize_station_for_match(value):
     if len(parts) >= 3:
         text_value = ' '.join(parts[1:])
     text = normalize_text(text_value)
+    # A numbered channel label is formatting: "Lagos NTA Channel 10"
+    # and "NTA Lagos" use the same station tokens. Do not strip CHANNEL
+    # from unnumbered brands such as "Channels Television".
+    text = re.sub(r'\bCHANNEL\s+(?=\d+\b)', ' ', text)
     text = _STATION_FREQUENCY_PATTERN.sub(' ', text)
     text = _STATION_PUNCTUATION_PATTERN.sub(' ', text)
     tokens = {token for token in text.split() if token not in _STATION_NOISE_WORDS}

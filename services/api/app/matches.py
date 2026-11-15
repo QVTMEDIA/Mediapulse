@@ -118,10 +118,29 @@ def _apply_station_aliases(records, station_aliases: Optional[Dict[str, str]]):
     pass one behaves exactly as before."""
     if not station_aliases:
         return records
+    # Follow saved renames all the way to their common target. Resolving
+    # only one hop makes A -> B -> C disagree depending on which file uses A.
+    canonical_by_key = {}
+    for alias in station_aliases:
+        path = []
+        key = alias
+        while key in station_aliases and key not in path and key not in canonical_by_key:
+            path.append(key)
+            key = calc.normalize_text(station_aliases[key])
+        if key in canonical_by_key:
+            canonical = canonical_by_key[key]
+        elif key in path:
+            # A cycle still describes confirmed equivalent names. Choose
+            # one stable spelling for every entry point instead of looping.
+            canonical = min(path[path.index(key):])
+        else:
+            canonical = station_aliases[path[-1]]
+        for visited in path:
+            canonical_by_key[visited] = canonical
     resolved = []
     for record in records:
         key = calc.normalize_text(getattr(record, 'station', ''))
-        canonical = station_aliases.get(key)
+        canonical = canonical_by_key.get(key)
         if canonical:
             # copy.copy(), not dataclasses.replace() -- real callers pass
             # genuine MediaActivityRecord/RatingRowRecord dataclasses, but

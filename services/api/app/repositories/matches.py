@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -22,6 +24,10 @@ class RatingMatchRecord:
 
 
 class MatchesRepository(Protocol):
+    def aliases_need_refresh(self, project_id, station_aliases=None) -> bool: ...
+
+    def refresh_alias_matches(self, project_id, media_activity_records, rating_records, station_aliases=None) -> None: ...
+
     def list_matches(self, project_id: str) -> List[RatingMatchRecord]: ...
 
     def get_match_for_project(self, project_id: str, rating_match_id: str) -> Optional[RatingMatchRecord]: ...
@@ -64,7 +70,44 @@ def _row_to_record(row: dict) -> RatingMatchRecord:
     )
 
 
-class PostgresMatchesRepository:
+class _AliasRefreshMixin:
+    def __init__(self):
+        # Process-local optimization only. A restart revalidates saved results
+        # against the current aliases, so no DB migration or warm cache is needed.
+        self._alias_signatures: Dict[str, str] = {}
+
+    @staticmethod
+    def _alias_signature(station_aliases):
+        return hashlib.sha256(json.dumps(station_aliases or {}, sort_keys=True).encode()).hexdigest()
+
+    def aliases_need_refresh(self, project_id, station_aliases=None):
+        return self._alias_signatures.get(project_id) != self._alias_signature(station_aliases)
+
+    def refresh_alias_matches(self, project_id, media_activity_records, rating_records, station_aliases=None):
+        signature = self._alias_signature(station_aliases)
+        if self._alias_signatures.get(project_id) == signature:
+            return
+        existing = {
+            match.media_activity_id: match for match in self.list_matches(project_id)
+            if match.match_status != 'manual' and match.corrected_at is None
+        }
+        activities = [row for row in media_activity_records if row.id in existing]
+        results = compute_matches(activities, rating_records, include_suggestions=False, station_aliases=station_aliases)
+        updates = []
+        for result in results:
+            saved = existing[result.media_activity_id]
+            # Keep an existing fuzzy suggestion if exact lookup still misses.
+            # Exact matches must also be revalidated when an alias is changed
+            # or deleted; a previous automatic decision is not a manual one.
+            if result.match_status == 'exact' or saved.match_status == 'exact':
+                if (saved.matched_rating_id, saved.match_status) != (result.matched_rating_id, result.match_status):
+                    updates.append((saved.id, result.matched_rating_id, result.match_status, result.match_confidence))
+        if updates:
+            self.update_matches_bulk(updates)
+        self._alias_signatures[project_id] = signature
+
+
+class PostgresMatchesRepository(_AliasRefreshMixin):
     """Reads/writes `rating_matches` (db/schema.sql)."""
 
     def list_matches(self, project_id):
@@ -93,6 +136,7 @@ class PostgresMatchesRepository:
         return _row_to_record(row) if row else None
 
     def ensure_matches_computed(self, project_id, media_activity_records, rating_records, station_aliases=None):
+        self.refresh_alias_matches(project_id, media_activity_records, rating_records, station_aliases)
         with get_connection() as conn:
             existing_ids = {
                 str(row['media_activity_id'])
@@ -175,7 +219,7 @@ class PostgresMatchesRepository:
                     '''
                     UPDATE rating_matches
                     SET matched_rating_id = %s, match_status = %s, match_confidence = %s
-                    WHERE id = %s
+                    WHERE id = %s AND match_status <> 'manual' AND corrected_at IS NULL
                     ''',
                     [
                         (matched_rating_id, match_status, match_confidence, rating_match_id)
@@ -196,10 +240,11 @@ class PostgresMatchesRepository:
             conn.execute('DELETE FROM rating_matches WHERE media_activity_id = ANY(%s)', [media_activity_ids])
 
 
-class InMemoryMatchesRepository:
+class InMemoryMatchesRepository(_AliasRefreshMixin):
     """Stand-in for tests and DB-free local runs (API_REPOSITORY=memory)."""
 
     def __init__(self):
+        super().__init__()
         self._rows: Dict[str, RatingMatchRecord] = {}
         self._project_by_activity: Dict[str, str] = {}
 
@@ -216,6 +261,7 @@ class InMemoryMatchesRepository:
         return None
 
     def ensure_matches_computed(self, project_id, media_activity_records, rating_records, station_aliases=None):
+        self.refresh_alias_matches(project_id, media_activity_records, rating_records, station_aliases)
         existing_ids = {record.media_activity_id for record in self._rows.values()}
         pending = [activity for activity in media_activity_records if activity.id not in existing_ids]
         self.insert_matches(project_id, compute_matches(pending, rating_records, station_aliases=station_aliases))
@@ -255,7 +301,9 @@ class InMemoryMatchesRepository:
 
     def update_matches_bulk(self, updates):
         for rating_match_id, matched_rating_id, match_status, match_confidence in updates:
-            self.update_match(rating_match_id, matched_rating_id, match_status, match_confidence)
+            record = self._rows.get(rating_match_id)
+            if record and record.match_status != 'manual' and record.corrected_at is None:
+                self.update_match(rating_match_id, matched_rating_id, match_status, match_confidence)
 
     def delete_matches_for_media_activity(self, media_activity_ids):
         ids = set(media_activity_ids)

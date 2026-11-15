@@ -73,6 +73,25 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Allow a sleeping backend time to wake, but bound the entire response
+  // (including JSON/body reads) so opening the app cannot hang forever.
+  const timeoutMs = !init?.method || init.method === 'GET' ? 90_000 : 180_000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const signal = init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
+  try {
+    return await requestWithSignal<T>(path, { ...init, signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new ApiError(0, 'Mediapulse took too long to respond. Please retry in a moment.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestWithSignal<T>(path: string, init?: RequestInit): Promise<T> {
   // FormData bodies (file uploads) must NOT get a manual Content-Type — the
   // browser sets its own multipart boundary, and overriding it breaks parsing.
   const isFormData = typeof FormData !== 'undefined' && init?.body instanceof FormData;

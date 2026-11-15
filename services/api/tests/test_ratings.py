@@ -468,6 +468,26 @@ def test_upload_ratings_file_infers_radio_channels_with_no_medium_column(client)
     assert by_station['ARTV City Radio 101.1 FM'] == 'Radio'
 
 
+def test_upload_ratings_file_infers_state_from_a_leading_channel_prefix(client):
+    # A real diary export writes its channel column as "State, Station
+    # Name" (e.g. "Abia, BCA TV Umuahia") with no separate State/Location
+    # column at all -- every row previously came back with a blank state.
+    content = (
+        b'Channel,Day,Programme,Rating\n'
+        b'"Abia, BCA TV Umuahia",Monday,Morning Show,0.5\n'
+        b'1Comedy (PlayTV),Tuesday,Drive Time,1.2\n'
+    )
+    response = _upload_ratings(client, content=content, filename='diary.csv')
+    assert response.status_code == 201
+    dataset_id = response.json()['ratingsDatasetId']
+
+    rows = client.get(f"/api/ratings-datasets/{dataset_id}/rows").json()['rows']
+    by_station = {row['station']: row['state'] for row in rows}
+    assert by_station['Abia, BCA TV Umuahia'] == 'Abia'
+    # No comma at all -- nothing to even consider as a leading state.
+    assert by_station['1Comedy (PlayTV)'] == ''
+
+
 def test_upload_ratings_file_preserves_time_band(client):
     content = (
         b'Channel,Day,Programme,Time Band,Rating\n'

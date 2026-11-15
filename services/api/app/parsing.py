@@ -293,6 +293,23 @@ def parse_ratings_file(
     raw = calc.read_tabular(uploaded, header_row=header_row)
 
     mapping, mapping_warnings = _resolve_mapping(raw.columns, expected_fields, mapping_override)
+
+    # A single-row header can't see a required field that lives under a
+    # blank group-header cell (e.g. an audience-planning "Calendar -
+    # Universe" diary's "Target" group, whose real Cov %/Grps sub-labels
+    # sit one row below it) -- try merging that row with the one below it
+    # before giving up and letting every row get dropped for a missing
+    # rating. Skipped when a saved mapping template is already pinning
+    # columns explicitly, since there's nothing to improve on there.
+    missing_required = [field for field in RATINGS_REQUIRED_MAPPING_FIELDS if mapping.get(field, '-- none --') == '-- none --']
+    if missing_required and mapping_override is None:
+        two_row_raw = calc.try_two_row_header(uploaded, header_row, expected_fields)
+        if two_row_raw is not None:
+            two_row_mapping, two_row_warnings = _resolve_mapping(two_row_raw.columns, expected_fields, mapping_override)
+            two_row_missing = [field for field in RATINGS_REQUIRED_MAPPING_FIELDS if two_row_mapping.get(field, '-- none --') == '-- none --']
+            if len(two_row_missing) < len(missing_required):
+                raw, mapping, mapping_warnings = two_row_raw, two_row_mapping, two_row_warnings
+
     ratings, invalid_ratings, _dup_keys, _lookup = calc.build_ratings_lookup(raw, mapping, default_medium)
 
     rows = [

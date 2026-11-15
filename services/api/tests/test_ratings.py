@@ -421,6 +421,53 @@ def test_upload_ratings_file_respects_default_medium(client):
     assert all(row['medium'] == 'Radio' for row in rows)
 
 
+def test_upload_ratings_file_with_a_two_row_calendar_header_still_maps(client):
+    # Regression for a real file: an AGB Nielsen/Yumi "Calendar - Universe"
+    # audience-planning diary export, whose Channel/WD/Program/Target
+    # header spans one row with a blank "Target" group header -- the real
+    # sub-labels for that group ("Cov %", "Grps") sit one row further down.
+    # Every row of the real file came back dropped as "invalid rating"
+    # before this was fixed, since nothing in the single visible header row
+    # matched 'rating' at all. See grp_calculator.try_two_row_header.
+    content = (
+        b',Channel,WD,Program,Target,\n'
+        b',,,,Cov %,Grps\n'
+        b'1,NTA,Mon,06:00:00-07:00:00,0.03,0.03\n'
+        b'2,NTA,Tue,06:00:00-07:00:00,0.05,0.05\n'
+    )
+    response = _upload_ratings(client, content=content, filename='diary.csv')
+    assert response.status_code == 201
+    body = response.json()
+    assert body['rows'] == 2
+    assert body['invalidRows'] == 0
+    assert body['status'] == 'Ready'
+
+    rows = client.get(f"/api/ratings-datasets/{body['ratingsDatasetId']}/rows").json()['rows']
+    # "Cov %" (a true 0-100 percentage) must win over "Grps" (Cov % x
+    # insertions, not reliably bounded to 0-100) for the actual rating.
+    assert sorted(row['rating'] for row in rows) == [0.03, 0.05]
+    assert all(row['station'] == 'NTA' for row in rows)
+
+
+def test_upload_ratings_file_infers_radio_channels_with_no_medium_column(client):
+    # A real diary export mixes TV and Radio channels in one sheet with no
+    # Medium column distinguishing them -- blanket-applying defaultMedium
+    # to every row would silently mislabel the radio station as TV.
+    content = (
+        b'Channel,Day,Programme,Rating\n'
+        b'1Comedy (PlayTV),Monday,Morning Show,0.5\n'
+        b'ARTV City Radio 101.1 FM,Tuesday,Drive Time,1.2\n'
+    )
+    response = _upload_ratings(client, content=content, filename='diary.csv', default_medium='TV')
+    assert response.status_code == 201
+    dataset_id = response.json()['ratingsDatasetId']
+
+    rows = client.get(f"/api/ratings-datasets/{dataset_id}/rows").json()['rows']
+    by_station = {row['station']: row['medium'] for row in rows}
+    assert by_station['1Comedy (PlayTV)'] == 'TV'
+    assert by_station['ARTV City Radio 101.1 FM'] == 'Radio'
+
+
 def test_upload_ratings_file_preserves_time_band(client):
     content = (
         b'Channel,Day,Programme,Time Band,Rating\n'

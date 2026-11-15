@@ -70,7 +70,22 @@ SYNONYMS = {
     # this, not a reason to leave the common, specific usage unmapped.
     'state': ['state', 'state name', 'location'],
     'spots': ['spots', 'spot', 'no. of spots', 'no spots', 'number of spots', 'spot count', 'insertions', 'frequency', 'qty', 'quantity', 'runs', 'count'],
-    'rating': ['rating (%)', 'rating', 'ratings', 'program rating', 'programme rating', 'rating %', 'rch %', 'rch%', 'reach %', 'reach%', 'tvr', 'tvrs', 'grp', 'grps'],
+    # 'cov %'/'coverage' sit ahead of 'grp'/'grps' here on purpose: a real
+    # audience-planning export (an AGB Nielsen/Yumi "Calendar - Universe"
+    # diary) carries both side by side -- Cov % (coverage, i.e. reach) is a
+    # true 0-100 percentage, exactly this app's own "Rating (%)" concept,
+    # while that same file's Grps column is Cov % x insertions and isn't
+    # reliably bounded to 0-100 once a slot has more than one insertion
+    # (this app's own 0-100 rating-range validation would then silently
+    # drop an otherwise-valid row). detect_column returns the first synonym
+    # match it finds, so ordering here is what makes Cov % win that file's
+    # ambiguity rather than Grps.
+    'rating': [
+        'rating (%)', 'rating', 'ratings', 'program rating', 'programme rating', 'rating %',
+        'rch %', 'rch%', 'reach %', 'reach%', 'tvr', 'tvrs',
+        'cov %', 'cov%', 'coverage %', 'coverage%', 'coverage',
+        'grp', 'grps',
+    ],
     'grp': ['grp', 'grps', 'gross rating points', 'gross rating point', 'row grp', 'total grp', 'total grps'],
     'source': ['source / period', 'source', 'period', 'wave', 'survey period'],
     # Media spend (Share of Expenditure) — two shapes real monitoring files
@@ -289,6 +304,7 @@ _RANGE_PATTERN = re.compile(r'^(.+?)\s*(?:-|\u2013|to)\s*(.+?)$', re.IGNORECASE)
 _STATION_FREQUENCY_PATTERN = re.compile(r'\b\d+(?:\.\d+)?\b')
 _STATION_PUNCTUATION_PATTERN = re.compile(r'[^A-Z0-9\s]')
 _STATION_NOISE_WORDS = {'RADIO', 'STATION', 'FM', 'AM', 'TV'}
+_RADIO_CHANNEL_TOKENS = {'RADIO', 'FM', 'AM'}
 GENERIC_PROGRAMME_VALUES = {'ROS', 'RUN OF SCHEDULE', 'RUN-OF-SCHEDULE'}
 
 
@@ -307,6 +323,32 @@ def normalize_station_for_match(value):
     text = _STATION_PUNCTUATION_PATTERN.sub(' ', text)
     tokens = {token for token in text.split() if token not in _STATION_NOISE_WORDS}
     return ' '.join(sorted(tokens))
+
+
+def infer_medium_from_channel(value, fallback='TV'):
+    """Best-effort medium for a ratings file with no explicit Medium column
+    at all -- a real audience-planning diary export (an AGB Nielsen/Yumi
+    "Calendar - Universe" export, for one) routinely mixes TV and Radio
+    channels in a single sheet with nothing else distinguishing them
+    (e.g. "Kano, ARTV (City Radio) 101.1 FM, Kano" sitting right next to
+    "1Comedy (PlayTV)"), so blanket-applying one uploader-chosen
+    default_medium to every row silently mislabels every station of
+    whichever medium wasn't picked. Reuses the same word-boundary
+    tokenizing normalize_station_for_match already relies on, so RADIO/FM/
+    AM only ever match as real standalone words, never a substring --
+    "CCTV News"/"DW TV" must not trip this just because "TV" appears in
+    the name, and this never returns anything but 'Radio' or `fallback`,
+    deliberately not trying to infer Cable TV from a bare channel string
+    (normalize_medium_type already owns that distinction, from an actual
+    Medium column's own value, which carries a real signal a channel name
+    alone doesn't)."""
+    if pd.isna(value):
+        return fallback
+    text = normalize_text(str(value))
+    text = _STATION_FREQUENCY_PATTERN.sub(' ', text)
+    text = _STATION_PUNCTUATION_PATTERN.sub(' ', text)
+    tokens = set(text.split())
+    return 'Radio' if tokens & _RADIO_CHANNEL_TOKENS else fallback
 
 
 def clock_seconds(value):
@@ -933,6 +975,97 @@ def read_tabular(uploaded, sheet_name=None, header_row=0):
     return df
 
 
+def try_two_row_header(uploaded, header_row, expected_fields, sheet_name=None):
+    """Fallback for a vendor export whose logical header is spread across
+    two rows -- a blank group-header cell (e.g. "Target") in `header_row`
+    with its real sub-column labels (e.g. "Cov %", "Grps") directly
+    beneath it in the next row (a real AGB Nielsen/Yumi "Calendar -
+    Universe" audience-planning diary export does exactly this). A plain
+    single-row header read sees that blank cell and nothing else, so a
+    required field living under it (here, the rating) never gets detected
+    at all.
+
+    Only ever call this as a fallback once a required field has already
+    come back undetected from the normal single-row read -- this blindly
+    treats the row right after `header_row` as more header rather than
+    real data whenever `header_row` has ANY blank cell, which is the right
+    call for the one real case it exists for (a required field otherwise
+    completely unreachable) but would wrongly swallow a real first data
+    row on an ordinary file that just happens to leave a header cell blank
+    for an unused column.
+
+    Returns a DataFrame shaped like read_tabular's, or None when merging
+    the two rows doesn't actually surface anything new.
+    """
+    name = uploaded.name.lower()
+    uploaded.seek(0)
+    if name.endswith('.csv'):
+        header_rows = pd.read_csv(uploaded, header=None, skiprows=header_row, nrows=2)
+    elif name.endswith(('.xlsx', '.xls')):
+        validate_uploaded_sheet(uploaded, sheet_name)
+        uploaded.seek(0)
+        header_rows = pd.read_excel(uploaded, sheet_name=sheet_name or 0, header=None, skiprows=header_row, nrows=2)
+    else:
+        raise ValueError('Unsupported file type')
+    uploaded.seek(0)
+    if len(header_rows) < 2:
+        return None
+
+    top_row, bottom_row = header_rows.iloc[0], header_rows.iloc[1]
+    top_labels = [clean_column_label(top_row.iloc[i], i) for i in range(len(top_row))]
+    bottom_labels = [clean_column_label(bottom_row.iloc[i], i) for i in range(len(top_row))]
+    top_blank = [label.startswith('Column ') for label in top_labels]
+    bottom_blank = [label.startswith('Column ') for label in bottom_labels]
+
+    # A genuine two-row header always has at least one blank cell in the
+    # top row -- that blank cell is the whole reason a second row is
+    # needed. An ordinary, already-complete single-row header never does,
+    # so there's no structural reason to believe the row right below it is
+    # more header rather than real data; bail out before even looking at
+    # it, rather than risk reading a real data row as one.
+    if not any(top_blank):
+        return None
+
+    combined_labels = []
+    for i in range(len(top_row)):
+        if bottom_blank[i]:
+            combined_labels.append(top_labels[i])
+            continue
+        # The bottom row has something real here. Use it outright when the
+        # top is itself blank (the ordinary case -- a sub-label with
+        # nothing above it), or when the top is the left anchor of a
+        # merged group header: its own text sits above a run of columns
+        # whose top IS blank (e.g. "Target" anchoring "Cov %"/"Cov #"/...
+        # to its right) -- Excel only stores a merged cell's text at its
+        # top-left corner, so the anchor's own column can carry both the
+        # group's label on top and that first sub-column's more specific
+        # label directly beneath it. Any other non-blank top (e.g.
+        # "Channel") is a real header already and must never be replaced
+        # by whatever the row below happens to hold there.
+        is_group_anchor = top_blank[i] or (i + 1 < len(top_row) and top_blank[i + 1])
+        combined_labels.append(bottom_labels[i] if is_group_anchor else top_labels[i])
+
+    if not any(detect_column(combined_labels, field) for field in expected_fields):
+        return None
+
+    file_name = uploaded_display_name(uploaded)
+    uploaded.seek(0)
+    if name.endswith('.csv'):
+        df = pd.read_csv(uploaded, header=None, skiprows=header_row + 2, names=combined_labels, nrows=MAX_UPLOAD_ROWS + 1)
+    else:
+        validate_uploaded_sheet(uploaded, sheet_name)
+        uploaded.seek(0)
+        df = pd.read_excel(
+            uploaded, sheet_name=sheet_name or 0, header=None, skiprows=header_row + 2,
+            names=combined_labels, nrows=MAX_UPLOAD_ROWS + 1,
+        )
+    uploaded.seek(0)
+    df = clean_table(df)
+    enforce_table_limits(df, file_name)
+    df.attrs['source_data_start_row'] = header_row + 3
+    return df
+
+
 def make_key(medium, channel, day, programme):
     return (
         medium.map(normalize_text) + '|' +
@@ -1478,8 +1611,21 @@ def build_ratings_lookup(ratings_raw, mapping, default_medium='TV'):
     if mapping.get('date', '-- none --') != '-- none --':
         derived = derive_day(safe_col(ratings_raw, mapping['date']))
         day_series = day_series.where(non_empty_mask(day_series), derived)
+    # No explicit Medium column at all -- infer per row from the channel
+    # name itself (infer_medium_from_channel) rather than blanket-applying
+    # one uploader-chosen default to every row, which would silently
+    # mislabel every station of whichever medium wasn't picked on a file
+    # that genuinely mixes TV and Radio channels with no column saying
+    # which is which. A real, explicitly-mapped Medium column is always
+    # trusted as-is and never second-guessed by this.
+    if mapping.get('medium', '-- none --') != '-- none --':
+        medium_series = safe_col(ratings_raw, mapping['medium'], default_medium)
+    else:
+        medium_series = safe_col(ratings_raw, mapping['channel']).map(
+            lambda value: infer_medium_from_channel(value, default_medium)
+        )
     ratings_all = pd.DataFrame({
-        'Medium': safe_col(ratings_raw, mapping['medium'], default_medium),
+        'Medium': medium_series,
         'Channel / Station': safe_col(ratings_raw, mapping['channel']),
         'Day': day_series,
         'Programme / Time Band': resolve_effective_programme(ratings_raw, mapping),

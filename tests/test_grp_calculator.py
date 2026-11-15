@@ -1117,6 +1117,87 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(ratings['State'].tolist(), ['Abia'])
         self.assertEqual(ratings['Region'].tolist(), [''])
 
+    def test_infer_medium_from_channel_recognizes_radio_without_false_positives(self):
+        # Regression for a real file: an audience-planning diary export
+        # that mixes TV and Radio channels in one sheet with no Medium
+        # column at all, e.g. "Kano, ARTV (City Radio) 101.1 FM, Kano" and
+        # "Borno, Radio 94.5 AM, Maiduguri (BRTV)" sitting right next to
+        # ordinary TV entries like "1Comedy (PlayTV)"/"CCTV News"/"DW TV".
+        # RADIO/FM/AM must only match as real standalone words -- "CCTV"/
+        # "DW TV"/"MTV" must never trip this just because "TV" (not even
+        # a token this function looks for) appears in the name.
+        self.assertEqual(calc.infer_medium_from_channel('Kano, ARTV (City Radio) 101.1 FM, Kano'), 'Radio')
+        self.assertEqual(calc.infer_medium_from_channel('Borno, Radio 94.5 AM, Maiduguri (BRTV)'), 'Radio')
+        self.assertEqual(calc.infer_medium_from_channel('1Comedy (PlayTV)'), 'TV')
+        self.assertEqual(calc.infer_medium_from_channel('CCTV News'), 'TV')
+        self.assertEqual(calc.infer_medium_from_channel('DW TV'), 'TV')
+        self.assertEqual(calc.infer_medium_from_channel('MTV'), 'TV')
+        self.assertEqual(calc.infer_medium_from_channel(float('nan')), 'TV')
+        self.assertEqual(calc.infer_medium_from_channel('Some Channel', fallback='Radio'), 'Radio')
+
+    def test_build_ratings_lookup_infers_medium_from_channel_when_unmapped(self):
+        raw = pd.DataFrame({
+            'Channel': ['1Comedy (PlayTV)', 'Kano, ARTV (City Radio) 101.1 FM, Kano'],
+            'Day': ['Mon', 'Tue'], 'Programme': ['Morning Show', 'Drive Time'], 'Rating': [0.5, 1.2],
+        })
+        mapping = {'medium': '-- none --', 'channel': 'Channel', 'day': 'Day', 'programme': 'Programme', 'rating': 'Rating'}
+        ratings, _invalid, _dup_keys, _lookup = calc.build_ratings_lookup(raw, mapping, default_medium='TV')
+        self.assertEqual(ratings['Medium'].tolist(), ['TV', 'Radio'])
+
+    def test_build_ratings_lookup_trusts_an_explicit_medium_column_over_inference(self):
+        # A real, explicitly-mapped Medium column is never second-guessed,
+        # even if the channel text itself would otherwise suggest Radio.
+        raw = pd.DataFrame({
+            'Channel': ['City Radio FM'], 'Medium': ['TV'], 'Day': ['Mon'], 'Programme': ['Morning Show'], 'Rating': [0.5],
+        })
+        mapping = {'medium': 'Medium', 'channel': 'Channel', 'day': 'Day', 'programme': 'Programme', 'rating': 'Rating'}
+        ratings, _invalid, _dup_keys, _lookup = calc.build_ratings_lookup(raw, mapping)
+        self.assertEqual(ratings['Medium'].tolist(), ['TV'])
+
+    def test_try_two_row_header_merges_a_blank_group_header_with_its_sub_labels(self):
+        # Regression for a real file: an AGB Nielsen/Yumi "Calendar -
+        # Universe" audience-planning diary export, whose Channel/WD/
+        # Program/Target header sits on one row with a blank "Target"
+        # group spanning several more columns -- the real sub-labels for
+        # that group ("Cov %", "Grps") live one row further down, at the
+        # exact same column position "Target" itself occupies (Excel only
+        # stores a merged cell's text at its top-left corner). A plain
+        # single-row header read never sees "Cov %"/"Grps" at all, so
+        # 'rating' (required) comes back completely undetected and every
+        # row gets dropped.
+        content = (
+            b',Channel,WD,Program,Target,\n'
+            b',,,,Cov %,Grps\n'
+            b'1,NTA,Mon,06:00:00-07:00:00,0.03,0.03\n'
+            b'2,NTA,Tue,06:00:00-07:00:00,0.05,0.05\n'
+        )
+        expected_fields = ['channel', 'programme', 'rating', 'medium', 'source', 'time_band', 'date', 'day', 'region', 'state']
+        uploaded = NamedBytes(content, 'diary.csv')
+        preview = calc.read_preview_table(uploaded)
+        header_row = calc.infer_header_row(preview, expected_fields)
+        self.assertEqual(header_row, 0)
+        self.assertIsNone(calc.detect_column(calc.read_tabular(uploaded, header_row=header_row).columns, 'rating'))
+
+        merged = calc.try_two_row_header(uploaded, header_row, expected_fields)
+        self.assertIsNotNone(merged)
+        self.assertEqual(list(merged.columns), ['Column 1', 'Channel', 'WD', 'Program', 'Cov %', 'Grps'])
+        # "Cov %" (a true 0-100 percentage) must win over "Grps" (Cov % x
+        # insertions, not reliably bounded) when both are present.
+        self.assertEqual(calc.detect_column(merged.columns, 'rating'), 'Cov %')
+        self.assertEqual(merged['Cov %'].tolist(), [0.03, 0.05])
+
+    def test_try_two_row_header_returns_none_when_merging_finds_nothing_new(self):
+        # An ordinary, already-complete single-row header -- the row below
+        # it is just real data, not more header. No expected field lives
+        # under a blank cell here, so there's nothing for the fallback to
+        # usefully add; it must say so rather than swallowing that data row.
+        content = b'Channel,Day,Programme,Rating\nTVC,Monday,Prime Time,1.2\nAIT,Tuesday,News,2.5\n'
+        expected_fields = ['channel', 'programme', 'rating', 'day']
+        uploaded = NamedBytes(content, 'ratings.csv')
+        preview = calc.read_preview_table(uploaded)
+        header_row = calc.infer_header_row(preview, expected_fields)
+        self.assertIsNone(calc.try_two_row_header(uploaded, header_row, expected_fields))
+
     def test_build_brand_report_daypart_is_blank_when_no_time_band_mapped(self):
         raw = pd.DataFrame({
             'Channel': ['AIT'], 'Programme': ['Morning Show'], 'Day': ['Monday'], 'Spots': [1],

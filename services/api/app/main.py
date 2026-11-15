@@ -66,5 +66,5 @@ app.include_router(station_aliases.router)
 
 
 @app.get('/api/health', tags=['health'])
-def health():
+async def health():
     return {'status': 'ok'}

@@ -565,7 +565,7 @@ function ActivityLogPanel() {
   );
 }
 
-function StationAliasesPanel() {
+function StationAliasesPanel({ onAliasesChanged }: { onAliasesChanged: () => void }) {
   const [aliases, setAliases] = useState<StationAlias[]>([]);
   const limitedAliases = useLimitedRows(aliases);
   const [loading, setLoading] = useState(false);
@@ -598,6 +598,7 @@ function StationAliasesPanel() {
     setSaveError(null);
     try {
       const created = await createStationAlias(aliasName.trim(), canonicalName.trim());
+      onAliasesChanged();
       // Replaces any existing alias for the same name (see the backend's
       // ON CONFLICT ... DO UPDATE) rather than appending a duplicate row.
       setAliases((current) => [...current.filter((alias) => alias.stationAliasId !== created.stationAliasId), created]);
@@ -615,6 +616,7 @@ function StationAliasesPanel() {
     setSaveError(null);
     try {
       await deleteStationAlias(alias.stationAliasId);
+      onAliasesChanged();
       setAliases((current) => current.filter((row) => row.stationAliasId !== alias.stationAliasId));
     } catch (error) {
       setSaveError(error instanceof ApiError ? error.message : 'Could not remove that alias.');
@@ -632,6 +634,8 @@ function StationAliasesPanel() {
             A media-spend upload and a ratings diary often name the same real station differently
             (e.g. "TVC Lagos" vs "Lagos, TV Continental (TVC E)"). Confirm a pairing here once and
             it's applied automatically to every project's matching from then on.
+            Reopen Matches or calculate again to apply changes to existing automatic matches.
+            Manually confirmed matches are preserved.
           </p>
         </div>
         <Radio size={20} aria-hidden />
@@ -710,9 +714,11 @@ function StationAliasesPanel() {
 export default function SettingsSection({
   currentUser,
   onUserUpdated,
+  onAliasesChanged,
 }: {
   currentUser: User;
   onUserUpdated: (user: User) => void;
+  onAliasesChanged: () => void;
 }) {
   const [tab, setTab] = useState<'profile' | 'activityLog' | 'stationAliases'>('profile');
   const canManageTeam = currentUser.role === 'owner' || currentUser.role === 'admin';
@@ -787,7 +793,7 @@ export default function SettingsSection({
       {tab === 'activityLog' ? (
         <ActivityLogPanel />
       ) : tab === 'stationAliases' ? (
-        <StationAliasesPanel />
+        <StationAliasesPanel onAliasesChanged={onAliasesChanged} />
       ) : (
         <>
           <ProfilePhotoPanel currentUser={currentUser} onUserUpdated={onUserUpdated} />

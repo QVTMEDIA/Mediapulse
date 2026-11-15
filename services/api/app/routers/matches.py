@@ -112,9 +112,9 @@ def list_matches(
 ):
     """Computes matches for any media_activity row that doesn't have one yet
     (exact-key lookup, then grp_calculator's fuzzy suggestion engine), then
-    returns the project's full current match list. Idempotent — rows that
-    already have a match (including manual corrections) are never
-    recomputed here. If ratings are attached after matches were already
+    returns the project's full current match list. When station aliases
+    change, saved automatic results are rechecked using exact matching;
+    manual corrections are preserved. If ratings are attached after matches were already
     computed, call POST .../matches/recompute to retry 'unmatched' rows."""
     if projects_repo.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail='Project not found')

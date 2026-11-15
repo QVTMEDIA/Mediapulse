@@ -82,6 +82,10 @@ jobs:
         working-directory: packages/web
         run: npm run build
 
+      - name: Test API client recovery
+        working-directory: packages/web
+        run: npm test
+
   docker-build:
     name: Docker build
     runs-on: ubuntu-latest

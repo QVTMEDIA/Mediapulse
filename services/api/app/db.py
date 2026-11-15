@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from typing import Optional
+from threading import Lock
 
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
@@ -29,9 +30,17 @@ from .config import get_settings
 # connection ceiling — a large local pool would just move the bottleneck
 # to Supabase's pooler instead of removing it.
 _pool: Optional[ConnectionPool] = None
+_pool_lock = Lock()
 
 
 def _get_pool() -> ConnectionPool:
+    # Concurrent first requests must share one pool, not each open five
+    # connections and leave abandoned pools exhausting the DB limit.
+    with _pool_lock:
+        return _get_or_create_pool()
+
+
+def _get_or_create_pool() -> ConnectionPool:
     global _pool
     if _pool is None:
         settings = get_settings()
@@ -46,6 +55,8 @@ def _get_pool() -> ConnectionPool:
             # override a repository dependency and falls through to this
             # real connection now waits at most this long, not indefinitely).
             timeout=10,
+            # Discard stale sockets after the host/database has been idle.
+            check=ConnectionPool.check_connection,
         )
     return _pool
 

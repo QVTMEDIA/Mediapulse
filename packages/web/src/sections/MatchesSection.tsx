@@ -470,6 +470,7 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
       if (saveAlias) {
         try {
           await createStationAlias(saveAlias.aliasName, saveAlias.canonicalName);
+          matchesCache.clear();
         } catch (error) {
           setActionError(error instanceof ApiError ? `Match confirmed, but couldn't save the station alias: ${error.message}` : "Match confirmed, but couldn't save the station alias.");
         }

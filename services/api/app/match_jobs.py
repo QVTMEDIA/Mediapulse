@@ -87,6 +87,7 @@ def _run_ensure(job_id, project_id, matches_repo, uploads_repo, ratings_repo, st
     _set_status(job_id, 'running')
     try:
         media_activity = uploads_repo.list_media_activity(project_id)
+        station_aliases = station_aliases_repo.get_alias_map()
         # Same "rows with no match record yet" set ensure_matches_computed()
         # computes internally (list_matches() already scopes to this
         # project, same as its own existing_ids query/filter) -- hoisted up
@@ -95,9 +96,10 @@ def _run_ensure(job_id, project_id, matches_repo, uploads_repo, ratings_repo, st
         existing_ids = {match.media_activity_id for match in matches_repo.list_matches(project_id)}
         pending = [activity for activity in media_activity if activity.id not in existing_ids]
         _set_total(job_id, len(pending))
-        if pending:
+        if pending or matches_repo.aliases_need_refresh(project_id, station_aliases):
             rating_rows = ratings_repo.list_project_rating_rows(project_id)
-            station_aliases = station_aliases_repo.get_alias_map()
+            matches_repo.refresh_alias_matches(project_id, media_activity, rating_rows, station_aliases)
+        if pending:
             # processed advances from inside compute_matches() itself, as
             # real chunks of matching work actually finish -- not in a
             # separate loop over its already-complete return value (see

@@ -3,6 +3,22 @@ from unittest.mock import MagicMock
 from app.db import insert_rows_batched
 
 
+def test_concurrent_first_requests_create_one_pool_with_connection_checks(monkeypatch):
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from app import db
+
+    pool = object()
+    constructor = MagicMock(side_effect=lambda *args, **kwargs: (time.sleep(0.02), pool)[1])
+    monkeypatch.setattr(db, '_pool', None)
+    monkeypatch.setattr(db, 'ConnectionPool', constructor)
+    with ThreadPoolExecutor(max_workers=8) as workers:
+        pools = list(workers.map(lambda _: db._get_pool(), range(8)))
+    assert all(result is pool for result in pools)
+    constructor.assert_called_once()
+    assert constructor.call_args.kwargs['check'] is constructor.check_connection
+
+
 def _mock_connection():
     conn = MagicMock()
     cursor = MagicMock()

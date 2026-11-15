@@ -27,7 +27,7 @@ class MatchesRepository(Protocol):
     def get_match_for_project(self, project_id: str, rating_match_id: str) -> Optional[RatingMatchRecord]: ...
 
     def ensure_matches_computed(
-        self, project_id: str, media_activity_records, rating_records
+        self, project_id: str, media_activity_records, rating_records, station_aliases: Optional[Dict[str, str]] = None,
     ) -> List[RatingMatchRecord]: ...
 
     def insert_matches(self, project_id: str, computed_results) -> None:
@@ -92,7 +92,7 @@ class PostgresMatchesRepository:
             ).fetchone()
         return _row_to_record(row) if row else None
 
-    def ensure_matches_computed(self, project_id, media_activity_records, rating_records):
+    def ensure_matches_computed(self, project_id, media_activity_records, rating_records, station_aliases=None):
         with get_connection() as conn:
             existing_ids = {
                 str(row['media_activity_id'])
@@ -107,7 +107,7 @@ class PostgresMatchesRepository:
             }
         pending = [activity for activity in media_activity_records if activity.id not in existing_ids]
         if pending:
-            self.insert_matches(project_id, compute_matches(pending, rating_records))
+            self.insert_matches(project_id, compute_matches(pending, rating_records, station_aliases=station_aliases))
         return self.list_matches(project_id)
 
     def insert_matches(self, project_id, computed_results):
@@ -215,10 +215,10 @@ class InMemoryMatchesRepository:
             return record
         return None
 
-    def ensure_matches_computed(self, project_id, media_activity_records, rating_records):
+    def ensure_matches_computed(self, project_id, media_activity_records, rating_records, station_aliases=None):
         existing_ids = {record.media_activity_id for record in self._rows.values()}
         pending = [activity for activity in media_activity_records if activity.id not in existing_ids]
-        self.insert_matches(project_id, compute_matches(pending, rating_records))
+        self.insert_matches(project_id, compute_matches(pending, rating_records, station_aliases=station_aliases))
         return self.list_matches(project_id)
 
     def insert_matches(self, project_id, computed_results):

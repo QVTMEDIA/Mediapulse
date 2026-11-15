@@ -83,7 +83,7 @@ def _advance_processed(job_id: str, by: int = 1) -> None:
             job.processed += by
 
 
-def _run_ensure(job_id, project_id, matches_repo, uploads_repo, ratings_repo):
+def _run_ensure(job_id, project_id, matches_repo, uploads_repo, ratings_repo, station_aliases_repo):
     _set_status(job_id, 'running')
     try:
         media_activity = uploads_repo.list_media_activity(project_id)
@@ -97,20 +97,24 @@ def _run_ensure(job_id, project_id, matches_repo, uploads_repo, ratings_repo):
         _set_total(job_id, len(pending))
         if pending:
             rating_rows = ratings_repo.list_project_rating_rows(project_id)
+            station_aliases = station_aliases_repo.get_alias_map()
             # processed advances from inside compute_matches() itself, as
             # real chunks of matching work actually finish -- not in a
             # separate loop over its already-complete return value (see
             # MatchJob.total's comment for why that used to make the bar
             # jump straight from 0 to total). Writing is still a separate
             # bulk insert_matches() call after every row has a result.
-            computed = compute_matches(pending, rating_rows, on_progress=lambda n: _advance_processed(job_id, n))
+            computed = compute_matches(
+                pending, rating_rows, on_progress=lambda n: _advance_processed(job_id, n),
+                station_aliases=station_aliases,
+            )
             matches_repo.insert_matches(project_id, computed)
         _set_status(job_id, 'completed')
     except Exception as exc:
         _set_status(job_id, 'failed', str(exc))
 
 
-def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo, *, include_suggestions: bool):
+def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo, station_aliases_repo, *, include_suggestions: bool):
     _set_status(job_id, 'running')
     try:
         existing = matches_repo.list_matches(project_id)
@@ -120,6 +124,7 @@ def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo,
             media_activity = uploads_repo.list_media_activity(project_id)
             unmatched_activity = [a for a in media_activity if a.id in unmatched_by_activity_id]
             rating_rows = ratings_repo.list_project_rating_rows(project_id)
+            station_aliases = station_aliases_repo.get_alias_map()
             # Collected and written in one batch at the end via
             # update_matches_bulk() rather than one matches_repo.update_match()
             # call per resolved row -- found live as the real reason "Full
@@ -136,6 +141,7 @@ def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo,
             results = compute_matches(
                 unmatched_activity, rating_rows, include_suggestions=include_suggestions,
                 on_progress=lambda n: _advance_processed(job_id, n),
+                station_aliases=station_aliases,
             )
             updates = []
             for result in results:
@@ -150,21 +156,23 @@ def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo,
         _set_status(job_id, 'failed', str(exc))
 
 
-def start_match_job(project_id, mode, matches_repo, uploads_repo, ratings_repo) -> MatchJob:
+def start_match_job(project_id, mode, matches_repo, uploads_repo, ratings_repo, station_aliases_repo) -> MatchJob:
     _evict_stale_jobs()
     job = MatchJob(id=str(uuid.uuid4()), project_id=project_id)
     with _jobs_lock:
         _jobs[job.id] = job
     if mode == 'recompute':
         _executor.submit(
-            _run_recompute, job.id, project_id, matches_repo, uploads_repo, ratings_repo, include_suggestions=True
+            _run_recompute, job.id, project_id, matches_repo, uploads_repo, ratings_repo, station_aliases_repo,
+            include_suggestions=True,
         )
     elif mode == 'recompute_exact':
         _executor.submit(
-            _run_recompute, job.id, project_id, matches_repo, uploads_repo, ratings_repo, include_suggestions=False
+            _run_recompute, job.id, project_id, matches_repo, uploads_repo, ratings_repo, station_aliases_repo,
+            include_suggestions=False,
         )
     else:
-        _executor.submit(_run_ensure, job.id, project_id, matches_repo, uploads_repo, ratings_repo)
+        _executor.submit(_run_ensure, job.id, project_id, matches_repo, uploads_repo, ratings_repo, station_aliases_repo)
     return job
 
 

@@ -12,6 +12,7 @@ from ..repositories.brands import BrandsRepository, get_brands_repository
 from ..repositories.matches import MatchesRepository, RatingMatchRecord, get_matches_repository
 from ..repositories.projects import ProjectsRepository, get_projects_repository
 from ..repositories.ratings import RatingsRepository, get_ratings_repository
+from ..repositories.station_aliases import StationAliasesRepository, get_station_aliases_repository
 from ..repositories.uploads import UploadsRepository, get_uploads_repository
 from ..repositories.users import UserRecord
 from ..schemas.matches import MatchCorrection, MatchJobOut, RatingMatchOut
@@ -64,6 +65,7 @@ def start_job(
     uploads_repo: UploadsRepository = Depends(get_uploads_repository),
     ratings_repo: RatingsRepository = Depends(get_ratings_repository),
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
+    station_aliases_repo: StationAliasesRepository = Depends(get_station_aliases_repository),
     current_user: UserRecord = Depends(get_current_user),
     activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
@@ -72,7 +74,7 @@ def start_job(
         raise HTTPException(status_code=404, detail='Project not found')
     if mode not in ('ensure', 'recompute', 'recompute_exact'):
         raise HTTPException(status_code=422, detail='mode must be ensure, recompute, or recompute_exact')
-    job = start_match_job(project_id, mode, matches_repo, uploads_repo, ratings_repo)
+    job = start_match_job(project_id, mode, matches_repo, uploads_repo, ratings_repo, station_aliases_repo)
     # 'ensure' fires automatically every time the Matches screen is opened
     # (see MatchesSection.tsx) -- logging that would flood the activity feed
     # with noise on every visit, not a real human action. Only 'recompute'/
@@ -106,6 +108,7 @@ def list_matches(
     uploads_repo: UploadsRepository = Depends(get_uploads_repository),
     ratings_repo: RatingsRepository = Depends(get_ratings_repository),
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
+    station_aliases_repo: StationAliasesRepository = Depends(get_station_aliases_repository),
 ):
     """Computes matches for any media_activity row that doesn't have one yet
     (exact-key lookup, then grp_calculator's fuzzy suggestion engine), then
@@ -117,7 +120,8 @@ def list_matches(
         raise HTTPException(status_code=404, detail='Project not found')
     media_activity = uploads_repo.list_media_activity(project_id)
     rating_rows = ratings_repo.list_project_rating_rows(project_id)
-    records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows)
+    station_aliases = station_aliases_repo.get_alias_map()
+    records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows, station_aliases)
     return [_to_out(record) for record in records]
 
 
@@ -158,6 +162,7 @@ def export_matches(
     ratings_repo: RatingsRepository = Depends(get_ratings_repository),
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
     brands_repo: BrandsRepository = Depends(get_brands_repository),
+    station_aliases_repo: StationAliasesRepository = Depends(get_station_aliases_repository),
 ):
     """Downloadable CSV of the project's full current match state: the media
     spend activity and the rating it matched to, side by side in one row --
@@ -180,7 +185,8 @@ def export_matches(
 
     media_activity = uploads_repo.list_media_activity(project_id)
     rating_rows = ratings_repo.list_project_rating_rows(project_id)
-    records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows)
+    station_aliases = station_aliases_repo.get_alias_map()
+    records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows, station_aliases)
 
     activity_by_id = {row.id: row for row in media_activity}
     ratings_by_id = resolve_rating_by_id(rating_rows, records, ratings_repo)
@@ -199,7 +205,7 @@ def export_matches(
     # build_unmatched_reason_context()'s own docstring for the production
     # incident (a request that never returned, surfacing as a browser CORS
     # error) this was found fixing.
-    unmatched_reason_context = build_unmatched_reason_context(rating_rows)
+    unmatched_reason_context = build_unmatched_reason_context(rating_rows, station_aliases)
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
@@ -215,7 +221,7 @@ def export_matches(
         # Only an 'unmatched' row needs explaining -- 'exact'/'suggested'/
         # 'manual' already show what they matched to in the columns above.
         reason = (
-            describe_unmatched_reason(activity, unmatched_reason_context)
+            describe_unmatched_reason(activity, unmatched_reason_context, station_aliases)
             if activity and match.match_status == 'unmatched'
             else ''
         )
@@ -293,6 +299,7 @@ def recompute_matches(
     uploads_repo: UploadsRepository = Depends(get_uploads_repository),
     ratings_repo: RatingsRepository = Depends(get_ratings_repository),
     projects_repo: ProjectsRepository = Depends(get_projects_repository),
+    station_aliases_repo: StationAliasesRepository = Depends(get_station_aliases_repository),
 ):
     """Not in API_CONTRACT.md's original route list — added to close a gap
     noted when Phase 1 shipped: GET /matches only fills gaps for rows with
@@ -309,6 +316,7 @@ def recompute_matches(
         media_activity = uploads_repo.list_media_activity(project_id)
         unmatched_activity = [a for a in media_activity if a.id in unmatched_by_activity_id]
         rating_rows = ratings_repo.list_project_rating_rows(project_id)
+        station_aliases = station_aliases_repo.get_alias_map()
 
         # Batched into one update_matches_bulk() call rather than one
         # update_match() call per resolved row -- same fix, same reason, as
@@ -316,7 +324,7 @@ def recompute_matches(
         # operation the Matches screen actually calls).
         updates = [
             (unmatched_by_activity_id[result.media_activity_id].id, result.matched_rating_id, result.match_status, result.match_confidence)
-            for result in compute_matches(unmatched_activity, rating_rows)
+            for result in compute_matches(unmatched_activity, rating_rows, station_aliases=station_aliases)
             if result.match_status != 'unmatched'
         ]
         matches_repo.update_matches_bulk(updates)

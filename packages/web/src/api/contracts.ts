@@ -473,6 +473,19 @@ export interface ActivityLogEntry {
   createdAt: string;
 }
 
+// A human-confirmed "these two station names are the same real station"
+// pairing (e.g. a spend file's "TVC Lagos" vs a ratings diary's "Lagos, TV
+// Continental (TVC E)"), applied automatically to every project's matching
+// from then on -- account-wide, not scoped to one project. See
+// services/api/app/repositories/station_aliases.py.
+export interface StationAlias {
+  stationAliasId: string;
+  aliasName: string;
+  canonicalName: string;
+  createdByName: string;
+  createdAt: string;
+}
+
 export interface ActivityLogPage {
   entries: ActivityLogEntry[];
   total: number;

@@ -26,6 +26,7 @@ import type {
   SoeUpload,
   SoeUploadJob,
   SpotEfficiency,
+  StationAlias,
   StationShare,
   TrendPoint,
   UploadBatch,
@@ -506,6 +507,22 @@ export function listRatingRowsPage(
 // activity_log.py for why (matches Team's own account-wide visibility).
 export function listActivityLog({ limit, offset }: { limit: number; offset: number }): Promise<ActivityLogPage> {
   return request<ActivityLogPage>(`/api/activity-log?limit=${limit}&offset=${offset}`);
+}
+
+// Account-wide, not scoped to one project -- see contracts.ts's StationAlias.
+export function listStationAliases(): Promise<StationAlias[]> {
+  return request<StationAlias[]>('/api/station-aliases');
+}
+
+export function createStationAlias(aliasName: string, canonicalName: string): Promise<StationAlias> {
+  return request<StationAlias>('/api/station-aliases', {
+    method: 'POST',
+    body: JSON.stringify({ aliasName, canonicalName }),
+  });
+}
+
+export function deleteStationAlias(stationAliasId: string): Promise<void> {
+  return request<void>(`/api/station-aliases/${stationAliasId}`, { method: 'DELETE' });
 }
 
 // Every row of one dataset, via the lean GET .../rows/all route -- not

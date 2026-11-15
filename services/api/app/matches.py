@@ -9,6 +9,7 @@ reimplementing its candidate-tiering (same medium+channel+day, then
 same medium+channel, then same medium+day) and text-similarity scoring.
 """
 
+import copy
 import logging
 from dataclasses import dataclass
 from datetime import timezone
@@ -96,6 +97,43 @@ def _rating_order_key(record):
     )
 
 
+def _apply_station_aliases(records, station_aliases: Optional[Dict[str, str]]):
+    """Substitutes each record's own `station` text for its human-confirmed
+    canonical name (see app/repositories/station_aliases.py), on a copy --
+    never mutates the record or the caller's list. Applied once, up front,
+    to BOTH the activity and ratings records compute_matches()/
+    build_unmatched_reason_context() receive, rather than threading
+    `station_aliases` through every normalize_station()/make_exact_match_key()
+    call site below: whichever side (spend file or ratings diary) actually
+    used the non-canonical spelling, the other side's matching logic never
+    needs to know an alias was even involved -- it just sees two records
+    that already agree.
+
+    station_aliases is {normalized_alias_name: canonical_name} -- normalized
+    the same light (case/whitespace only) way db/schema.sql's
+    normalize_match_text() and grp_calculator.normalize_text() already
+    agree on, not the Matching Engine's much more aggressive station
+    normalization. A no-op (returns `records` unchanged) when
+    station_aliases is empty/None, so every existing caller that doesn't
+    pass one behaves exactly as before."""
+    if not station_aliases:
+        return records
+    resolved = []
+    for record in records:
+        key = calc.normalize_text(getattr(record, 'station', ''))
+        canonical = station_aliases.get(key)
+        if canonical:
+            # copy.copy(), not dataclasses.replace() -- real callers pass
+            # genuine MediaActivityRecord/RatingRowRecord dataclasses, but
+            # this also runs against plain SimpleNamespace test fixtures
+            # (see tests/test_matches.py), which dataclasses.replace()
+            # can't handle at all.
+            record = copy.copy(record)
+            record.station = canonical
+        resolved.append(record)
+    return resolved
+
+
 def _unmatched_results(unresolved) -> List[ComputedMatch]:
     return [ComputedMatch(activity.id, 'unmatched', None, None, key) for activity, key in unresolved]
 
@@ -149,9 +187,15 @@ class UnmatchedReasonContext:
     station_days: Dict[tuple, frozenset]
 
 
-def build_unmatched_reason_context(rating_records) -> UnmatchedReasonContext:
+def build_unmatched_reason_context(rating_records, station_aliases: Optional[Dict[str, str]] = None) -> UnmatchedReasonContext:
     """Indexes a project's ratings once, for describe_unmatched_reason() to
     reuse across every unmatched row in a match report export.
+
+    station_aliases, if given, is applied to `rating_records` the same way
+    compute_matches() applies it -- see _apply_station_aliases -- so the
+    export's "why unmatched" explanations agree with whatever matching
+    itself actually decided, caller must pass the same alias map to
+    describe_unmatched_reason() below for the two to stay consistent.
 
     Regression: describe_unmatched_reason() used to re-filter and re-index
     the FULL ratings list from scratch on every call, and -- worse -- its
@@ -170,6 +214,7 @@ def build_unmatched_reason_context(rating_records) -> UnmatchedReasonContext:
     once (O(ratings)) and scoring fuzzy-match candidates only against each
     medium's *distinct* stations (bounded, not row-count-based) brings an
     export back down to a fraction of a second at the same scale."""
+    rating_records = _apply_station_aliases(rating_records, station_aliases)
     mediums: set = set()
     station_days: Dict[tuple, set] = {}
     for rating in rating_records:
@@ -186,7 +231,9 @@ def build_unmatched_reason_context(rating_records) -> UnmatchedReasonContext:
     )
 
 
-def describe_unmatched_reason(activity, context: UnmatchedReasonContext) -> str:
+def describe_unmatched_reason(
+    activity, context: UnmatchedReasonContext, station_aliases: Optional[Dict[str, str]] = None,
+) -> str:
     """Best-effort, human-readable explanation for why one media_activity
     row never resolved to a rating -- used only by the match report export
     (GET .../matches/export) to answer "why not" for a row the CSV's
@@ -200,10 +247,15 @@ def describe_unmatched_reason(activity, context: UnmatchedReasonContext) -> str:
     Takes a context from build_unmatched_reason_context(), built once per
     export rather than re-derived from the full ratings list on every
     call -- see that function's docstring for why that distinction matters
-    at scale."""
+    at scale.
+
+    station_aliases must be the same map passed to that context's own
+    build_unmatched_reason_context() call, so `activity`'s station resolves
+    consistently with the ratings side it's being compared against."""
     if not context.has_ratings:
         return 'No ratings attached to this project'
 
+    activity, = _apply_station_aliases([activity], station_aliases)
     activity_medium = normalize_medium(getattr(activity, 'medium', ''))
     activity_station = normalize_station(getattr(activity, 'station', ''))
     activity_day = normalize_day(getattr(activity, 'day', ''))
@@ -236,6 +288,7 @@ def describe_unmatched_reason(activity, context: UnmatchedReasonContext) -> str:
 def compute_matches(
     media_activity_records, rating_records, *, include_suggestions: bool = True,
     on_progress: Optional[Callable[[int], None]] = None,
+    station_aliases: Optional[Dict[str, str]] = None,
 ) -> List[ComputedMatch]:
     """on_progress, if given, is called with however many rows just got a
     real, final match decision -- never a simulated tick. Exact matches
@@ -247,10 +300,17 @@ def compute_matches(
     picked just to make a progress bar move. Summed across every branch
     below, on_progress's calls always add up to exactly
     len(media_activity_records) -- see match_jobs.py's job runner, the
-    only caller that currently uses this."""
+    only caller that currently uses this.
+
+    station_aliases, if given, is a {normalized_alias_name: canonical_name}
+    map (see app/repositories/station_aliases.py) applied up front to both
+    record lists -- see _apply_station_aliases for why that's done once,
+    here, rather than threading it through every normalization call below."""
     if not media_activity_records:
         return []
 
+    media_activity_records = _apply_station_aliases(media_activity_records, station_aliases)
+    rating_records = _apply_station_aliases(rating_records, station_aliases)
     rating_records = sorted(rating_records, key=_rating_order_key)
     ratings_by_key: Dict[str, object] = {}
     ratings_by_slot: Dict[tuple, List[object]] = {}

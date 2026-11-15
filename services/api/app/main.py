@@ -14,6 +14,7 @@ from .routers import (
     ratings,
     runs,
     soe,
+    station_aliases,
     stubs,
     uploads,
     users,
@@ -61,6 +62,7 @@ app.include_router(exports.router)
 app.include_router(soe.router)
 app.include_router(stubs.router)
 app.include_router(activity_log.router)
+app.include_router(station_aliases.router)
 
 
 @app.get('/api/health', tags=['health'])

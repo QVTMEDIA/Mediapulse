@@ -122,3 +122,20 @@ create table if not exists activity_log (
 );
 
 create index if not exists activity_log_created_at_idx on activity_log (created_at desc);
+
+-- Station Aliases -- services/api PR letting a human-confirmed "these two
+-- station names are the same real station" pairing (e.g. a spend file's
+-- "TVC Lagos" vs a ratings diary's "Lagos, TV Continental (TVC E)") be
+-- remembered account-wide and applied automatically to every future
+-- upload's matching, instead of re-fighting the same mismatch on every
+-- project. See services/api/app/matches.py's _apply_station_aliases.
+create table if not exists station_aliases (
+  id uuid primary key default gen_random_uuid(),
+  alias_name text not null,
+  canonical_name text not null,
+  created_by uuid references users(id) on delete set null,
+  created_by_name text not null,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists station_aliases_alias_name_idx on station_aliases (normalize_match_text(alias_name));

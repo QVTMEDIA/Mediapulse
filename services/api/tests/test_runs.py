@@ -12,6 +12,7 @@ from app.repositories.mapping_templates import InMemoryMappingTemplatesRepositor
 from app.repositories.matches import InMemoryMatchesRepository, get_matches_repository
 from app.repositories.projects import InMemoryProjectsRepository, get_projects_repository
 from app.repositories.ratings import InMemoryRatingsRepository, get_ratings_repository
+from app.repositories.station_aliases import InMemoryStationAliasesRepository, get_station_aliases_repository
 from app.repositories.uploads import InMemoryUploadsRepository, get_uploads_repository
 
 from ._auth_helpers import make_test_user
@@ -36,6 +37,7 @@ def client():
         get_matches_repository: InMemoryMatchesRepository(),
         get_calculations_repository: InMemoryCalculationsRepository(),
         get_mapping_templates_repository: InMemoryMappingTemplatesRepository(),
+        get_station_aliases_repository: InMemoryStationAliasesRepository(),
     }
     for dependency, instance in overrides.items():
         app.dependency_overrides[dependency] = _returning(instance)

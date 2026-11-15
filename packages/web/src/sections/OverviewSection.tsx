@@ -1,9 +1,67 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, BarChart3, PieChart } from 'lucide-react';
-import { ApiError, getLatestRun, listBrandShares, listSpotEfficiency } from '../api/client';
-import type { BrandShare, GrpRunSummary, Project, SpotEfficiency } from '../api/contracts';
+import { ApiError, getLatestRun, listBrandShares, listProjectRatingsDatasets, listSpotEfficiency } from '../api/client';
+import type { BrandShare, GrpRunSummary, Project, RatingsDataset, SpotEfficiency } from '../api/contracts';
 import { LimitedRows } from '../components/LimitedRows';
 import { BrandSpendRow, formatNumber, HIGH_COST_MIN_SPOTS, HIGH_COST_RATIO, metricValueFontSize } from './SpendIntelligenceSection';
+
+const MONTH_NAMES = [
+  'january', 'february', 'march', 'april', 'may', 'june',
+  'july', 'august', 'september', 'october', 'november', 'december',
+];
+
+// Ratings diary periods are free text (RatingsSection's own upload form
+// placeholder is "e.g. Q1 2026") -- there's no structured month/year column
+// to sort by. Recognizes the shapes actually seen in practice ("August
+// 2026", "Aug 2026", "Q1 2026", a bare "2026") and ranks them by calendar
+// month so periods compare correctly across formats and years; a quarter or
+// bare year is ranked by its last month, so e.g. "Q2 2026" sorts after
+// "April 2026" but before "July 2026". Returns null for anything that
+// doesn't match one of these shapes (an empty period, or free text like
+// "Diary wave 3") rather than guessing -- callers fall back to upload
+// recency instead.
+function parsePeriodRank(period: string): number | null {
+  const text = period.trim().toLowerCase();
+  if (!text) return null;
+
+  const monthYear = text.match(/^([a-z]+)\.?\s+(\d{4})$/);
+  if (monthYear) {
+    const [, monthText, yearText] = monthYear;
+    const monthIndex = MONTH_NAMES.findIndex((name) => monthText.length >= 3 && name.startsWith(monthText));
+    if (monthIndex !== -1) return Number(yearText) * 12 + monthIndex;
+  }
+
+  const quarterYear = text.match(/^q([1-4])\s+(\d{4})$/);
+  if (quarterYear) {
+    const [, quarterText, yearText] = quarterYear;
+    return Number(yearText) * 12 + (Number(quarterText) * 3 - 1);
+  }
+
+  const yearOnly = text.match(/^(\d{4})$/);
+  if (yearOnly) return Number(yearOnly[1]) * 12 + 11;
+
+  return null;
+}
+
+// Picks whichever attached dataset's period reads as the most recent. Falls
+// back to whichever dataset was uploaded most recently when none of the
+// attached periods parse (e.g. all of them are a bare "Q1" with no year, or
+// free text) -- in practice a new diary gets uploaded as soon as it
+// arrives, so upload order is a reasonable stand-in for period order.
+function pickLatestDiaryPeriod(datasets: RatingsDataset[]): string | null {
+  if (datasets.length === 0) return null;
+  const ranked = datasets
+    .map((dataset) => ({ dataset, rank: parsePeriodRank(dataset.period) }))
+    .filter((entry): entry is { dataset: RatingsDataset; rank: number } => entry.rank !== null);
+  if (ranked.length > 0) {
+    ranked.sort((a, b) => b.rank - a.rank);
+    return ranked[0].dataset.period;
+  }
+  const byUploadRecency = [...datasets].sort(
+    (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime(),
+  );
+  return byUploadRecency[0].period || null;
+}
 
 // Moved from App.tsx's "Projects" tab, which used to double as the
 // dashboard — PRODUCT_ROADMAP.md's Overview row always described this as
@@ -142,6 +200,7 @@ interface OverviewCacheEntry {
   brandShares: BrandShare[];
   spotEfficiency: SpotEfficiency[];
   efficiencyError: string | null;
+  ratingsDatasets: RatingsDataset[];
 }
 
 // Survives OverviewSection unmounting -- App.tsx renders every nav section
@@ -159,6 +218,7 @@ export default function OverviewSection({ project, refreshSignal }: { project: P
   const [run, setRun] = useState<GrpRunSummary | null>(null);
   const [brandShares, setBrandShares] = useState<BrandShare[]>([]);
   const [spotEfficiency, setSpotEfficiency] = useState<SpotEfficiency[]>([]);
+  const [ratingsDatasets, setRatingsDatasets] = useState<RatingsDataset[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [efficiencyError, setEfficiencyError] = useState<string | null>(null);
@@ -171,9 +231,10 @@ export default function OverviewSection({ project, refreshSignal }: { project: P
       const latestRun = await getLatestRun(projectId);
       setRun(latestRun);
       if (latestRun) {
-        const [shares, efficiency] = await Promise.allSettled([
+        const [shares, efficiency, datasets] = await Promise.allSettled([
           listBrandShares(projectId, latestRun.runId),
           listSpotEfficiency(projectId, latestRun.runId),
+          listProjectRatingsDatasets(projectId),
         ]);
         const sharesValue = shares.status === 'fulfilled' ? shares.value : null;
         if (sharesValue === null) throw shares.status === 'rejected' ? shares.reason : new Error('Could not load brand shares.');
@@ -187,11 +248,20 @@ export default function OverviewSection({ project, refreshSignal }: { project: P
         }
         setSpotEfficiency(efficiencyValue);
         setEfficiencyError(efficiencyErrorValue);
-        overviewCache.set(projectId, { signal, run: latestRun, brandShares: sharesValue, spotEfficiency: efficiencyValue, efficiencyError: efficiencyErrorValue });
+        // Best-effort, like spot efficiency -- the "Latest Diary" card just
+        // falls back to its own empty state on failure rather than this
+        // taking the whole Overview page down with it.
+        const datasetsValue = datasets.status === 'fulfilled' ? datasets.value : [];
+        setRatingsDatasets(datasetsValue);
+        overviewCache.set(projectId, {
+          signal, run: latestRun, brandShares: sharesValue, spotEfficiency: efficiencyValue,
+          efficiencyError: efficiencyErrorValue, ratingsDatasets: datasetsValue,
+        });
       } else {
         setBrandShares([]);
         setSpotEfficiency([]);
-        overviewCache.set(projectId, { signal, run: null, brandShares: [], spotEfficiency: [], efficiencyError: null });
+        setRatingsDatasets([]);
+        overviewCache.set(projectId, { signal, run: null, brandShares: [], spotEfficiency: [], efficiencyError: null, ratingsDatasets: [] });
       }
     } catch (error) {
       setLoadError(error instanceof ApiError ? error.message : 'Could not load the overview.');
@@ -199,6 +269,7 @@ export default function OverviewSection({ project, refreshSignal }: { project: P
       setBrandShares([]);
       setSpotEfficiency([]);
       setEfficiencyError(null);
+      setRatingsDatasets([]);
     } finally {
       setLoading(false);
     }
@@ -214,6 +285,7 @@ export default function OverviewSection({ project, refreshSignal }: { project: P
         setBrandShares(cached.brandShares);
         setSpotEfficiency(cached.spotEfficiency);
         setEfficiencyError(cached.efficiencyError);
+        setRatingsDatasets(cached.ratingsDatasets);
         setLoading(false);
         setLoadError(null);
       } else {
@@ -224,6 +296,7 @@ export default function OverviewSection({ project, refreshSignal }: { project: P
       setBrandShares([]);
       setSpotEfficiency([]);
       setEfficiencyError(null);
+      setRatingsDatasets([]);
     }
   }, [project, refreshSignal, refresh]);
 
@@ -251,6 +324,8 @@ export default function OverviewSection({ project, refreshSignal }: { project: P
   const spendRanked = [...brandShares].sort((a, b) => b.totalSpend - a.totalSpend);
   const weakBuys = spotEfficiency.filter((row) => row.isWeak);
   const readingInsights = buildReadingOfThePeriod(brandShares);
+  const latestDiaryPeriod = pickLatestDiaryPeriod(ratingsDatasets);
+  const latestDiaryText = latestDiaryPeriod ?? '—';
 
   return (
     <>
@@ -267,6 +342,15 @@ export default function OverviewSection({ project, refreshSignal }: { project: P
       {run && (
         <>
           <section className="metric-grid" aria-label="Executive summary">
+            <div className="metric-panel">
+              <span>Latest Diary</span>
+              <strong style={{ fontSize: metricValueFontSize(latestDiaryText) }}>{latestDiaryText}</strong>
+              <small>
+                {ratingsDatasets.length > 0
+                  ? `${ratingsDatasets.length} ratings dataset${ratingsDatasets.length === 1 ? '' : 's'} attached`
+                  : 'No ratings attached yet'}
+              </small>
+            </div>
             <div className="metric-panel">
               <span>Total GRPs</span>
               <strong style={{ fontSize: metricValueFontSize(formatNumber(run.totalGrps)) }}>{formatNumber(run.totalGrps)}</strong>

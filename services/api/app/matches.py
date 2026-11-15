@@ -69,6 +69,13 @@ def _programme_for_suggestion(programme: str, time_band: str) -> str:
     return (programme or '').strip() or (time_band or '').strip()
 
 
+def _time_slot(record) -> str:
+    # Diaries can store an hourly range in Programme / Time Band without
+    # a separate Time Band column. Use the same fallback as the exact key
+    # so point-in-range lookup does not silently miss those rating rows.
+    return (record.time_band or '').strip() or (record.programme or '').strip()
+
+
 def _attached_timestamp(record) -> float:
     attached_at = getattr(record, 'project_attached_at', None)
     if attached_at is None:
@@ -336,15 +343,15 @@ def compute_matches(
     for rating in rating_records:
         key = make_exact_match_key(rating.medium, rating.station, rating.day, rating.programme, rating.time_band)
         ratings_by_key.setdefault(key, rating)  # highest-priority (then newest-attached) dataset wins on duplicate keys
-        if is_time_band_range(rating.time_band):
+        if is_time_band_range(_time_slot(rating)):
             slot_key = (normalize_medium(rating.medium), normalize_station(rating.station), normalize_day(rating.day))
             ratings_by_slot.setdefault(slot_key, []).append(rating)
 
     exact_results: List[ComputedMatch] = []
     unresolved = []  # (activity, key)
     for activity in media_activity_records:
-        # media_activity.programme already holds the combined "Programme /
-        # Time Band" text (see app/parsing.py) — no separate time_band field.
+        # Prefer the separate time field; sources with a single combined
+        # Programme / Time Band column use that field as the fallback.
         key = make_exact_match_key(activity.medium, activity.station, activity.day, activity.programme, activity.time_band)
         rating = ratings_by_key.get(key)
         if rating is None:
@@ -352,7 +359,7 @@ def compute_matches(
             rating = next(
                 (
                     candidate for candidate in ratings_by_slot.get(slot_key, [])
-                    if time_band_contains(candidate.time_band, activity.time_band)
+                    if time_band_contains(_time_slot(candidate), _time_slot(activity))
                 ),
                 None,
             )

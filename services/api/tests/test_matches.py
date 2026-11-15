@@ -388,6 +388,46 @@ def test_nta_different_city_does_not_match():
     assert result[0].match_status == 'unmatched'
 
 
+@pytest.mark.parametrize('separate_time_band', [False, True])
+def test_nta_manual_match_screenshot_is_an_automatic_hourly_match(separate_time_band):
+    activity = _media_activity(station='NTA 10 LAGOS', day='Tuesday', programme='ROS', time_band='00:49:16')
+    band = '00:00:00-01:00:00'
+    rating = _rating_row('nta-lagos', station='Lagos, NTA Channel 10 Lagos', day='Tue',
+                         programme=band, time_band=band if separate_time_band else '', rating=0)
+    result = compute_matches([activity], [rating], include_suggestions=False)
+    assert result[0].match_status == 'exact'
+    assert result[0].matched_rating_id == 'nta-lagos'
+
+
+def test_programme_hourly_band_does_not_match_a_spot_outside_it():
+    activity = _media_activity(station='NTA 10 LAGOS', day='Tuesday', programme='ROS', time_band='01:49:16')
+    rating = _rating_row('nta-lagos', station='Lagos, NTA Channel 10 Lagos', day='Tue',
+                         programme='00:00:00-01:00:00', time_band='', rating=0)
+    assert compute_matches([activity], [rating], include_suggestions=False)[0].match_status == 'unmatched'
+
+
+def test_nta_screenshot_files_match_through_upload_and_calculation(client, project, brand):
+    ratings = b'Channel,Day,Programme,Rating\n"Lagos, NTA Channel 10 Lagos",Tue,00:00:00-01:00:00,0\n'
+    response = client.post('/api/ratings-datasets/upload', files={'file': ('diary.csv', io.BytesIO(ratings), 'text/csv')})
+    assert response.status_code == 201
+    dataset_id = response.json()['ratingsDatasetId']
+    rows = client.get(f'/api/ratings-datasets/{dataset_id}/rows').json()['rows']
+    assert rows[0]['programme'] == '00:00:00-01:00:00'
+    assert rows[0]['timeBand'] == ''
+    client.post(f"/api/projects/{project['projectId']}/ratings-datasets/{dataset_id}/attach")
+    media = b'Channel,Programme,Time Band,Day,Spots,Cost\nNTA 10 LAGOS,ROS,00:49:16,Tuesday,1,52500\n'
+    uploaded = client.post(f"/api/projects/{project['projectId']}/uploads",
+                           files={'file': ('spend.csv', io.BytesIO(media), 'text/csv')},
+                           data={'brand_id': brand['brandId']})
+    assert uploaded.status_code == 201
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    assert matches[0]['matchStatus'] == 'exact'
+    run = client.post(f"/api/projects/{project['projectId']}/calculate").json()
+    assert run['matchedRows'] == 1
+    assert run['unmatchedRows'] == 0
+    assert run['totalGrps'] == 0
+
+
 def test_alias_chains_resolve_both_files_without_mutating_records():
     activity = _media_activity(station='NTA Lagos')
     rating = _rating_row('nta', station='Lagos NTA Channel 10')

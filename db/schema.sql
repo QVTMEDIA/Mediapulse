@@ -408,6 +408,50 @@ create table rating_matches (
 create index rating_matches_status_idx on rating_matches (match_status);
 
 -- ---------------------------------------------------------------------------
+-- station_aliases
+-- ---------------------------------------------------------------------------
+-- A media-spend upload and a ratings diary routinely name the same real
+-- station differently ("TVC Lagos" vs "Lagos, TV Continental (TVC E)"),
+-- which the Matching Engine's exact-key lookup (app/matching.py) never
+-- resolves on its own -- see the suggestion engine's deliberate refusal to
+-- auto-guess acronym expansions like "LTV"/"TVC" (CHANGELOG.md), since a
+-- wrong guess would silently misattribute a station's entire ratings
+-- history. This table is the human-confirmed alternative: once a person
+-- confirms two names are the same station (via the Station Aliases screen,
+-- or by opting in when confirming a suggested/manual match on the Matches
+-- screen), every future upload resolves them automatically, account-wide
+-- -- not scoped to one project, since a station's real identity doesn't
+-- change depending on which project's data mentions it.
+--
+-- alias_name is matched case/whitespace-insensitively against a raw
+-- Channel/Station value (the same light normalization match_key's own
+-- MEDIUM/DAY components already use — see normalize_match_text above),
+-- never against the Matching Engine's much more aggressive station
+-- normalization (which strips geography prefixes, frequencies, and noise
+-- words like "FM"/"RADIO") — an alias is a specific, deliberate, one-to-
+-- one pairing a human confirmed, not another fuzzy rule.
+create table station_aliases (
+  id uuid primary key default gen_random_uuid(),
+  alias_name text not null,
+  canonical_name text not null,
+  created_by uuid references users(id) on delete set null,
+  -- Denormalized, same as activity_log.actor_name -- a display name that
+  -- survives the user who created this alias being deleted later, without
+  -- a join at read time.
+  created_by_name text not null,
+  created_at timestamptz not null default now()
+);
+
+-- One alias per raw name -- an alias_name can't point at two different
+-- canonical names at once. normalize_match_text() is already IMMUTABLE
+-- (used the same way for the match_key triggers above), so a functional
+-- unique index works here without hitting the generated-column
+-- immutability error those triggers exist to sidestep (see the comment
+-- above the ratings table) -- an index's expression isn't held to that
+-- same provable-immutability bar a generated column's is.
+create unique index station_aliases_alias_name_idx on station_aliases (normalize_match_text(alias_name));
+
+-- ---------------------------------------------------------------------------
 -- grp_runs / grp_calculations / brand_shares
 -- ---------------------------------------------------------------------------
 -- A "run" is one calculation pass over a project's media_activity. Row-level

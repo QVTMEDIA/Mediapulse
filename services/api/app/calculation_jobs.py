@@ -79,7 +79,7 @@ def _advance(job_id: str) -> None:
             job.processed += 1
 
 
-def _run_calculation(job_id, project_id, uploads_repo, ratings_repo, matches_repo, calculations_repo):
+def _run_calculation(job_id, project_id, uploads_repo, ratings_repo, matches_repo, calculations_repo, station_aliases_repo):
     _set_status(job_id, 'running')
     try:
         media_activity = uploads_repo.list_media_activity(project_id)
@@ -88,7 +88,8 @@ def _run_calculation(job_id, project_id, uploads_repo, ratings_repo, matches_rep
         rating_rows = ratings_repo.list_project_rating_rows(project_id)
         _advance(job_id)
 
-        match_records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows)
+        station_aliases = station_aliases_repo.get_alias_map()
+        match_records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows, station_aliases)
         _advance(job_id)
 
         match_by_activity_id = {match.media_activity_id: match for match in match_records}
@@ -106,12 +107,17 @@ def _run_calculation(job_id, project_id, uploads_repo, ratings_repo, matches_rep
         _set_status(job_id, 'failed', error=str(exc))
 
 
-def start_calculation_job(project_id, uploads_repo, ratings_repo, matches_repo, calculations_repo) -> CalculationJob:
+def start_calculation_job(
+    project_id, uploads_repo, ratings_repo, matches_repo, calculations_repo, station_aliases_repo,
+) -> CalculationJob:
     _evict_stale_jobs()
     job = CalculationJob(id=str(uuid.uuid4()), project_id=project_id)
     with _jobs_lock:
         _jobs[job.id] = job
-    _executor.submit(_run_calculation, job.id, project_id, uploads_repo, ratings_repo, matches_repo, calculations_repo)
+    _executor.submit(
+        _run_calculation, job.id, project_id, uploads_repo, ratings_repo, matches_repo, calculations_repo,
+        station_aliases_repo,
+    )
     return job
 
 

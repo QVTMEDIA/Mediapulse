@@ -3,6 +3,7 @@ import { Download } from 'lucide-react';
 import {
   ApiError,
   correctMatch,
+  createStationAlias,
   downloadMatchReport,
   getMatchJob,
   listMatchedRatings,
@@ -328,6 +329,11 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
   // instead of a misleading full/empty state.
   const [recomputeProgress, setRecomputeProgress] = useState<{ processed: number; total: number } | null>(null);
   const [assignSelections, setAssignSelections] = useState<Record<string, string>>({});
+  // Opt-in, unchecked by default -- confirming a suggested match is a
+  // one-off decision about this one spot; remembering the station pairing
+  // account-wide (so it never needs reviewing again) is a separate,
+  // deliberate choice, not an automatic side effect of every confirm.
+  const [saveAliasSelections, setSaveAliasSelections] = useState<Record<string, boolean>>({});
   const [matchFilter, setMatchFilter] = useState<MatchFilter>('all');
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -449,13 +455,31 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
     }
   }, [project, refreshSignal, refresh, refreshAssignableRatings]);
 
-  async function handleCorrect(match: RatingMatch, matchedRatingId: string | null) {
+  async function handleCorrect(
+    match: RatingMatch, matchedRatingId: string | null, saveAlias?: { aliasName: string; canonicalName: string },
+  ) {
     if (!project) return;
     setCorrectingId(match.ratingMatchId);
     setActionError(null);
     try {
       await correctMatch(project.projectId, match.ratingMatchId, matchedRatingId);
+      // Best-effort, and deliberately after the confirm above succeeds,
+      // not before or in parallel -- this spot's own match is the action
+      // the user asked for; remembering the station pairing for next time
+      // is a bonus that must never block or appear to fail that action.
+      if (saveAlias) {
+        try {
+          await createStationAlias(saveAlias.aliasName, saveAlias.canonicalName);
+        } catch (error) {
+          setActionError(error instanceof ApiError ? `Match confirmed, but couldn't save the station alias: ${error.message}` : "Match confirmed, but couldn't save the station alias.");
+        }
+      }
       setAssignSelections((current) => {
+        const next = { ...current };
+        delete next[match.ratingMatchId];
+        return next;
+      });
+      setSaveAliasSelections((current) => {
         const next = { ...current };
         delete next[match.ratingMatchId];
         return next;
@@ -643,6 +667,12 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
           {limitedSuggested.visibleRows.map((match) => {
             const activity = activityById.get(match.mediaActivityId);
             const rating = match.matchedRatingId ? ratingsById.get(match.matchedRatingId) : undefined;
+            // Only offer to remember a pairing when the two station names
+            // actually differ -- if they already read the same, a plain
+            // confirm (no alias needed) is all this suggestion ever was.
+            const stationsDiffer = !!activity && !!rating
+              && activity.station.trim().toLowerCase() !== rating.station.trim().toLowerCase();
+            const saveAliasChecked = saveAliasSelections[match.ratingMatchId] ?? false;
             return (
               <div className="match-row" key={match.ratingMatchId}>
                 <div className="match-row-main">
@@ -653,12 +683,30 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
                 </div>
                 <p className="match-input">Activity: {describeActivity(activity)}</p>
                 <p className="match-suggestion">Suggested: {describeRating(rating)}</p>
+                {stationsDiffer && (
+                  <label className="checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={saveAliasChecked}
+                      disabled={correctingId === match.ratingMatchId}
+                      onChange={(event) =>
+                        setSaveAliasSelections((current) => ({ ...current, [match.ratingMatchId]: event.target.checked }))
+                      }
+                    />
+                    Also remember "{activity!.station}" = "{rating!.station}" for every future upload
+                  </label>
+                )}
                 <div className="form-actions">
                   <button
                     type="button"
                     className="primary-button"
                     disabled={correctingId === match.ratingMatchId}
-                    onClick={() => handleCorrect(match, match.matchedRatingId)}
+                    onClick={() => handleCorrect(
+                      match, match.matchedRatingId,
+                      stationsDiffer && saveAliasChecked
+                        ? { aliasName: activity!.station, canonicalName: rating!.station }
+                        : undefined,
+                    )}
                   >
                     Confirm
                   </button>

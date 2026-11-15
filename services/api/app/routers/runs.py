@@ -9,6 +9,7 @@ from ..repositories.calculations import CalculationsRepository, get_calculations
 from ..repositories.matches import MatchesRepository, get_matches_repository
 from ..repositories.projects import ProjectsRepository, get_projects_repository
 from ..repositories.ratings import RatingsRepository, get_ratings_repository
+from ..repositories.station_aliases import StationAliasesRepository, get_station_aliases_repository
 from ..repositories.uploads import UploadsRepository, get_uploads_repository
 from ..repositories.users import UserRecord
 from ..schemas.calculations import (
@@ -91,6 +92,7 @@ def calculate(
     ratings_repo: RatingsRepository = Depends(get_ratings_repository),
     matches_repo: MatchesRepository = Depends(get_matches_repository),
     calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
+    station_aliases_repo: StationAliasesRepository = Depends(get_station_aliases_repository),
     current_user: UserRecord = Depends(get_current_user),
     activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
@@ -105,7 +107,8 @@ def calculate(
 
     media_activity = uploads_repo.list_media_activity(project_id)
     rating_rows = ratings_repo.list_project_rating_rows(project_id)
-    match_records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows)
+    station_aliases = station_aliases_repo.get_alias_map()
+    match_records = matches_repo.ensure_matches_computed(project_id, media_activity, rating_rows, station_aliases)
 
     match_by_activity_id = {match.media_activity_id: match for match in match_records}
     rating_by_id = resolve_rating_by_id(rating_rows, match_records, ratings_repo)
@@ -128,13 +131,14 @@ def start_calculate_job(
     ratings_repo: RatingsRepository = Depends(get_ratings_repository),
     matches_repo: MatchesRepository = Depends(get_matches_repository),
     calculations_repo: CalculationsRepository = Depends(get_calculations_repository),
+    station_aliases_repo: StationAliasesRepository = Depends(get_station_aliases_repository),
     current_user: UserRecord = Depends(get_current_user),
     activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
     project = projects_repo.get_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail='Project not found')
-    job = start_calculation_job(project_id, uploads_repo, ratings_repo, matches_repo, calculations_repo)
+    job = start_calculation_job(project_id, uploads_repo, ratings_repo, matches_repo, calculations_repo, station_aliases_repo)
     # Logged on job start -- see the equivalent comment on
     # routers/uploads.py's start_upload_job_route.
     activity_repo.record(

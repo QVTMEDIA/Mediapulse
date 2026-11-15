@@ -16,6 +16,7 @@ from app.repositories.mapping_templates import InMemoryMappingTemplatesRepositor
 from app.repositories.matches import InMemoryMatchesRepository, get_matches_repository
 from app.repositories.projects import InMemoryProjectsRepository, get_projects_repository
 from app.repositories.ratings import InMemoryRatingsRepository, get_ratings_repository
+from app.repositories.station_aliases import InMemoryStationAliasesRepository, get_station_aliases_repository
 from app.repositories.uploads import InMemoryUploadsRepository, get_uploads_repository
 
 from ._auth_helpers import make_test_user
@@ -43,6 +44,7 @@ def client():
         get_ratings_repository: InMemoryRatingsRepository(),
         get_matches_repository: InMemoryMatchesRepository(),
         get_mapping_templates_repository: InMemoryMappingTemplatesRepository(),
+        get_station_aliases_repository: InMemoryStationAliasesRepository(),
     }
     for dependency, instance in overrides.items():
         app.dependency_overrides[dependency] = _returning(instance)
@@ -334,6 +336,103 @@ def test_compute_matches_does_not_bridge_genuine_medium_differences():
 
     assert len(result) == 1
     assert result[0].match_status == 'unmatched'
+
+
+def test_compute_matches_resolves_a_station_alias_to_an_exact_match():
+    # The real motivating case: a spend file says "TVC Lagos", a ratings
+    # diary says "Lagos, TV Continental (TVC E)" for the same real station
+    # -- the Matching Engine's own aggressive normalize_station() doesn't
+    # bridge this on its own (token sets {TVC, LAGOS} vs {CONTINENTAL, E,
+    # LAGOS, TVC} disagree), and this project has an explicit, documented
+    # stance against auto-guessing acronym expansions like this one (see
+    # CHANGELOG.md's "LTV"/"TVC" station-alias writeup) -- it must take a
+    # human-confirmed alias, never a fuzzier rule, to bridge it.
+    activity = _media_activity(station='TVC Lagos', day='Monday', programme='Prime Time')
+    rating = _rating_row('rating-tvc', station='Lagos, TV Continental (TVC E)', day='Monday', programme='Prime Time', rating=2.0)
+
+    without_alias = compute_matches([activity], [rating], include_suggestions=False)
+    assert without_alias[0].match_status == 'unmatched'
+
+    with_alias = compute_matches(
+        [activity], [rating], include_suggestions=False,
+        station_aliases={'TVC LAGOS': 'Lagos, TV Continental (TVC E)'},
+    )
+    assert with_alias[0].match_status == 'exact'
+    assert with_alias[0].matched_rating_id == 'rating-tvc'
+
+
+def test_compute_matches_station_alias_also_resolves_the_ratings_side():
+    # An alias is symmetric -- whichever side actually used the
+    # non-canonical spelling, matching must still bridge it. Here the
+    # RATINGS row carries the alias's raw name, and the activity row
+    # already uses the canonical form.
+    activity = _media_activity(station='Lagos, TV Continental (TVC E)', day='Monday', programme='Prime Time')
+    rating = _rating_row('rating-tvc', station='TVC Lagos', day='Monday', programme='Prime Time', rating=2.0)
+
+    result = compute_matches(
+        [activity], [rating], include_suggestions=False,
+        station_aliases={'TVC LAGOS': 'Lagos, TV Continental (TVC E)'},
+    )
+    assert result[0].match_status == 'exact'
+    assert result[0].matched_rating_id == 'rating-tvc'
+
+
+def test_compute_matches_without_station_aliases_behaves_exactly_as_before():
+    # station_aliases=None (the default) must be a true no-op -- every
+    # existing caller that doesn't know about aliasing yet keeps working
+    # unchanged.
+    activity = _media_activity(station='TVC Lagos', day='Monday', programme='Prime Time')
+    rating = _rating_row('rating-tvc', station='Lagos, TV Continental (TVC E)', day='Monday', programme='Prime Time', rating=2.0)
+    result = compute_matches([activity], [rating], include_suggestions=False)
+    assert result[0].match_status == 'unmatched'
+
+
+def _tvc_lagos_project(client):
+    project_id = client.post('/api/projects', json={'projectName': 'TVC Alias Test'}).json()['projectId']
+    brand_id = client.post(f'/api/projects/{project_id}/brands', json={'name': 'Brand A'}).json()['brandId']
+    files = {'file': ('report.csv', io.BytesIO(
+        b'Channel,Programme,Day,Spots\nTVC Lagos,Prime Time,Monday,3\n'
+    ), 'text/csv')}
+    client.post(f'/api/projects/{project_id}/uploads', files=files, data={'brand_id': brand_id})
+    dataset = client.post(
+        '/api/ratings-datasets',
+        json={'provider': 'Nielsen', 'rows': [
+            {'medium': 'TV', 'station': 'Lagos, TV Continental (TVC E)', 'day': 'Monday', 'programme': 'Prime Time', 'rating': 1.2},
+        ]},
+    ).json()
+    client.post(f"/api/projects/{project_id}/ratings-datasets/{dataset['ratingsDatasetId']}/attach")
+    return project_id
+
+
+def test_station_alias_created_via_the_api_resolves_a_real_mismatch_on_future_uploads(client):
+    # End to end, through the real HTTP API: a spend upload says "TVC
+    # Lagos", an attached ratings dataset says "Lagos, TV Continental
+    # (TVC E)" for the same real station. With only one rating row in the
+    # whole project, the fuzzy-suggestion engine already surfaces this as
+    # a low-confidence 'suggested' match -- it would need a human to
+    # manually confirm it, every time, on every project that re-uploads
+    # either of these two spellings (confirming an existing 'suggested'
+    # row never happens automatically -- GET .../matches/recompute only
+    # ever retries 'unmatched' rows). Confirms the real promised value: an
+    # alias created once, from the first project's mismatch, makes a
+    # SECOND, brand new project's identical mismatch resolve straight to
+    # 'exact' on its very first match computation -- no suggestion, no
+    # manual review, nothing about either upload had to change.
+    first_project_id = _tvc_lagos_project(client)
+    before = client.get(f'/api/projects/{first_project_id}/matches').json()
+    assert len(before) == 1
+    assert before[0]['matchStatus'] == 'suggested'
+
+    alias_response = client.post(
+        '/api/station-aliases', json={'aliasName': 'TVC Lagos', 'canonicalName': 'Lagos, TV Continental (TVC E)'}
+    )
+    assert alias_response.status_code == 201
+
+    second_project_id = _tvc_lagos_project(client)
+    after = client.get(f'/api/projects/{second_project_id}/matches').json()
+    assert len(after) == 1
+    assert after[0]['matchStatus'] == 'exact'
+    assert after[0]['matchedRatingId'] is not None
 
 
 def test_describe_unmatched_reason_with_no_ratings_at_all():

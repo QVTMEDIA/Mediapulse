@@ -7,9 +7,20 @@ import {
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { Camera, Clock, Users, X } from 'lucide-react';
-import { ApiError, listActivityLog, listUsers, removeAvatar, updateAvatar, updateProfile, updateUserRole } from '../api/client';
-import type { ActivityLogEntry, User, UserRole } from '../api/contracts';
+import { Camera, Clock, Radio, Trash2, Users, X } from 'lucide-react';
+import {
+  ApiError,
+  createStationAlias,
+  deleteStationAlias,
+  listActivityLog,
+  listStationAliases,
+  listUsers,
+  removeAvatar,
+  updateAvatar,
+  updateProfile,
+  updateUserRole,
+} from '../api/client';
+import type { ActivityLogEntry, StationAlias, User, UserRole } from '../api/contracts';
 import { LimitedRowsControls, ROW_PAGE_SIZE, useLimitedRows } from '../components/LimitedRows';
 
 const ROLES: UserRole[] = ['owner', 'admin', 'member'];
@@ -554,6 +565,148 @@ function ActivityLogPanel() {
   );
 }
 
+function StationAliasesPanel() {
+  const [aliases, setAliases] = useState<StationAlias[]>([]);
+  const limitedAliases = useLimitedRows(aliases);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [aliasName, setAliasName] = useState('');
+  const [canonicalName, setCanonicalName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      setAliases(await listStationAliases());
+    } catch (error) {
+      setLoadError(error instanceof ApiError ? error.message : 'Could not load station aliases.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  async function handleCreate(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const created = await createStationAlias(aliasName.trim(), canonicalName.trim());
+      // Replaces any existing alias for the same name (see the backend's
+      // ON CONFLICT ... DO UPDATE) rather than appending a duplicate row.
+      setAliases((current) => [...current.filter((alias) => alias.stationAliasId !== created.stationAliasId), created]);
+      setAliasName('');
+      setCanonicalName('');
+    } catch (error) {
+      setSaveError(error instanceof ApiError ? error.message : 'Could not save that alias.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(alias: StationAlias) {
+    setPendingDeleteId(alias.stationAliasId);
+    setSaveError(null);
+    try {
+      await deleteStationAlias(alias.stationAliasId);
+      setAliases((current) => current.filter((row) => row.stationAliasId !== alias.stationAliasId));
+    } catch (error) {
+      setSaveError(error instanceof ApiError ? error.message : 'Could not remove that alias.');
+    } finally {
+      setPendingDeleteId(null);
+    }
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-header">
+        <div>
+          <h2>Station aliases</h2>
+          <p>
+            A media-spend upload and a ratings diary often name the same real station differently
+            (e.g. "TVC Lagos" vs "Lagos, TV Continental (TVC E)"). Confirm a pairing here once and
+            it's applied automatically to every project's matching from then on.
+          </p>
+        </div>
+        <Radio size={20} aria-hidden />
+      </div>
+
+      <form className="upload-form" onSubmit={handleCreate}>
+        <div className="upload-form-row">
+          <label>
+            Name as it appears in an upload
+            <input
+              type="text"
+              placeholder="e.g. TVC Lagos"
+              value={aliasName}
+              onChange={(event) => setAliasName(event.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Treat as this station
+            <input
+              type="text"
+              placeholder="e.g. Lagos, TV Continental (TVC E)"
+              value={canonicalName}
+              onChange={(event) => setCanonicalName(event.target.value)}
+              required
+            />
+          </label>
+        </div>
+        {saveError && <p className="inline-error">{saveError}</p>}
+        <button type="submit" className="primary-button" disabled={saving}>
+          {saving ? 'Saving…' : 'Save alias'}
+        </button>
+      </form>
+
+      {loadError && <p className="inline-error">{loadError}</p>}
+      {!loading && aliases.length === 0 && !loadError && <p className="empty-state">No station aliases set yet.</p>}
+      {aliases.length > 0 && (
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Name as uploaded</th>
+                <th>Treated as</th>
+                <th>Set by</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {limitedAliases.visibleRows.map((alias) => (
+                <tr key={alias.stationAliasId}>
+                  <td>{alias.aliasName}</td>
+                  <td>{alias.canonicalName}</td>
+                  <td>{alias.createdByName}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      title="Remove this alias"
+                      disabled={pendingDeleteId === alias.stationAliasId}
+                      onClick={() => handleDelete(alias)}
+                    >
+                      <Trash2 size={15} aria-hidden />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <LimitedRowsControls {...limitedAliases} total={aliases.length} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsSection({
   currentUser,
   onUserUpdated,
@@ -561,7 +714,7 @@ export default function SettingsSection({
   currentUser: User;
   onUserUpdated: (user: User) => void;
 }) {
-  const [tab, setTab] = useState<'profile' | 'activityLog'>('profile');
+  const [tab, setTab] = useState<'profile' | 'activityLog' | 'stationAliases'>('profile');
   const canManageTeam = currentUser.role === 'owner' || currentUser.role === 'admin';
   const [users, setUsers] = useState<User[]>([]);
   const limitedUsers = useLimitedRows(users);
@@ -620,10 +773,21 @@ export default function SettingsSection({
         >
           Activity log
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'stationAliases'}
+          className={tab === 'stationAliases' ? 'primary-button' : 'secondary-button'}
+          onClick={() => setTab('stationAliases')}
+        >
+          Station aliases
+        </button>
       </div>
 
       {tab === 'activityLog' ? (
         <ActivityLogPanel />
+      ) : tab === 'stationAliases' ? (
+        <StationAliasesPanel />
       ) : (
         <>
           <ProfilePhotoPanel currentUser={currentUser} onUserUpdated={onUserUpdated} />

@@ -305,13 +305,16 @@ def recompute_matches(
     noted when Phase 1 shipped: GET /matches only fills gaps for rows with
     no match record at all, so a row already marked 'unmatched' never got
     retried after new ratings were attached later. This re-attempts exact +
-    fuzzy matching for 'unmatched' rows only — 'exact', 'suggested', and
-    'manual' rows are already decided and are never touched here."""
+    fuzzy matching for unconfirmed rows ('unmatched' and 'suggested').
+    Exact matches and manual decisions are preserved."""
     if projects_repo.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail='Project not found')
 
     existing = matches_repo.list_matches(project_id)
-    unmatched_by_activity_id = {m.media_activity_id: m for m in existing if m.match_status == 'unmatched'}
+    unmatched_by_activity_id = {
+        m.media_activity_id: m for m in existing
+        if m.match_status in ('unmatched', 'suggested') and m.corrected_at is None
+    }
     if unmatched_by_activity_id:
         media_activity = uploads_repo.list_media_activity(project_id)
         unmatched_activity = [a for a in media_activity if a.id in unmatched_by_activity_id]

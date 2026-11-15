@@ -120,7 +120,12 @@ def _run_recompute(job_id, project_id, matches_repo, uploads_repo, ratings_repo,
     _set_status(job_id, 'running')
     try:
         existing = matches_repo.list_matches(project_id)
-        unmatched_by_activity_id = {m.media_activity_id: m for m in existing if m.match_status == 'unmatched'}
+        # A suggestion is still unconfirmed. A newly saved station alias
+        # can now resolve it exactly, just as it can an unmatched row.
+        unmatched_by_activity_id = {
+            m.media_activity_id: m for m in existing
+            if m.match_status in ('unmatched', 'suggested') and m.corrected_at is None
+        }
         _set_total(job_id, len(unmatched_by_activity_id))
         if unmatched_by_activity_id:
             media_activity = uploads_repo.list_media_activity(project_id)

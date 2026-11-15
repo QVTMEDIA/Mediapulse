@@ -738,8 +738,8 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
               <button
                 type="button"
                 className="secondary-button"
-                disabled={isRecomputing || unmatched.length === 0}
-                title="Quickly retry exact station, day, and time-band matches against the current ratings"
+                disabled={isRecomputing || (unmatched.length === 0 && suggested.length === 0)}
+                title="Retry unmatched and suggested rows against current ratings and station aliases"
                 onClick={() => handleRecompute('recompute_exact')}
               >
                 {recomputeMode === 'recompute_exact' ? recomputeStatusLabel : 'Fast recompute'}
@@ -747,8 +747,8 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
               <button
                 type="button"
                 className="secondary-button"
-                disabled={isRecomputing || unmatched.length === 0}
-                title="Run the slower fuzzy suggestion scan for still-unmatched rows"
+                disabled={isRecomputing || (unmatched.length === 0 && suggested.length === 0)}
+                title="Retry unmatched and suggested rows, including the slower fuzzy scan"
                 onClick={() => handleRecompute('recompute')}
               >
                 {recomputeMode === 'recompute' ? recomputeStatusLabel : 'Full scan'}

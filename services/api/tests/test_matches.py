@@ -457,6 +457,32 @@ def test_ensure_job_repairs_saved_suggestions_after_an_alias_change():
     library.list_project_rating_rows.assert_not_called()
 
 
+@pytest.mark.parametrize('include_suggestions', [False, True])
+def test_recompute_job_promotes_saved_suggestion_with_new_alias(include_suggestions):
+    from unittest.mock import MagicMock
+    from app.match_jobs import _run_recompute
+    repo = InMemoryMatchesRepository()
+    activity = _media_activity(station='TVC Lagos')
+    ratings = [_rating_row('tvc', station='Lagos, TV Continental (TVC E)')]
+    before = repo.ensure_matches_computed('project-1', [activity], ratings)[0]
+    assert before.match_status == 'suggested'
+    uploads, library, aliases = MagicMock(), MagicMock(), MagicMock()
+    uploads.list_media_activity.return_value = [activity]
+    library.list_project_rating_rows.return_value = ratings
+    aliases.get_alias_map.return_value = {'TVC LAGOS': 'Lagos, TV Continental (TVC E)'}
+    _run_recompute('job-test', 'project-1', repo, uploads, library, aliases, include_suggestions=include_suggestions)
+    assert repo.list_matches('project-1')[0].match_status == 'exact'
+
+
+def test_synchronous_recompute_promotes_saved_suggestion_with_new_alias(client):
+    project_id = _tvc_lagos_project(client)
+    assert client.get(f'/api/projects/{project_id}/matches').json()[0]['matchStatus'] == 'suggested'
+    client.post('/api/station-aliases', json={'aliasName': 'TVC Lagos', 'canonicalName': 'Lagos, TV Continental (TVC E)'})
+    response = client.post(f'/api/projects/{project_id}/matches/recompute')
+    assert response.status_code == 200
+    assert response.json()[0]['matchStatus'] == 'exact'
+
+
 def test_compute_matches_without_station_aliases_behaves_exactly_as_before():
     # station_aliases=None (the default) must be a true no-op -- every
     # existing caller that doesn't know about aliasing yet keeps working

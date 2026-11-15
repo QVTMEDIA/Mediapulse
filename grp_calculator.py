@@ -307,6 +307,22 @@ _STATION_NOISE_WORDS = {'RADIO', 'STATION', 'FM', 'AM', 'TV'}
 _RADIO_CHANNEL_TOKENS = {'RADIO', 'FM', 'AM'}
 GENERIC_PROGRAMME_VALUES = {'ROS', 'RUN OF SCHEDULE', 'RUN-OF-SCHEDULE'}
 
+# Nigeria's 36 states plus the FCT -- a fixed, unambiguous list to validate
+# a channel name's leading segment against (see infer_state_from_channel),
+# never used for fuzzy/substring matching. 'Abuja' is the form this app's
+# own State field already uses elsewhere (confirmed against real data), so
+# that's the canonical output; 'FCT'/'Federal Capital Territory' are real
+# alternate spellings the leading segment itself might use.
+NIGERIAN_STATES = {
+    'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno', 'Cross River',
+    'Delta', 'Ebonyi', 'Edo', 'Ekiti', 'Enugu', 'Gombe', 'Imo', 'Jigawa', 'Kaduna', 'Kano', 'Katsina',
+    'Kebbi', 'Kogi', 'Kwara', 'Lagos', 'Nasarawa', 'Niger', 'Ogun', 'Ondo', 'Osun', 'Oyo', 'Plateau',
+    'Rivers', 'Sokoto', 'Taraba', 'Yobe', 'Zamfara', 'Abuja',
+}
+_STATE_LOOKUP = {state.upper(): state for state in NIGERIAN_STATES}
+_STATE_LOOKUP['FCT'] = 'Abuja'
+_STATE_LOOKUP['FEDERAL CAPITAL TERRITORY'] = 'Abuja'
+
 
 def normalize_station_for_match(value):
     if pd.isna(value):
@@ -349,6 +365,30 @@ def infer_medium_from_channel(value, fallback='TV'):
     text = _STATION_PUNCTUATION_PATTERN.sub(' ', text)
     tokens = set(text.split())
     return 'Radio' if tokens & _RADIO_CHANNEL_TOKENS else fallback
+
+
+def infer_state_from_channel(value):
+    """Best-effort state for a ratings file with no explicit State/Location
+    column at all. A real audience-planning diary export (an AGB Nielsen/
+    Yumi "Calendar - Universe" export, for one) routinely exports its
+    channel column as "State, Station Name" -- normalize_station_for_match's
+    own docstring already documents this exact vendor convention ("State,
+    Station Frequency, City"), just for fuzzy-matching purposes rather than
+    for capturing the state itself. Deliberately only checks the leading
+    comma-separated segment against the fixed NIGERIAN_STATES list -- an
+    exact match, never a fuzzy/substring one -- so a channel name that
+    merely happens to contain a state name somewhere (e.g. "Liberty TV
+    Entertainment, Nishadi Zalla, Kano (ST)", where the real state sits at
+    the end, not the start) is correctly left blank rather than guessed.
+    Returns '' when the leading segment isn't a real state -- including
+    every channel with no comma in it at all."""
+    if pd.isna(value):
+        return ''
+    text_value = str(value).strip()
+    if ',' not in text_value:
+        return ''
+    leading = re.sub(r'\s+', ' ', text_value.split(',', 1)[0].strip()).upper()
+    return _STATE_LOOKUP.get(leading, '')
 
 
 def clock_seconds(value):
@@ -1624,6 +1664,16 @@ def build_ratings_lookup(ratings_raw, mapping, default_medium='TV'):
         medium_series = safe_col(ratings_raw, mapping['channel']).map(
             lambda value: infer_medium_from_channel(value, default_medium)
         )
+    # Same reasoning as Medium just above: no explicit State/Location column
+    # at all -- infer_state_from_channel checks the channel name's own
+    # leading "State, Station Name" segment (a real, already-documented
+    # vendor convention -- see normalize_station_for_match) rather than
+    # leaving every row blank. A real, explicitly-mapped State column is
+    # always trusted as-is and never second-guessed by this.
+    if mapping.get('state', '-- none --') != '-- none --':
+        state_series = safe_col(ratings_raw, mapping['state'], '')
+    else:
+        state_series = safe_col(ratings_raw, mapping['channel']).map(infer_state_from_channel)
     ratings_all = pd.DataFrame({
         'Medium': medium_series,
         'Channel / Station': safe_col(ratings_raw, mapping['channel']),
@@ -1637,7 +1687,7 @@ def build_ratings_lookup(ratings_raw, mapping, default_medium='TV'):
         # mapping['region'], for the same app.py-narrower-mapping-dict
         # reason resolve_row_cost()/build_brand_report's Daypart use .get().
         'Region': safe_col(ratings_raw, mapping.get('region', '-- none --'), ''),
-        'State': safe_col(ratings_raw, mapping.get('state', '-- none --'), ''),
+        'State': state_series,
     })
     ratings_all['Input Row'] = input_row_numbers(ratings_raw)
     bad_rating_mask = ratings_all['Rating (%)'].isna() | ratings_all['Rating (%)'].lt(0) | ratings_all['Rating (%)'].gt(100)

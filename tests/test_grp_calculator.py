@@ -1154,6 +1154,43 @@ class GrpCalculatorTests(unittest.TestCase):
         ratings, _invalid, _dup_keys, _lookup = calc.build_ratings_lookup(raw, mapping)
         self.assertEqual(ratings['Medium'].tolist(), ['TV'])
 
+    def test_infer_state_from_channel_matches_only_a_real_leading_state(self):
+        # Regression for a real file: an audience-planning diary export
+        # whose channel names are written "State, Station Name" (the same
+        # real vendor convention normalize_station_for_match's own
+        # docstring documents -- "State, Station Frequency, City"), with
+        # no separate State/Location column at all.
+        self.assertEqual(calc.infer_state_from_channel('Abia, BCA TV Umuahia'), 'Abia')
+        self.assertEqual(calc.infer_state_from_channel('Kaduna, Capital TV Kaduna'), 'Kaduna')
+        self.assertEqual(calc.infer_state_from_channel('Abuja, Channels TV Abuja'), 'Abuja')
+        self.assertEqual(calc.infer_state_from_channel('FCT, Some Station'), 'Abuja')
+        # No comma at all -- nothing to even consider as a leading segment.
+        self.assertEqual(calc.infer_state_from_channel('1Comedy (PlayTV)'), '')
+        # The real state sits at the END here, not the start -- must not
+        # guess from a different position in the string.
+        self.assertEqual(calc.infer_state_from_channel('Liberty TV Entertainment, Nishadi Zalla, Kano (ST)'), '')
+        self.assertEqual(calc.infer_state_from_channel(float('nan')), '')
+
+    def test_build_ratings_lookup_infers_state_from_channel_when_unmapped(self):
+        raw = pd.DataFrame({
+            'Channel': ['Abia, BCA TV Umuahia', '1Comedy (PlayTV)'],
+            'Day': ['Mon', 'Tue'], 'Programme': ['Morning Show', 'Drive Time'], 'Rating': [0.5, 1.2],
+        })
+        mapping = {'channel': 'Channel', 'day': 'Day', 'programme': 'Programme', 'rating': 'Rating'}
+        ratings, _invalid, _dup_keys, _lookup = calc.build_ratings_lookup(raw, mapping)
+        self.assertEqual(ratings['State'].tolist(), ['Abia', ''])
+
+    def test_build_ratings_lookup_trusts_an_explicit_state_column_over_inference(self):
+        # A real, explicitly-mapped State column is never second-guessed,
+        # even if the channel text itself would otherwise suggest a state.
+        raw = pd.DataFrame({
+            'Channel': ['Abia, BCA TV Umuahia'], 'State': ['Imo'],
+            'Day': ['Mon'], 'Programme': ['Morning Show'], 'Rating': [0.5],
+        })
+        mapping = {'channel': 'Channel', 'state': 'State', 'day': 'Day', 'programme': 'Programme', 'rating': 'Rating'}
+        ratings, _invalid, _dup_keys, _lookup = calc.build_ratings_lookup(raw, mapping)
+        self.assertEqual(ratings['State'].tolist(), ['Imo'])
+
     def test_try_two_row_header_merges_a_blank_group_header_with_its_sub_labels(self):
         # Regression for a real file: an AGB Nielsen/Yumi "Calendar -
         # Universe" audience-planning diary export, whose Channel/WD/

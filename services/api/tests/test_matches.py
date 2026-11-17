@@ -302,6 +302,33 @@ def test_compute_matches_exact_fallback_matches_same_range_in_different_text_for
     assert result[0].matched_rating_id == 'rating-slot'
 
 
+def test_compute_matches_exact_fallback_finds_range_carried_in_programme():
+    # Regression: a real MPS Diaries-style ratings file has no distinct
+    # Programme column at all, so grp_calculator.resolve_effective_programme
+    # deliberately puts its hourly Daypart range into `programme` and
+    # leaves `time_band` empty -- a normal, documented shape for this kind
+    # of source, not a parsing defect. The exact-match slot fallback above
+    # only ever checked the bare `rating.time_band` field for a range, so
+    # it silently never indexed any rating from a file shaped like this --
+    # a spend row's own exact airtime (e.g. "00:37:49") never found the
+    # hourly bucket it falls inside (e.g. "00:00:00-01:00:00") even though
+    # station/day/medium all genuinely agreed, and came back 'unmatched'.
+    activity = _media_activity(
+        medium='Terrestrial TV', station='NTA Bauchi', day='Tuesday',
+        programme='ROS', time_band='00:37:49',
+    )
+    rating = _rating_row(
+        'rating-bauchi', medium='TV', station='NTA Bauchi', day='Tue',
+        programme='00:00:00-01:00:00', time_band='', rating=0.14,
+    )
+
+    result = compute_matches([activity], [rating])
+
+    assert len(result) == 1
+    assert result[0].match_status == 'exact'
+    assert result[0].matched_rating_id == 'rating-bauchi'
+
+
 def test_compute_matches_tolerates_medium_spelling_differences():
     # Regression: a real ratings/spend upload pair used "TV" on the ratings
     # side and "Terrestrial TV" on the spend side for the identical medium.

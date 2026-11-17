@@ -49,13 +49,24 @@ def make_match_key(medium, station, day, programme='', time_band='') -> str:
     ])
 
 
+def effective_slot(programme='', time_band='') -> str:
+    """The text that actually identifies a row's time slot: time_band when
+    given, else programme -- the same fallback make_exact_match_key uses
+    for its own 'slot' component, pulled out so callers that need to
+    compare slots directly (e.g. matches.py's range-containment fallback)
+    don't have to re-derive it themselves and risk disagreeing with the
+    exact key's own rule."""
+    time_band = str(time_band or '').strip()
+    return time_band if time_band else str(programme or '').strip()
+
+
 def make_exact_match_key(medium, station, day, programme='', time_band='') -> str:
     """Build the exact key from medium, station, day, and time band.
 
     Programme is the fallback slot identifier for sources that do not
     provide a separate time-band value.
     """
-    slot = time_band if str(time_band or '').strip() else programme
+    slot = effective_slot(programme, time_band)
     return '|'.join([
         normalize_medium(medium),
         normalize_station(station),

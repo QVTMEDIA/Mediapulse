@@ -19,6 +19,7 @@ import grp_calculator as calc
 import pandas as pd
 
 from .matching import (
+    effective_slot,
     is_time_band_range,
     make_exact_match_key,
     make_match_key,
@@ -336,7 +337,15 @@ def compute_matches(
     for rating in rating_records:
         key = make_exact_match_key(rating.medium, rating.station, rating.day, rating.programme, rating.time_band)
         ratings_by_key.setdefault(key, rating)  # highest-priority (then newest-attached) dataset wins on duplicate keys
-        if is_time_band_range(rating.time_band):
+        # effective_slot(), not rating.time_band directly: a diary with no
+        # distinct Programme column (see grp_calculator.
+        # resolve_effective_programme) carries its time-band range in
+        # `programme` instead, leaving `time_band` empty -- checking the
+        # bare field here missed every such rating, so a spend row's exact
+        # airtime (e.g. "00:37:49") never found the hourly bucket it
+        # actually falls inside (e.g. "00:00:00-01:00:00") and fell through
+        # to 'unmatched' even though station/day/medium all genuinely agreed.
+        if is_time_band_range(effective_slot(rating.programme, rating.time_band)):
             slot_key = (normalize_medium(rating.medium), normalize_station(rating.station), normalize_day(rating.day))
             ratings_by_slot.setdefault(slot_key, []).append(rating)
 
@@ -349,10 +358,11 @@ def compute_matches(
         rating = ratings_by_key.get(key)
         if rating is None:
             slot_key = (normalize_medium(activity.medium), normalize_station(activity.station), normalize_day(activity.day))
+            activity_slot = effective_slot(activity.programme, activity.time_band)
             rating = next(
                 (
                     candidate for candidate in ratings_by_slot.get(slot_key, [])
-                    if time_band_contains(candidate.time_band, activity.time_band)
+                    if time_band_contains(effective_slot(candidate.programme, candidate.time_band), activity_slot)
                 ),
                 None,
             )

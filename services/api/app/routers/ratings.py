@@ -1,6 +1,8 @@
+import csv
+import io
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import ValidationError
 
@@ -350,6 +352,44 @@ def list_all_ratings_dataset_rows(
     if records is None:
         raise HTTPException(status_code=404, detail='Ratings dataset not found')
     return [_row_to_out(record) for record in records]
+
+
+@router.get('/ratings-datasets/{ratings_dataset_id}/download')
+def download_ratings_dataset(
+    ratings_dataset_id: str,
+    repo: RatingsRepository = Depends(get_ratings_repository),
+):
+    """A CSV reconstruction of this dataset's stored rows for a user to
+    save locally -- not the original uploaded file, which is never kept
+    (parsing.py only persists the parsed rows, not the source bytes).
+    Same columns as the Ratings Library's own rows table, so what
+    downloads matches what's already on screen. Plain CSV, same
+    reasoning as routers/matches.py's match-report export: one flat
+    table, no formatting/multi-sheet structure worth the openpyxl
+    workbook-building machinery that only build_workbook() needs."""
+    dataset = repo.get_dataset(ratings_dataset_id)
+    if dataset is None:
+        raise HTTPException(status_code=404, detail='Ratings dataset not found')
+    records = repo.list_all_rows(ratings_dataset_id)
+    if records is None:
+        raise HTTPException(status_code=404, detail='Ratings dataset not found')
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(['Medium', 'Station', 'Day', 'Programme', 'Time Band', 'Rating', 'Region', 'State', 'Week', 'Month'])
+    for row in records:
+        writer.writerow([
+            row.medium, row.station, row.day, row.programme, row.time_band,
+            row.rating, row.region, row.state, row.week, row.month,
+        ])
+
+    safe_name = ''.join(c if c.isalnum() or c in ' -_' else '_' for c in _dataset_label(dataset)).strip() or 'ratings'
+    file_name = f'{safe_name.replace(" ", "_")}.csv'
+    return Response(
+        content=buffer.getvalue(),
+        media_type='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{file_name}"'},
+    )
 
 
 def _dataset_label(dataset: RatingsDatasetRecord) -> str:

@@ -333,6 +333,25 @@ def test_upload_ratings_file_with_only_a_timeband_column_still_maps(client):
     assert sorted(row['rating'] for row in rows) == [0.16, 0.92]
 
 
+def test_download_ratings_dataset_returns_a_csv_reconstruction(client):
+    response = _upload_ratings(client, provider='Nielsen', period='Q1 2026')
+    dataset_id = response.json()['ratingsDatasetId']
+
+    download = client.get(f'/api/ratings-datasets/{dataset_id}/download')
+    assert download.status_code == 200
+    assert download.headers['content-type'].startswith('text/csv')
+    assert 'attachment' in download.headers['content-disposition']
+    lines = download.text.strip().splitlines()
+    assert lines[0] == 'Medium,Station,Day,Programme,Time Band,Rating,Region,State,Week,Month'
+    assert len(lines) == 3  # header + 2 rows
+    assert any('TVC' in line for line in lines[1:])
+
+
+def test_download_unknown_ratings_dataset_404s(client):
+    response = client.get('/api/ratings-datasets/does-not-exist/download')
+    assert response.status_code == 404
+
+
 def test_upload_ratings_file_parses_real_spreadsheet(client):
     response = _upload_ratings(client, provider='Nielsen', period='Q1 2026')
     assert response.status_code == 201

@@ -1,8 +1,9 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { AlertTriangle, ChevronDown, ChevronUp, Database } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
+import { AlertTriangle, ChevronDown, ChevronUp, Database, Download } from 'lucide-react';
 import {
   ApiError,
   attachRatingsDataset,
+  downloadRatingsDataset,
   getRatingsUploadJob,
   listMappingTemplates,
   listProjectRatingsDatasets,
@@ -78,6 +79,22 @@ function RatingsDatasetRow({
   onMoveDown?: () => void;
   reordering?: boolean;
 }) {
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  async function handleDownload(event: MouseEvent) {
+    event.stopPropagation();
+    setIsDownloading(true);
+    try {
+      const safeName = (dataset.provider || 'ratings').replace(/[^a-zA-Z0-9 _-]/g, '').trim().replace(/\s+/g, '_');
+      await downloadRatingsDataset(dataset.ratingsDatasetId, `${safeName || 'ratings'}.csv`);
+    } catch {
+      // Best-effort -- a failed download isn't worth its own error banner
+      // on this row; the user can just try again.
+    } finally {
+      setIsDownloading(false);
+    }
+  }
+
   return (
     <div
       className={[
@@ -142,6 +159,16 @@ function RatingsDatasetRow({
       <span className={dataset.status === 'Ready' ? 'status status-complete' : 'status status-review'}>
         {dataset.status}
       </span>
+      <button
+        type="button"
+        className="icon-button dataset-row-download"
+        title="Download this dataset's rows as a CSV"
+        aria-label="Download this dataset's rows as a CSV"
+        disabled={isDownloading}
+        onClick={handleDownload}
+      >
+        <Download size={15} aria-hidden />
+      </button>
     </div>
   );
 }

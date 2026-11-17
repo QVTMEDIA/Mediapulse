@@ -487,6 +487,12 @@ export function listRatingsLibrary(): Promise<RatingsDataset[]> {
   return request<RatingsDataset[]>('/api/ratings-datasets');
 }
 
+// A CSV reconstruction of the dataset's stored rows -- not the original
+// uploaded file, which is never kept (see services/api/app/parsing.py).
+export function downloadRatingsDataset(ratingsDatasetId: string, suggestedFileName: string): Promise<void> {
+  return downloadFile(`/api/ratings-datasets/${ratingsDatasetId}/download`, suggestedFileName);
+}
+
 export function listProjectRatingsDatasets(projectId: string): Promise<RatingsDataset[]> {
   return request<RatingsDataset[]>(`/api/projects/${projectId}/ratings-datasets`);
 }

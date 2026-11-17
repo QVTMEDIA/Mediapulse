@@ -957,12 +957,12 @@ button:disabled {
 
 .dataset-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) 72px 72px auto;
+  grid-template-columns: minmax(0, 1.6fr) 72px 72px auto 44px;
   align-items: center;
 }
 
 .dataset-row.dataset-row-with-priority {
-  grid-template-columns: 40px minmax(0, 1.6fr) 72px 72px auto;
+  grid-template-columns: 40px minmax(0, 1.6fr) 72px 72px auto 44px;
 }
 
 .dataset-priority {
@@ -987,6 +987,13 @@ button:disabled {
   width: 20px;
   min-height: 16px;
   padding: 0;
+}
+
+.dataset-row-download {
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+  justify-self: end;
 }
 
 .dataset-row-title {

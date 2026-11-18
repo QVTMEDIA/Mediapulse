@@ -329,6 +329,33 @@ def test_compute_matches_exact_fallback_finds_range_carried_in_programme():
     assert result[0].matched_rating_id == 'rating-bauchi'
 
 
+def test_compute_matches_suggests_a_rating_whose_range_lives_only_in_programme():
+    # Sibling regression to test_compute_matches_exact_fallback_finds_range_
+    # carried_in_programme above, but for a station that can only ever
+    # resolve via the fuzzy suggestion tier (no alias set up, and the two
+    # names don't normalize-equal) -- see tests/test_grp_calculator.py's
+    # test_unmatched_suggestions_time_overlap_works_when_time_band_column_
+    # is_empty for the underlying bug this guards against: a rating's
+    # time-band range carried in `programme` (Time Band genuinely empty)
+    # used to silently score 0 time-overlap for every candidate, leaving a
+    # real near-match rating stuck at 'unmatched' instead of surfaced as a
+    # lower-confidence 'suggested' match for a human to confirm.
+    activity = _media_activity(
+        medium='Terrestrial TV', station='TVC LAGOS', day='Wednesday',
+        programme='ROS', time_band='09:33:04',
+    )
+    rating = _rating_row(
+        'rating-tvc', medium='TV', station='Lagos, TV Continental (TVC E)', day='Wed',
+        programme='09:00:00-10:00:00', time_band='', rating=0.12,
+    )
+
+    result = compute_matches([activity], [rating])
+
+    assert len(result) == 1
+    assert result[0].match_status == 'suggested'
+    assert result[0].matched_rating_id == 'rating-tvc'
+
+
 def test_compute_matches_does_not_confuse_distinct_tv_channel_numbers():
     # Regression: a real match report showed "NTA 10 LAGOS" spend rows on
     # one day correctly matching "Lagos, NTA Channel 10 Lagos" (confidence

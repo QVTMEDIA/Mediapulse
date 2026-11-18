@@ -329,6 +329,37 @@ def test_compute_matches_exact_fallback_finds_range_carried_in_programme():
     assert result[0].matched_rating_id == 'rating-bauchi'
 
 
+def test_compute_matches_does_not_confuse_distinct_tv_channel_numbers():
+    # Regression: a real match report showed "NTA 10 LAGOS" spend rows on
+    # one day correctly matching "Lagos, NTA Channel 10 Lagos" (confidence
+    # 'exact') while the identical station on a different day silently
+    # matched "Lagos, NTA 2 Channel 5 Lagos" instead -- a different real
+    # station with a different real rating, reported with the same full
+    # confidence. normalize_station_for_match() stripped the distinguishing
+    # channel number (10 vs 2/5) from both names, so they collapsed to the
+    # same key -- see test_grp_calculator.py's
+    # test_station_normalization_keeps_distinct_tv_channel_numbers for the
+    # normalization-level regression this one exercises end to end.
+    activity = _media_activity(
+        medium='TV', station='NTA Channel 10 Lagos', day='Thursday',
+        programme='ROS', time_band='20:11:08',
+    )
+    correct_rating = _rating_row(
+        'rating-channel-10', medium='TV', station='Lagos, NTA Channel 10 Lagos', day='Thu',
+        programme='20:00:00-21:00:00', time_band='', rating=0.10,
+    )
+    decoy_rating = _rating_row(
+        'rating-channel-2-5', medium='TV', station='Lagos, NTA 2 Channel 5 Lagos', day='Thu',
+        programme='20:00:00-21:00:00', time_band='', rating=0.03,
+    )
+
+    result = compute_matches([activity], [decoy_rating, correct_rating])
+
+    assert len(result) == 1
+    assert result[0].match_status == 'exact'
+    assert result[0].matched_rating_id == 'rating-channel-10'
+
+
 def test_compute_matches_tolerates_medium_spelling_differences():
     # Regression: a real ratings/spend upload pair used "TV" on the ratings
     # side and "Terrestrial TV" on the spend side for the identical medium.
@@ -404,10 +435,36 @@ def test_compute_matches_station_alias_also_resolves_the_ratings_side():
     assert result[0].matched_rating_id == 'rating-tvc'
 
 
-@pytest.mark.parametrize('station', ['Lagos NTA Channel 10', 'Lagos, NTA Channel 10', 'NTA Lagos'])
+@pytest.mark.parametrize('station', ['Lagos NTA Channel 10', 'Lagos, NTA Channel 10'])
 def test_nta_channel_label_and_word_order_match(station):
-    result = compute_matches([_media_activity(station='NTA Lagos')], [_rating_row('nta', station=station)], include_suggestions=False)
+    # "Channel " and word order are pure formatting and must still bridge,
+    # as long as the channel NUMBER itself agrees on both sides.
+    result = compute_matches(
+        [_media_activity(station='NTA 10 Lagos')], [_rating_row('nta', station=station)], include_suggestions=False,
+    )
     assert result[0].matched_rating_id == 'nta'
+
+
+def test_nta_bare_name_matches_bare_rating():
+    result = compute_matches(
+        [_media_activity(station='NTA Lagos')], [_rating_row('nta', station='NTA Lagos')], include_suggestions=False,
+    )
+    assert result[0].matched_rating_id == 'nta'
+
+
+def test_nta_bare_name_no_longer_bridges_to_a_numbered_channel():
+    # Regression (see test_compute_matches_does_not_confuse_distinct_tv_
+    # channel_numbers below for the full real-data scenario this guards):
+    # a spend row with no channel number at all is genuinely ambiguous once
+    # a city has more than one distinctly-numbered station, so it must no
+    # longer silently exact-match whichever specifically-numbered station
+    # happens to be in the ratings list -- it used to, back when the
+    # channel number itself was stripped as if it were just formatting.
+    result = compute_matches(
+        [_media_activity(station='NTA Lagos')], [_rating_row('nta', station='Lagos NTA Channel 10')],
+        include_suggestions=False,
+    )
+    assert result[0].match_status == 'unmatched'
 
 
 def test_nta_different_city_does_not_match():

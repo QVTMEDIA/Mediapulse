@@ -309,6 +309,27 @@ class GrpCalculatorTests(unittest.TestCase):
             calc.normalize_station_for_match('SPLASH FM IBADAN'),
         )
 
+    def test_station_normalization_keeps_distinct_tv_channel_numbers(self):
+        # Regression: two real, separately-rated NTA stations -- "NTA
+        # Channel 10 Lagos" and "NTA 2 Channel 5 Lagos" -- both normalized
+        # to the identical token set once the frequency-stripping pattern
+        # (meant for a decimal radio frequency like "102.9 FM") also ate
+        # their plain-integer TV channel numbers. compute_matches() then
+        # had no way to tell them apart: whichever rating happened to land
+        # in its lookup dict first silently won every match for both
+        # stations' spend rows, reported as a full-confidence 'exact' match
+        # regardless of which station a spot actually aired on.
+        self.assertNotEqual(
+            calc.normalize_station_for_match('Lagos, NTA Channel 10 Lagos'),
+            calc.normalize_station_for_match('Lagos, NTA 2 Channel 5 Lagos'),
+        )
+        # The "Channel " word itself is still just formatting noise -- two
+        # spellings of the *same* channel number must still agree.
+        self.assertEqual(
+            calc.normalize_station_for_match('Lagos, NTA Channel 10 Lagos'),
+            calc.normalize_station_for_match('NTA 10 LAGOS'),
+        )
+
     def test_unmatched_suggestions_skip_incompatible_time_bands(self):
         ratings = pd.DataFrame({
             'Medium': ['Radio'],

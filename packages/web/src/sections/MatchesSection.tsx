@@ -462,6 +462,53 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
     }
   }, [project, refreshSignal, refresh, refreshAssignableRatings]);
 
+  // Patches already-known results into local state directly, instead of
+  // calling refresh() (a full re-run of the 'ensure' job plus a fresh
+  // fetch of every media-activity row, every match, and every matched
+  // rating in the project). That full cycle is the right tool after an
+  // action that can genuinely change OTHER rows too (see handleCorrect's
+  // saveAlias branch below), but confirming or rejecting a single row never
+  // does -- paying for a whole-project reload every single click was the
+  // real reason that felt slow on any project with more than a handful of
+  // rows. Each updated record already comes straight from the correct/
+  // reject endpoint's own response, so this is never stale.
+  function applyMatchUpdates(updatedById: Map<string, RatingMatch>) {
+    if (!project || updatedById.size === 0) return;
+    const projectId = project.projectId;
+    setMatches((current) => {
+      const next = current.map((existing) => updatedById.get(existing.ratingMatchId) ?? existing);
+      const cached = matchesCache.get(projectId);
+      if (cached) matchesCache.set(projectId, { ...cached, matches: next });
+      return next;
+    });
+    // A newly-assigned/confirmed rating might not be in ratingsById yet --
+    // that map only ever held the ratings matches already pointed at (see
+    // its own declaration comment) -- but it's guaranteed to already be in
+    // assignableRatingsById, the full attached-library map the combobox/
+    // suggestion itself was built from.
+    const missingRatingIds = new Set<string>();
+    for (const updated of updatedById.values()) {
+      if (updated.matchedRatingId && !ratingsById.has(updated.matchedRatingId)) missingRatingIds.add(updated.matchedRatingId);
+    }
+    if (missingRatingIds.size > 0) {
+      setRatingsById((current) => {
+        const next = new Map(current);
+        let changed = false;
+        for (const ratingRowId of missingRatingIds) {
+          const fromLibrary = assignableRatingsById.get(ratingRowId);
+          if (fromLibrary) {
+            next.set(ratingRowId, fromLibrary);
+            changed = true;
+          }
+        }
+        if (!changed) return current;
+        const cached = matchesCache.get(projectId);
+        if (cached) matchesCache.set(projectId, { ...cached, ratingsById: next });
+        return next;
+      });
+    }
+  }
+
   async function handleCorrect(
     match: RatingMatch, matchedRatingId: string | null, saveAlias?: { aliasName: string; canonicalName: string },
   ) {
@@ -469,15 +516,17 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
     setCorrectingId(match.ratingMatchId);
     setActionError(null);
     try {
-      await correctMatch(project.projectId, match.ratingMatchId, matchedRatingId);
+      const updated = await correctMatch(project.projectId, match.ratingMatchId, matchedRatingId);
       // Best-effort, and deliberately after the confirm above succeeds,
       // not before or in parallel -- this spot's own match is the action
       // the user asked for; remembering the station pairing for next time
       // is a bonus that must never block or appear to fail that action.
+      let aliasSaved = false;
       if (saveAlias) {
         try {
           await createStationAlias(saveAlias.aliasName, saveAlias.canonicalName);
           matchesCache.clear();
+          aliasSaved = true;
         } catch (error) {
           setActionError(error instanceof ApiError ? `Match confirmed, but couldn't save the station alias: ${error.message}` : "Match confirmed, but couldn't save the station alias.");
         }
@@ -492,7 +541,12 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
         delete next[match.ratingMatchId];
         return next;
       });
-      await refresh(project.projectId, refreshSignal);
+      // A newly-saved alias can change how OTHER rows in this same project
+      // resolve too (any other spend row for that station), not just this
+      // one -- that's worth the cost of a full reload to reflect right
+      // away. Otherwise, only this one row changed; patch it locally.
+      if (aliasSaved) await refresh(project.projectId, refreshSignal);
+      else applyMatchUpdates(new Map([[updated.ratingMatchId, updated]]));
     } catch (error) {
       setActionError(error instanceof ApiError ? error.message : 'Could not update that match.');
     } finally {
@@ -510,13 +564,13 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
     setCorrectingId(match.ratingMatchId);
     setActionError(null);
     try {
-      await rejectMatch(project.projectId, match.ratingMatchId);
+      const updated = await rejectMatch(project.projectId, match.ratingMatchId);
       setSaveAliasSelections((current) => {
         const next = { ...current };
         delete next[match.ratingMatchId];
         return next;
       });
-      await refresh(project.projectId, refreshSignal);
+      applyMatchUpdates(new Map([[updated.ratingMatchId, updated]]));
     } catch (error) {
       setActionError(error instanceof ApiError ? error.message : 'Could not reject that match.');
     } finally {
@@ -549,6 +603,7 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
     setBulkProgress({ done: 0, total: ids.length });
     setActionError(null);
     let failureCount = 0;
+    const updatedById = new Map<string, RatingMatch>();
     // Sequential, not Promise.all -- this backend runs single-core on a
     // small Render instance (see db.py/CHANGELOG precedent elsewhere in
     // this codebase); a burst of dozens of concurrent requests risks
@@ -558,8 +613,10 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
       const match = matches.find((candidate) => candidate.ratingMatchId === ratingMatchId);
       try {
         if (match) {
-          if (accept) await correctMatch(project.projectId, ratingMatchId, match.matchedRatingId);
-          else await rejectMatch(project.projectId, ratingMatchId);
+          const updated = accept
+            ? await correctMatch(project.projectId, ratingMatchId, match.matchedRatingId)
+            : await rejectMatch(project.projectId, ratingMatchId);
+          updatedById.set(updated.ratingMatchId, updated);
         }
       } catch {
         failureCount += 1;
@@ -572,7 +629,13 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
     if (failureCount > 0) {
       setActionError(`${failureCount} of ${ids.length} selected match${ids.length === 1 ? '' : 'es'} could not be updated.`);
     }
-    await refresh(project.projectId, refreshSignal);
+    // Same reasoning as handleCorrect/handleReject -- every result here is
+    // already known from each row's own response, so patch them in rather
+    // than paying for a full-project reload on top of the N requests this
+    // already made. Bulk actions never touch aliases (see this screen's own
+    // "Select all"/"Confirm selected" docs), so there's no wider-impact case
+    // to account for here the way handleCorrect's saveAlias branch does.
+    applyMatchUpdates(updatedById);
   }
 
   async function handleRecompute(mode: MatchJobMode) {

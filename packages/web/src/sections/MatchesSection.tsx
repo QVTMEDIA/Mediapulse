@@ -11,6 +11,7 @@ import {
   listMediaActivity,
   listProjectRatingsDatasets,
   listRatingRows,
+  rejectMatch,
   startMatchJob,
 } from '../api/client';
 import type { MatchJobMode } from '../api/client';
@@ -499,6 +500,30 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
     }
   }
 
+  // Distinct from handleCorrect(match, null): that confirms "no rating
+  // applies here" permanently ('manual', never revisited). This resets the
+  // row to 'unmatched' instead, so Fast recompute/Full scan can reconsider
+  // it -- the right semantics for rejecting a specific suggestion that
+  // turned out wrong (see rejectMatch's own doc comment).
+  async function handleReject(match: RatingMatch) {
+    if (!project) return;
+    setCorrectingId(match.ratingMatchId);
+    setActionError(null);
+    try {
+      await rejectMatch(project.projectId, match.ratingMatchId);
+      setSaveAliasSelections((current) => {
+        const next = { ...current };
+        delete next[match.ratingMatchId];
+        return next;
+      });
+      await refresh(project.projectId, refreshSignal);
+    } catch (error) {
+      setActionError(error instanceof ApiError ? error.message : 'Could not reject that match.');
+    } finally {
+      setCorrectingId(null);
+    }
+  }
+
   // Selection is per-project state living in this component, not the
   // caches above -- clear it whenever the project (or its match list)
   // changes under it, so a stale ratingMatchId from a previous project
@@ -532,7 +557,10 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
     for (const ratingMatchId of ids) {
       const match = matches.find((candidate) => candidate.ratingMatchId === ratingMatchId);
       try {
-        if (match) await correctMatch(project.projectId, ratingMatchId, accept ? match.matchedRatingId : null);
+        if (match) {
+          if (accept) await correctMatch(project.projectId, ratingMatchId, match.matchedRatingId);
+          else await rejectMatch(project.projectId, ratingMatchId);
+        }
       } catch {
         failureCount += 1;
       }
@@ -823,7 +851,7 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
                     type="button"
                     className="secondary-button"
                     disabled={correctingId === match.ratingMatchId || bulkProcessing}
-                    onClick={() => handleCorrect(match, null)}
+                    onClick={() => handleReject(match)}
                   >
                     Reject
                   </button>

@@ -467,6 +467,16 @@ export function correctMatch(projectId: string, ratingMatchId: string, matchedRa
   });
 }
 
+// Resets a match to 'unmatched' so Fast recompute/Full scan can reconsider
+// it -- NOT the same as correctMatch(..., null), which permanently marks
+// 'manual' (a confirmed "no rating applies here" decision that recompute
+// never revisits). Use this for "Reject" on a suggested row; use
+// correctMatch(..., null) only where the user is explicitly confirming no
+// rating will ever apply.
+export function rejectMatch(projectId: string, ratingMatchId: string): Promise<RatingMatch> {
+  return request<RatingMatch>(`/api/projects/${projectId}/matches/${ratingMatchId}/reject`, { method: 'POST' });
+}
+
 // Retries 'unmatched' rows only (exact/suggested/manual are left alone) —
 // useful after attaching ratings to a project that already had matches computed.
 export function recomputeMatches(projectId: string): Promise<RatingMatch[]> {

@@ -266,6 +266,13 @@ def correct_match(
     current_user: UserRecord = Depends(get_current_user),
     activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
 ):
+    """Always sets 'manual', even with matchedRatingId=null -- a deliberate,
+    final human decision ("I've confirmed no rating applies here"), which is
+    why Fast recompute/Full scan and the automatic alias-refresh never touch
+    a 'manual' row again. That's the wrong tool for the Matches screen's
+    "Reject" button on a *suggested* row, which means "this particular guess
+    is wrong, keep trying" rather than "stop trying forever" -- see POST
+    .../reject below for that, instead of reusing this route with a null id."""
     project = projects_repo.get_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail='Project not found')
@@ -287,6 +294,39 @@ def correct_match(
     activity_repo.record(
         actor_id=current_user.id, actor_name=current_user.display_name, action='match.corrected',
         summary=f'{current_user.display_name} {verb} in project "{project.name}".',
+        project_id=project.id, project_name=project.name,
+    )
+    return _to_out(record)
+
+
+@router.post('/{rating_match_id}/reject', response_model=RatingMatchOut)
+def reject_match(
+    project_id: str,
+    rating_match_id: str,
+    matches_repo: MatchesRepository = Depends(get_matches_repository),
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+    current_user: UserRecord = Depends(get_current_user),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
+):
+    """Resets a match to 'unmatched' -- for the Matches screen's "Reject"
+    button on a *suggested* row, which means "this particular guess is
+    wrong, keep trying" rather than POST .../correct's null-id "I've
+    confirmed no rating applies here, stop trying forever". A rejected row
+    is immediately eligible again for Fast recompute/Full scan and the
+    automatic alias-refresh that runs whenever matches are listed, exactly
+    like a row that was never matched at all -- unlike a 'manual' row
+    (including one this same raw mechanism used to produce before this
+    route existed), which both of those explicitly skip forever. No request
+    body: unlike /correct, there's never a rating id to validate here."""
+    project = projects_repo.get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    if matches_repo.get_match_for_project(project_id, rating_match_id) is None:
+        raise HTTPException(status_code=404, detail='Match not found for this project')
+    record = matches_repo.update_match(rating_match_id, None, 'unmatched', None)
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='match.rejected',
+        summary=f'{current_user.display_name} rejected a suggested match in project "{project.name}".',
         project_id=project.id, project_name=project.name,
     )
     return _to_out(record)

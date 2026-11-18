@@ -1537,6 +1537,71 @@ def test_correct_match_to_null_marks_manually_unmatched(client, project, brand):
     assert body['matchedRatingId'] is None
 
 
+def test_reject_match_resets_to_unmatched(client, project, brand):
+    # Regression: the Matches screen's "Reject" button on a suggested row
+    # used to call POST .../correct with matchedRatingId=null, which this
+    # same test file's test_correct_match_to_null_marks_manually_unmatched
+    # shows sets 'manual' -- a permanent "no rating applies here" decision
+    # that Fast recompute/Full scan and the alias-refresh mechanism never
+    # revisit (see test_recompute_never_touches_manual_corrections below).
+    # A rejected suggestion needs the opposite: back in the pool, eligible
+    # to be reconsidered. POST .../reject is the dedicated route for that.
+    _upload(client, project['projectId'], brand['brandId'])
+    dataset = _attach_ratings(client, project['projectId'])
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    target = matches[0]
+    rows = client.get(f"/api/ratings-datasets/{dataset['ratingsDatasetId']}/rows").json()['rows']
+    client.post(
+        f"/api/projects/{project['projectId']}/matches/{target['ratingMatchId']}/correct",
+        json={'matchedRatingId': rows[0]['ratingRowId']},
+    )
+
+    response = client.post(f"/api/projects/{project['projectId']}/matches/{target['ratingMatchId']}/reject")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body['matchStatus'] == 'unmatched'
+    assert body['matchedRatingId'] is None
+    assert body['matchConfidence'] is None
+    assert body['correctedAt'] is None
+
+
+def test_reject_match_is_reconsidered_by_recompute(client, project, brand):
+    _upload(client, project['projectId'], brand['brandId'])
+    matches = client.get(f"/api/projects/{project['projectId']}/matches").json()
+    target = matches[0]
+    assert target['matchStatus'] == 'unmatched'  # no ratings attached yet
+
+    # Manually mark it 'no rating applies here' (the same shape a stale,
+    # since-fixed wrong suggestion would have been corrected away from),
+    # then reject it.
+    client.post(
+        f"/api/projects/{project['projectId']}/matches/{target['ratingMatchId']}/correct",
+        json={'matchedRatingId': None},
+    )
+    reject_response = client.post(f"/api/projects/{project['projectId']}/matches/{target['ratingMatchId']}/reject")
+    assert reject_response.json()['matchStatus'] == 'unmatched'
+
+    # Attach ratings covering it, then recompute -- a 'manual' row (its
+    # state just before reject) is explicitly never touched by this; a
+    # rejected one must be.
+    _attach_ratings(client, project['projectId'])
+    recompute_response = client.post(f"/api/projects/{project['projectId']}/matches/recompute")
+    refreshed = next(m for m in recompute_response.json() if m['ratingMatchId'] == target['ratingMatchId'])
+    assert refreshed['matchStatus'] in ('exact', 'suggested')
+
+
+def test_reject_missing_match_returns_404(client, project, brand):
+    _upload(client, project['projectId'], brand['brandId'])
+    response = client.post(f"/api/projects/{project['projectId']}/matches/does-not-exist/reject")
+    assert response.status_code == 404
+
+
+def test_reject_rejects_missing_project(client):
+    response = client.post('/api/projects/does-not-exist/matches/some-id/reject')
+    assert response.status_code == 404
+
+
 def test_correct_match_rejects_rating_not_attached_to_project(client, project, brand):
     _upload(client, project['projectId'], brand['brandId'])
     matches = client.get(f"/api/projects/{project['projectId']}/matches").json()

@@ -185,13 +185,21 @@ class PostgresMatchesRepository(_AliasRefreshMixin):
         return _row_to_record(row) if row else None
 
     def update_match(self, rating_match_id, matched_rating_id, match_status, match_confidence):
-        # Used by /recompute — sets an automatically-computed result, unlike
-        # correct_match() which always forces 'manual' and stamps corrected_at.
+        # Used by /recompute and /reject — sets an automatically-computed
+        # (or reset-to-unmatched) result, unlike correct_match() which always
+        # forces 'manual' and stamps corrected_at. Always clears corrected_at
+        # too: every other caller only ever targets a row that's already
+        # corrected_at IS NULL (see update_matches_bulk's own WHERE clause),
+        # so this is a no-op for them -- but /reject targets a row that CAN
+        # have a stale corrected_at (a previously-manual row reset back to
+        # unmatched), and leaving it set would wrongly exclude that row from
+        # refresh_alias_matches' own "match.corrected_at is None" check, even
+        # though its match_status is correctly 'unmatched' again.
         with get_connection() as conn:
             row = conn.execute(
                 '''
                 UPDATE rating_matches
-                SET matched_rating_id = %s, match_status = %s, match_confidence = %s
+                SET matched_rating_id = %s, match_status = %s, match_confidence = %s, corrected_at = NULL
                 WHERE id = %s
                 RETURNING *
                 ''',
@@ -297,6 +305,7 @@ class InMemoryMatchesRepository(_AliasRefreshMixin):
         record.matched_rating_id = matched_rating_id
         record.match_status = match_status
         record.match_confidence = match_confidence
+        record.corrected_at = None  # see the Postgres implementation's comment
         return record
 
     def update_matches_bulk(self, updates):

@@ -1330,6 +1330,12 @@ h3.subsection {
   margin-bottom: 6px;
 }
 
+.match-row-main input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
 .match-confidence {
   font-size: 12px;
   font-weight: 700;

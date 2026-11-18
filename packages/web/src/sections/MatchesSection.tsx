@@ -337,6 +337,12 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
   const [matchFilter, setMatchFilter] = useState<MatchFilter>('all');
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  // Bulk review of suggested matches -- selection spans every suggested
+  // match, not just the current page (see useLimitedRows/ROW_PAGE_SIZE),
+  // so "select all" can act on all of them in one go even across pages.
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
 
   // Tracks whichever project is current *right now*, updated synchronously
   // on every project change -- an in-flight fetch started for a project the
@@ -491,6 +497,54 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
     } finally {
       setCorrectingId(null);
     }
+  }
+
+  // Selection is per-project state living in this component, not the
+  // caches above -- clear it whenever the project (or its match list)
+  // changes under it, so a stale ratingMatchId from a previous project
+  // or a row that just got confirmed/rejected some other way never
+  // lingers as "selected".
+  useEffect(() => {
+    setBulkSelected(new Set());
+  }, [project?.projectId]);
+
+  function toggleBulkSelected(ratingMatchId: string) {
+    setBulkSelected((current) => {
+      const next = new Set(current);
+      if (next.has(ratingMatchId)) next.delete(ratingMatchId);
+      else next.add(ratingMatchId);
+      return next;
+    });
+  }
+
+  async function handleBulkCorrect(accept: boolean) {
+    if (!project || bulkSelected.size === 0) return;
+    const ids = Array.from(bulkSelected);
+    setBulkProcessing(true);
+    setBulkProgress({ done: 0, total: ids.length });
+    setActionError(null);
+    let failureCount = 0;
+    // Sequential, not Promise.all -- this backend runs single-core on a
+    // small Render instance (see db.py/CHANGELOG precedent elsewhere in
+    // this codebase); a burst of dozens of concurrent requests risks
+    // starving whatever else is sharing that one core, where one-at-a-time
+    // with a visible progress count is a small, predictable cost instead.
+    for (const ratingMatchId of ids) {
+      const match = matches.find((candidate) => candidate.ratingMatchId === ratingMatchId);
+      try {
+        if (match) await correctMatch(project.projectId, ratingMatchId, accept ? match.matchedRatingId : null);
+      } catch {
+        failureCount += 1;
+      }
+      setBulkProgress((current) => (current ? { ...current, done: current.done + 1 } : current));
+    }
+    setBulkSelected(new Set());
+    setBulkProcessing(false);
+    setBulkProgress(null);
+    if (failureCount > 0) {
+      setActionError(`${failureCount} of ${ids.length} selected match${ids.length === 1 ? '' : 'es'} could not be updated.`);
+    }
+    await refresh(project.projectId, refreshSignal);
   }
 
   async function handleRecompute(mode: MatchJobMode) {
@@ -662,7 +716,54 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
             <h2>Needs review</h2>
             <p>Fuzzy-matched spots — confirm the suggestion or reject it</p>
           </div>
+          {suggested.length > 0 && (
+            <div className="form-actions">
+              <label className="checkbox-field">
+                <input
+                  type="checkbox"
+                  checked={suggested.length > 0 && bulkSelected.size === suggested.length}
+                  ref={(element) => {
+                    if (element) element.indeterminate = bulkSelected.size > 0 && bulkSelected.size < suggested.length;
+                  }}
+                  disabled={bulkProcessing}
+                  onChange={(event) =>
+                    setBulkSelected(event.target.checked ? new Set(suggested.map((match) => match.ratingMatchId)) : new Set())
+                  }
+                />
+                Select all ({suggested.length})
+              </label>
+              <button
+                type="button"
+                className="primary-button"
+                disabled={bulkSelected.size === 0 || bulkProcessing}
+                onClick={() => handleBulkCorrect(true)}
+              >
+                {bulkProcessing ? `Confirming… ${bulkProgress?.done ?? 0}/${bulkProgress?.total ?? 0}` : `Confirm selected (${bulkSelected.size})`}
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={bulkSelected.size === 0 || bulkProcessing}
+                onClick={() => handleBulkCorrect(false)}
+              >
+                Reject selected ({bulkSelected.size})
+              </button>
+            </div>
+          )}
         </div>
+        {bulkProcessing && bulkProgress && (
+          <div
+            className="progress-bar"
+            role="progressbar"
+            aria-label="Bulk review progress"
+            aria-valuemin={0}
+            aria-valuemax={bulkProgress.total}
+            aria-valuenow={bulkProgress.done}
+            style={{ marginBottom: 12 }}
+          >
+            <div className="progress-bar-fill" style={{ width: `${(bulkProgress.done / bulkProgress.total) * 100}%` }} />
+          </div>
+        )}
         <div className="match-list">
           {!loading && suggested.length === 0 && <p className="empty-state">Nothing needs review right now.</p>}
           {limitedSuggested.visibleRows.map((match) => {
@@ -677,6 +778,13 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
             return (
               <div className="match-row" key={match.ratingMatchId}>
                 <div className="match-row-main">
+                  <input
+                    type="checkbox"
+                    aria-label="Select this suggestion for bulk review"
+                    checked={bulkSelected.has(match.ratingMatchId)}
+                    disabled={bulkProcessing}
+                    onChange={() => toggleBulkSelected(match.ratingMatchId)}
+                  />
                   <span className={STATUS_CLASS[match.matchStatus]}>{STATUS_LABEL[match.matchStatus]}</span>
                   {match.matchConfidence !== null && (
                     <span className="match-confidence">{Math.round(match.matchConfidence * 100)}% match</span>
@@ -689,7 +797,7 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
                     <input
                       type="checkbox"
                       checked={saveAliasChecked}
-                      disabled={correctingId === match.ratingMatchId}
+                      disabled={correctingId === match.ratingMatchId || bulkProcessing}
                       onChange={(event) =>
                         setSaveAliasSelections((current) => ({ ...current, [match.ratingMatchId]: event.target.checked }))
                       }
@@ -701,7 +809,7 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
                   <button
                     type="button"
                     className="primary-button"
-                    disabled={correctingId === match.ratingMatchId}
+                    disabled={correctingId === match.ratingMatchId || bulkProcessing}
                     onClick={() => handleCorrect(
                       match, match.matchedRatingId,
                       stationsDiffer && saveAliasChecked
@@ -714,7 +822,7 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
                   <button
                     type="button"
                     className="secondary-button"
-                    disabled={correctingId === match.ratingMatchId}
+                    disabled={correctingId === match.ratingMatchId || bulkProcessing}
                     onClick={() => handleCorrect(match, null)}
                   >
                     Reject

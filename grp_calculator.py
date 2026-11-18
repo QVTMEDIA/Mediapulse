@@ -1378,11 +1378,17 @@ def build_validation_summary(media, invalid_ratings=None, report_issues=None, du
 
 # How many same-score candidates a single row is allowed to drag into the
 # station-similarity tie-break below -- see build_unmatched_suggestions'
-# top_k comment for the real-data incident that requires this. Comfortably
+# top_k comment for the real-data incidents that require this. Comfortably
 # above any realistic count of distinct stations airing on one day/medium,
 # while still bounding the per-row token_set_ratio work a pathological
-# group could otherwise demand.
-_TIE_SAFETY_CEILING = 300
+# group could otherwise demand. Raised from an original 300 after a real
+# 497-station radio diary (every one of them reporting a rating for every
+# hour of every day, as a diary normally does) still exceeded it: "HOT FM
+# OWERRI" fell just outside the top 300 by file order for one specific
+# hour, so its genuinely correct, 100%-similar rating never got to compete
+# on station-name similarity at all -- the suggestion silently landed on a
+# wrong station (85.7% similarity) that merely happened to survive the cut.
+_TIE_SAFETY_CEILING = 2000
 
 
 def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_score=0.55, on_progress=None):
@@ -1560,15 +1566,19 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         # in the "same medium and day" tier: every station broadcasting
         # anywhere near a given point in time scores an identical 100, and
         # a real project can have 100+ stations all airing something on the
-        # same day. Reproduced directly against a real project: a spot on
-        # "BCOS TV IBADAN" scored 100 against 9,792 same-day candidates
-        # across every station in the library, and the real BCOS Ibadan
-        # rating lost its spot in the top 15 to whichever 15 unrelated
-        # stations happened to sort first by original candidate order --
-        # station-name similarity (computed below) never got a chance to
-        # break that tie in the right direction. `_TIE_SAFETY_CEILING` caps
-        # how many candidates can win a tie-break this way per row, well
-        # above any real station count, rather than removing the cap
+        # same day -- a real 497-station radio diary routinely ties ALL 497
+        # of them at once for a given hour, since every station reports a
+        # rating for every hour of every day. Reproduced directly against a
+        # real project: a spot on "BCOS TV IBADAN" scored 100 against 9,792
+        # same-day candidates across every station in the library, and the
+        # real BCOS Ibadan rating lost its spot in the top 15 to whichever
+        # 15 unrelated stations happened to sort first by original
+        # candidate order -- station-name similarity (computed below)
+        # never got a chance to break that tie in the right direction.
+        # `_TIE_SAFETY_CEILING` caps how many candidates can win a
+        # tie-break this way per row, well above any real station count
+        # (see that constant's own comment for a second real incident this
+        # raised it to guard against), rather than removing the cap
         # entirely and risking a pathological group making every row
         # re-score its full candidate list for station similarity.
         top_k = min(max(extract_limit, _TIE_SAFETY_CEILING), programme_scores.shape[1])

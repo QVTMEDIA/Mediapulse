@@ -559,6 +559,61 @@ class GrpCalculatorTests(unittest.TestCase):
         self.assertEqual(suggestions.loc[0, 'Suggested Channel / Station'], 'Lagos, TV Continental (TVC E)')
         self.assertEqual(suggestions.loc[0, 'Similarity Score'], 1.0)
 
+    def test_unmatched_suggestions_tie_ceiling_survives_a_large_real_station_count(self):
+        # Regression: a real 497-station radio diary (every station reports
+        # a rating for every hour of every day, as a diary normally does)
+        # ties ALL of them at the same top time-overlap score for any given
+        # hour -- routinely exceeding the old `_TIE_SAFETY_CEILING` of 300,
+        # which truncated the candidate pool by time-overlap score ALONE
+        # before station-name similarity ever got a chance to run. A real,
+        # genuinely correct 100%-similar station ("Imo, Hot FM 98.3 Owerri")
+        # fell just outside that old top-300 cut purely by file order, so
+        # the suggestion silently landed on a textually worse station
+        # (85.7% similar) that merely happened to survive it -- a wrong
+        # match presented with full apparent legitimacy (a Similarity Score
+        # just like any other). Reproduces that shape at a smaller scale:
+        # a textually-wrong candidate placed early, a textually-correct one
+        # placed past the OLD 300-row cutoff, with enough same-scored filler
+        # candidates between them that the old ceiling would have truncated
+        # the pool before ever reaching the correct one.
+        filler_count = 310
+        stations = ['Noise Radio Station %d' % i for i in range(filler_count)]
+        # The correct, textually-near-identical candidate -- placed well
+        # past index 300, same as the real incident's file-order accident.
+        stations.insert(filler_count // 2, 'Imo, Hot FM 98.3 Owerri')
+        # A textually-worse but still plausible candidate, placed early
+        # (within any reasonable cap) so it isn't dropped either -- this is
+        # the one the old 300-cap used to wrongly return instead.
+        stations.insert(5, 'Imo, Echo 100.7 FM, Owerri')
+
+        ratings = pd.DataFrame({
+            'Medium': ['Radio'] * len(stations),
+            'Channel / Station': stations,
+            'Day': ['Sat'] * len(stations),
+            'Programme / Time Band': ['07:00:00-08:00:00'] * len(stations),
+            'Time Band': [''] * len(stations),
+            'Rating (%)': [0.01] * len(stations),
+        })
+        ratings['Match Key'] = calc.make_key(
+            ratings['Medium'], ratings['Channel / Station'], ratings['Day'], ratings['Programme / Time Band']
+        )
+        media = pd.DataFrame({
+            'Brand': ['Brand A'],
+            'Source File': ['spend.xlsx'],
+            'Medium': ['Radio'],
+            'Channel / Station': ['HOT FM OWERRI'],
+            'Day': ['Saturday'],
+            'Programme / Time Band': ['ROS'],
+            'Daypart': ['07:45:20'],
+            'Match Status': ['NO RATING MATCH'],
+            'Match Key': ['RADIO|HOT FM OWERRI|SAT|ROS'],
+        })
+
+        suggestions = calc.build_unmatched_suggestions(media, ratings)
+
+        self.assertEqual(suggestions.loc[0, 'Suggested Channel / Station'], 'Imo, Hot FM 98.3 Owerri')
+        self.assertEqual(suggestions.loc[0, 'Similarity Score'], 1.0)
+
     def test_unmatched_suggestions_break_score_ties_by_original_candidate_order(self):
         # build_unmatched_suggestions scores a whole group of rows against
         # its shared candidate list in one batched rapidfuzz call (see the

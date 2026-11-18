@@ -514,6 +514,51 @@ class GrpCalculatorTests(unittest.TestCase):
 
         self.assertEqual(len(suggestions), 0)
 
+    def test_unmatched_suggestions_time_overlap_works_when_time_band_column_is_empty(self):
+        # Regression: the two tests above both happen to set the ratings
+        # row's separate 'Time Band' column to the SAME range text as its
+        # resolved 'Programme / Time Band' column, which masked a real bug
+        # -- the time-overlap override parsed the range from that literal
+        # 'Time Band' column (candidate[6]) instead of from `choices`, the
+        # already-resolved text it used to detect the range in the first
+        # place. A real diary with no distinct Programme column (see
+        # resolve_effective_programme) leaves 'Time Band' genuinely empty
+        # while the range lives only in 'Programme / Time Band' -- exactly
+        # this shape -- so every candidate silently scored 0 regardless of
+        # real time overlap, and a station whose name doesn't exactly
+        # normalize-match (no alias set up) could never resolve at all,
+        # not even as a lower-confidence 'suggested' match for a human to
+        # confirm. Reproduces a real project: "TVC LAGOS" (spend) vs
+        # "Lagos, TV Continental (TVC E)" (ratings).
+        ratings = pd.DataFrame({
+            'Medium': ['TV'],
+            'Channel / Station': ['Lagos, TV Continental (TVC E)'],
+            'Day': ['Wed'],
+            'Programme / Time Band': ['09:00:00-10:00:00'],
+            'Time Band': [''],
+            'Rating (%)': [0.12],
+        })
+        ratings['Match Key'] = calc.make_key(
+            ratings['Medium'], ratings['Channel / Station'], ratings['Day'], ratings['Programme / Time Band']
+        )
+        media = pd.DataFrame({
+            'Brand': ['Brand A'],
+            'Source File': ['spend.xlsx'],
+            'Medium': ['Terrestrial TV'],
+            'Channel / Station': ['TVC LAGOS'],
+            'Day': ['Wednesday'],
+            'Programme / Time Band': ['ROS'],
+            'Daypart': ['09:33:04'],
+            'Match Status': ['NO RATING MATCH'],
+            'Match Key': ['TV|TVC LAGOS|WED|ROS'],
+        })
+
+        suggestions = calc.build_unmatched_suggestions(media, ratings)
+
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions.loc[0, 'Suggested Channel / Station'], 'Lagos, TV Continental (TVC E)')
+        self.assertEqual(suggestions.loc[0, 'Similarity Score'], 1.0)
+
     def test_unmatched_suggestions_break_score_ties_by_original_candidate_order(self):
         # build_unmatched_suggestions scores a whole group of rows against
         # its shared candidate list in one batched rapidfuzz call (see the

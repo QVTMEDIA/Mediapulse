@@ -1530,7 +1530,18 @@ def build_unmatched_suggestions(media, ratings, max_suggestions_per_row=3, min_s
         # time-overlap score for the meaningless text ratio.
         timeband_columns = [idx for idx, choice in enumerate(choices) if is_time_band_range(choice)]
         if timeband_columns:
-            candidate_ranges = [_parse_range_seconds(candidate_rows[idx][6]) for idx in timeband_columns]
+            # Parse the range from `choices` -- the same resolved "Programme
+            # / Time Band" text `is_time_band_range(choice)` just confirmed
+            # IS a range -- not from the candidate's separate, literal Time
+            # Band column (candidate[6]), which a diary with no distinct
+            # Programme column (see resolve_effective_programme) leaves
+            # genuinely empty while carrying the real range in `choices`
+            # instead. Parsing the wrong column made this always see an
+            # unparseable (None) range for that real, common file shape, so
+            # every candidate here silently scored 0 regardless of actual
+            # time overlap -- the same bug class as compute_matches()'s own
+            # exact-match slot fallback, just in this suggestion-scoring path.
+            candidate_ranges = [_parse_range_seconds(choices[idx]) for idx in timeband_columns]
             overlap_mask = _time_overlap_mask([info[3] for info in group_rows], candidate_ranges)
             programme_scores[:, timeband_columns] = np.where(overlap_mask, 100.0, 0.0)
 

@@ -301,7 +301,18 @@ def text_similarity(left, right):
 
 _CLOCK_PATTERN = re.compile(r'^(\d{1,2}):?(\d{2})(?::?(\d{2}))?\s*(AM|PM)?$', re.IGNORECASE)
 _RANGE_PATTERN = re.compile(r'^(.+?)\s*(?:-|\u2013|to)\s*(.+?)$', re.IGNORECASE)
-_STATION_FREQUENCY_PATTERN = re.compile(r'\b\d+(?:\.\d+)?\b')
+# Decimal only -- a real radio frequency ("102.9 FM", "105.5 FM") always has
+# a fractional MHz part in every vendor file seen so far. Matching a bare
+# integer too (the pattern's old shape) silently stripped TV channel numbers
+# as well: "NTA Channel 10 Lagos" and "NTA 2 Channel 5 Lagos" are two
+# distinct, separately-rated real stations, but both normalized to the
+# identical token set once their channel numbers were gone, so the matcher
+# could no longer tell them apart -- whichever rating happened to land in
+# compute_matches()'s lookup dict first silently won every match for BOTH
+# stations' spend rows, confidently reported as 'exact' with no signal
+# anything was wrong. A channel number is never written as a decimal, so
+# requiring one here only ever matches a genuine frequency.
+_STATION_FREQUENCY_PATTERN = re.compile(r'\b\d+\.\d+\b')
 _STATION_PUNCTUATION_PATTERN = re.compile(r'[^A-Z0-9\s]')
 _STATION_NOISE_WORDS = {'RADIO', 'STATION', 'FM', 'AM', 'TV'}
 _RADIO_CHANNEL_TOKENS = {'RADIO', 'FM', 'AM'}

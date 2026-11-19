@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, BarChart3, PieChart } from 'lucide-react';
+import { AlertTriangle, BarChart3, PieChart, Sparkles } from 'lucide-react';
 import { ApiError, getLatestRun, listBrandShares, listProjectRatingsDatasets, listSpotEfficiency } from '../api/client';
 import type { BrandShare, GrpRunSummary, Project, RatingsDataset, SpotEfficiency } from '../api/contracts';
 import { LimitedRows } from '../components/LimitedRows';
@@ -435,11 +435,16 @@ export default function OverviewSection({ project, refreshSignal }: { project: P
           </section>
 
           {readingInsights.length > 0 && (
-            <div className="panel reading-panel">
-              <span className="reading-eyebrow">Reading of the period</span>
-              <LimitedRows rows={readingInsights} render={(sentence, index) => (
-                <p key={index}>{sentence}</p>
-              )} />
+            <div className="reading-panel">
+              <span className="reading-panel-icon">
+                <Sparkles size={16} aria-hidden />
+              </span>
+              <div className="reading-panel-body">
+                <span className="reading-eyebrow">Reading of the period</span>
+                <LimitedRows rows={readingInsights} render={(sentence, index) => (
+                  <p key={index}>{sentence}</p>
+                )} />
+              </div>
             </div>
           )}
 

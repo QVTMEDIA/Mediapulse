@@ -97,23 +97,31 @@ const SECTION_DESCRIPTIONS: Partial<Record<SectionKey, string>> = {
   exports: 'Generate and download the full Excel workbook for this project.',
 };
 
-// Each nav icon keeps its own color always-on (not just while active) --
-// a distinct token per page so the sidebar reads at a glance, independent
-// of the semantic status colors (--blue/--violet/--amber/--red/--success)
-// used elsewhere for chart/badge meaning. Both light and dark values are
-// defined in styles.css's token blocks, same as every other color here.
-const navItems: { key: SectionKey; icon: typeof FolderOpen; color: string }[] = [
-  { key: 'overview', icon: LayoutDashboard, color: 'var(--nav-overview)' },
-  { key: 'projects', icon: FolderOpen, color: 'var(--nav-projects)' },
-  { key: 'ratings', icon: Database, color: 'var(--nav-ratings)' },
-  { key: 'matches', icon: GitCompare, color: 'var(--nav-matches)' },
-  { key: 'activity', icon: ActivityIcon, color: 'var(--nav-activity)' },
-  { key: 'reports', icon: FileSpreadsheet, color: 'var(--nav-reports)' },
-  { key: 'spendIntelligence', icon: DollarSign, color: 'var(--nav-spend)' },
-  { key: 'soeExplorer', icon: SlidersHorizontal, color: 'var(--nav-soe)' },
-  { key: 'exports', icon: Upload, color: 'var(--nav-exports)' },
-  { key: 'settings', icon: Settings, color: 'var(--nav-settings)' },
+// Nav icons are monochrome by default (currentColor, following .nav-item's
+// own color) -- color is reserved for the active item's tinted pill, same
+// as every other icon-bearing control in the app, so an icon's hue never
+// has to be read as a status signal. Grouped under section labels (see
+// NAV_GROUPS) so the sidebar scans as workspace vs. analysis instead of
+// one flat list of ten.
+const navItems: { key: SectionKey; icon: typeof FolderOpen }[] = [
+  { key: 'overview', icon: LayoutDashboard },
+  { key: 'projects', icon: FolderOpen },
+  { key: 'ratings', icon: Database },
+  { key: 'matches', icon: GitCompare },
+  { key: 'activity', icon: ActivityIcon },
+  { key: 'reports', icon: FileSpreadsheet },
+  { key: 'spendIntelligence', icon: DollarSign },
+  { key: 'soeExplorer', icon: SlidersHorizontal },
+  { key: 'exports', icon: Upload },
+  { key: 'settings', icon: Settings },
 ];
+
+const NAV_GROUPS: { label: string; keys: SectionKey[] }[] = [
+  { label: 'Workspace', keys: ['overview', 'projects', 'ratings', 'matches', 'activity'] },
+  { label: 'Analysis', keys: ['reports', 'spendIntelligence', 'soeExplorer'] },
+];
+const NAV_GROUPED_KEYS = new Set(NAV_GROUPS.flatMap((group) => group.keys));
+const NAV_TRAILING_KEYS: SectionKey[] = navItems.map((item) => item.key).filter((key) => !NAV_GROUPED_KEYS.has(key));
 
 const statusClass = {
   Setup: 'status status-setup',
@@ -535,24 +543,57 @@ function Workspace({
           </div>
         </div>
 
-        <nav className="nav-list" aria-label="Primary navigation">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = item.key === activeSection;
-            return (
-              <button
-                type="button"
-                className={isActive ? 'nav-item active' : 'nav-item'}
-                key={item.key}
-                aria-current={isActive ? 'page' : undefined}
-                onClick={() => setActiveSection(item.key)}
-              >
-                <Icon size={18} aria-hidden style={{ color: item.color }} />
-                <span>{SECTION_LABELS[item.key]}</span>
-              </button>
-            );
-          })}
-        </nav>
+        <div className="nav-groups">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label}>
+              <div className="nav-section-label">{group.label}</div>
+              <nav className="nav-list" aria-label={`${group.label} navigation`}>
+                {navItems
+                  .filter((item) => group.keys.includes(item.key))
+                  .map((item) => {
+                    const Icon = item.icon;
+                    const isActive = item.key === activeSection;
+                    return (
+                      <button
+                        type="button"
+                        className={isActive ? 'nav-item active' : 'nav-item'}
+                        key={item.key}
+                        aria-current={isActive ? 'page' : undefined}
+                        onClick={() => setActiveSection(item.key)}
+                      >
+                        <Icon size={18} aria-hidden />
+                        <span>{SECTION_LABELS[item.key]}</span>
+                      </button>
+                    );
+                  })}
+              </nav>
+            </div>
+          ))}
+
+          <div>
+            <hr className="nav-divider" />
+            <nav className="nav-list" aria-label="More navigation">
+              {navItems
+                .filter((item) => NAV_TRAILING_KEYS.includes(item.key))
+                .map((item) => {
+                  const Icon = item.icon;
+                  const isActive = item.key === activeSection;
+                  return (
+                    <button
+                      type="button"
+                      className={isActive ? 'nav-item active' : 'nav-item'}
+                      key={item.key}
+                      aria-current={isActive ? 'page' : undefined}
+                      onClick={() => setActiveSection(item.key)}
+                    >
+                      <Icon size={18} aria-hidden />
+                      <span>{SECTION_LABELS[item.key]}</span>
+                    </button>
+                  );
+                })}
+            </nav>
+          </div>
+        </div>
 
         <div className="sidebar-note">
           <span>Active project</span>

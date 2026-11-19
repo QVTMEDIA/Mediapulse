@@ -75,9 +75,14 @@ function describeRating(row?: RatingRow) {
 // anymore, e.g. its dataset was detached). Keeping the two messages
 // distinct instead of collapsing both into "no longer available" is the
 // whole point of showing the matched rating detail on confirmed rows at all.
-function describeMatchedRating(match: RatingMatch, ratingsById: Map<string, RatingRow>) {
-  if (!match.matchedRatingId) return 'Confirmed as unmatched — no rating assigned';
-  return describeRating(ratingsById.get(match.matchedRatingId));
+// "station · rating" for the Confirmed table -- day/slot already have their
+// own columns there, so this skips describeRating's fuller sentence form,
+// which would just duplicate what the row already says.
+function describeMatchedRatingShort(match: RatingMatch, ratingsById: Map<string, RatingRow>) {
+  if (!match.matchedRatingId) return 'No rating assigned';
+  const rating = ratingsById.get(match.matchedRatingId);
+  if (!rating) return 'Rating no longer available';
+  return `${rating.station} · ${rating.rating === null ? 'no value' : rating.rating}`;
 }
 
 // Rendering one <option> per attached rating in every visible Unmatched
@@ -1004,28 +1009,47 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
           <LimitedRowsControls {...limitedUnmatched} total={unmatched.length} />
         </div>}
 
-        {showResolved && <div className="panel">
+        {showResolved && <div className="panel full-span-panel">
           <div className="panel-header">
             <div>
               <h2>Confirmed</h2>
               <p>Exact key matches and manually confirmed rows</p>
             </div>
           </div>
-          <div className="match-list">
-            {!loading && resolved.length === 0 && <p className="empty-state">No confirmed matches yet.</p>}
-            {limitedResolved.visibleRows.map((match) => {
-              const activity = activityById.get(match.mediaActivityId);
-              return (
-                <div className="match-row" key={match.ratingMatchId}>
-                  <div className="match-row-main">
-                    <span className={STATUS_CLASS[match.matchStatus]}>{STATUS_LABEL[match.matchStatus]}</span>
-                  </div>
-                  <p className="match-input">Activity: {describeActivity(activity)}</p>
-                  <p className="match-suggestion">Rating: {describeMatchedRating(match, ratingsById)}</p>
-                </div>
-              );
-            })}
-          </div>
+          {!loading && resolved.length === 0 && <p className="empty-state">No confirmed matches yet.</p>}
+          {resolved.length > 0 && (
+            <div className="match-table-wrap">
+              <table className="match-table">
+                <thead>
+                  <tr>
+                    <th>Station</th>
+                    <th>Day</th>
+                    <th>Slot</th>
+                    <th className="num">Spots</th>
+                    <th className="num">Spend</th>
+                    <th>Matched rating</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {limitedResolved.visibleRows.map((match) => {
+                    const activity = activityById.get(match.mediaActivityId);
+                    return (
+                      <tr key={match.ratingMatchId}>
+                        <td>{activity?.station ?? '—'}</td>
+                        <td>{activity?.day ?? '—'}</td>
+                        <td>{activity ? describeSlot(activity.programme, activity.timeBand) : '—'}</td>
+                        <td className="num">{activity?.spots ?? '—'}</td>
+                        <td className="num">{activity?.cost !== null && activity?.cost !== undefined ? activity.cost.toLocaleString() : '—'}</td>
+                        <td>{describeMatchedRatingShort(match, ratingsById)}</td>
+                        <td><span className={STATUS_CLASS[match.matchStatus]}>{STATUS_LABEL[match.matchStatus]}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
           <LimitedRowsControls {...limitedResolved} total={resolved.length} />
         </div>}
       </div>

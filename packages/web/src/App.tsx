@@ -112,8 +112,8 @@ const navItems: { key: SectionKey; icon: typeof FolderOpen }[] = [
   { key: 'reports', icon: FileSpreadsheet },
   { key: 'spendIntelligence', icon: DollarSign },
   { key: 'soeExplorer', icon: SlidersHorizontal },
-  { key: 'exports', icon: Upload },
   { key: 'settings', icon: Settings },
+  { key: 'exports', icon: Upload },
 ];
 
 const NAV_GROUPS: { label: string; keys: SectionKey[] }[] = [

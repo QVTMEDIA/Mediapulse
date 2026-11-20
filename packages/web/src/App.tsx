@@ -575,30 +575,30 @@ function Workspace({
               </nav>
             </div>
           ))}
+        </div>
 
-          <div>
-            <hr className="nav-divider" />
-            <nav className="nav-list" aria-label="More navigation">
-              {navItems
-                .filter((item) => NAV_TRAILING_KEYS.includes(item.key))
-                .map((item) => {
-                  const Icon = item.icon;
-                  const isActive = item.key === activeSection;
-                  return (
-                    <button
-                      type="button"
-                      className={isActive ? 'nav-item active' : 'nav-item'}
-                      key={item.key}
-                      aria-current={isActive ? 'page' : undefined}
-                      onClick={() => setActiveSection(item.key)}
-                    >
-                      <Icon size={18} aria-hidden />
-                      <span>{SECTION_LABELS[item.key]}</span>
-                    </button>
-                  );
-                })}
-            </nav>
-          </div>
+        <div className="nav-bottom-group">
+          <hr className="nav-divider" />
+          <nav className="nav-list" aria-label="More navigation">
+            {navItems
+              .filter((item) => NAV_TRAILING_KEYS.includes(item.key))
+              .map((item) => {
+                const Icon = item.icon;
+                const isActive = item.key === activeSection;
+                return (
+                  <button
+                    type="button"
+                    className={isActive ? 'nav-item active' : 'nav-item'}
+                    key={item.key}
+                    aria-current={isActive ? 'page' : undefined}
+                    onClick={() => setActiveSection(item.key)}
+                  >
+                    <Icon size={18} aria-hidden />
+                    <span>{SECTION_LABELS[item.key]}</span>
+                  </button>
+                );
+              })}
+          </nav>
         </div>
 
         <div className="sidebar-user">

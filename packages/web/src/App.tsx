@@ -567,7 +567,7 @@ function Workspace({
                         aria-current={isActive ? 'page' : undefined}
                         onClick={() => setActiveSection(item.key)}
                       >
-                        <Icon size={18} aria-hidden />
+                        <Icon size={20} aria-hidden />
                         <span>{SECTION_LABELS[item.key]}</span>
                       </button>
                     );
@@ -593,7 +593,7 @@ function Workspace({
                     aria-current={isActive ? 'page' : undefined}
                     onClick={() => setActiveSection(item.key)}
                   >
-                    <Icon size={18} aria-hidden />
+                    <Icon size={20} aria-hidden />
                     <span>{SECTION_LABELS[item.key]}</span>
                   </button>
                 );

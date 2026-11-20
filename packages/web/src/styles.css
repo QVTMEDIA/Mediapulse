@@ -217,24 +217,25 @@ button:disabled {
 .nav-groups {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .nav-list {
   display: grid;
-  gap: 2px;
+  gap: 3px;
 }
 
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 32px;
-  padding: 0 10px;
+  gap: 12px;
+  min-height: 38px;
+  padding: 0 12px;
   color: var(--muted);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 9px;
+  font-size: 15px;
   text-align: left;
 }
 

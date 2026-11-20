@@ -214,22 +214,46 @@ button:disabled {
   background: var(--primary-tint);
 }
 
+/* Rather than a fixed row height (a guess that leaves a dead gap above the
+   bottom-pinned group on any screen taller than the guess), nav-groups and
+   its contents stretch to fill whatever vertical space the sidebar actually
+   has: nav-groups grows to the sidebar's full leftover height, each group
+   grows by its own item count (so every row ends up the same height, not
+   just the bottom group's two rows ballooning), and nav-list/nav-item grow
+   to fill their group. min-height keeps rows from shrinking past a usable
+   size on a short viewport; min-height: 0 on the flex containers is needed
+   for them to grow/shrink correctly at all (flex items default to
+   min-height: auto, which fights this). */
 .nav-groups {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  flex: 1 1 auto;
+  gap: 10px;
+  min-height: 0;
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .nav-list {
-  display: grid;
-  gap: 3px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1 1 auto;
+  gap: 4px;
+  min-height: 0;
 }
 
 .nav-item {
   display: flex;
   align-items: center;
+  flex: 1 1 0;
   gap: 12px;
   min-height: 38px;
+  max-height: 52px;
   padding: 0 12px;
   color: var(--muted);
   background: transparent;
@@ -267,10 +291,6 @@ button:disabled {
   margin: 4px 6px;
   border: none;
   border-top: 1px solid var(--border);
-}
-
-.nav-bottom-group {
-  margin-top: auto;
 }
 
 .sidebar-note {

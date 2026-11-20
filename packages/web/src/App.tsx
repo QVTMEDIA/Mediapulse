@@ -551,7 +551,7 @@ function Workspace({
 
         <div className="nav-groups">
           {NAV_GROUPS.map((group) => (
-            <div key={group.label}>
+            <div key={group.label} className="nav-group" style={{ flexGrow: group.keys.length }}>
               <div className="nav-section-label">{group.label}</div>
               <nav className="nav-list" aria-label={`${group.label} navigation`}>
                 {navItems
@@ -575,30 +575,30 @@ function Workspace({
               </nav>
             </div>
           ))}
-        </div>
 
-        <div className="nav-bottom-group">
-          <hr className="nav-divider" />
-          <nav className="nav-list" aria-label="More navigation">
-            {navItems
-              .filter((item) => NAV_TRAILING_KEYS.includes(item.key))
-              .map((item) => {
-                const Icon = item.icon;
-                const isActive = item.key === activeSection;
-                return (
-                  <button
-                    type="button"
-                    className={isActive ? 'nav-item active' : 'nav-item'}
-                    key={item.key}
-                    aria-current={isActive ? 'page' : undefined}
-                    onClick={() => setActiveSection(item.key)}
-                  >
-                    <Icon size={20} aria-hidden />
-                    <span>{SECTION_LABELS[item.key]}</span>
-                  </button>
-                );
-              })}
-          </nav>
+          <div className="nav-group" style={{ flexGrow: NAV_TRAILING_KEYS.length }}>
+            <hr className="nav-divider" />
+            <nav className="nav-list" aria-label="More navigation">
+              {navItems
+                .filter((item) => NAV_TRAILING_KEYS.includes(item.key))
+                .map((item) => {
+                  const Icon = item.icon;
+                  const isActive = item.key === activeSection;
+                  return (
+                    <button
+                      type="button"
+                      className={isActive ? 'nav-item active' : 'nav-item'}
+                      key={item.key}
+                      aria-current={isActive ? 'page' : undefined}
+                      onClick={() => setActiveSection(item.key)}
+                    >
+                      <Icon size={20} aria-hidden />
+                      <span>{SECTION_LABELS[item.key]}</span>
+                    </button>
+                  );
+                })}
+            </nav>
+          </div>
         </div>
 
         <div className="sidebar-user">

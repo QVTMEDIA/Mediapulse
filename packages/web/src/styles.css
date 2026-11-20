@@ -295,14 +295,15 @@ button:disabled {
 
 .sidebar-note {
   display: grid;
-  gap: 4px;
-  padding: 10px;
+  gap: 2px;
+  padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface);
 }
 
 .sidebar-note strong {
+  font-size: 13px;
   line-height: 1.35;
 }
 

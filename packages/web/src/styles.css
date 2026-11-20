@@ -243,7 +243,7 @@ button:disabled {
   flex-direction: column;
   justify-content: center;
   flex: 1 1 auto;
-  gap: 3.5px;
+  gap: 3px;
   min-height: 0;
 }
 

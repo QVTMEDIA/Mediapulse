@@ -271,7 +271,6 @@ button:disabled {
 .sidebar-note {
   display: grid;
   gap: 4px;
-  margin-top: auto;
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;

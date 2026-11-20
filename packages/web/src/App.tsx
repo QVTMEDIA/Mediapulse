@@ -543,6 +543,12 @@ function Workspace({
           </div>
         </div>
 
+        <div className="sidebar-note">
+          <span>Active project</span>
+          <strong>{activeProject ? activeProject.projectName : 'No project selected'}</strong>
+          <small>{activeProject ? activeProject.updatedAt : projectsLoading ? 'Loading…' : 'Create a project to get started'}</small>
+        </div>
+
         <div className="nav-groups">
           {NAV_GROUPS.map((group) => (
             <div key={group.label}>
@@ -593,12 +599,6 @@ function Workspace({
                 })}
             </nav>
           </div>
-        </div>
-
-        <div className="sidebar-note">
-          <span>Active project</span>
-          <strong>{activeProject ? activeProject.projectName : 'No project selected'}</strong>
-          <small>{activeProject ? activeProject.updatedAt : projectsLoading ? 'Loading…' : 'Create a project to get started'}</small>
         </div>
 
         <div className="sidebar-user">

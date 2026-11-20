@@ -322,6 +322,16 @@ export default function OverviewSection({ project, refreshSignal }: { project: P
   const costPerGrpText = categoryCostPerGrp !== null ? formatNumber(categoryCostPerGrp) : '—';
   const leadingBrandText = leadingBrand ? leadingBrand.brand : '—';
   const spendRanked = [...brandShares].sort((a, b) => b.totalSpend - a.totalSpend);
+  // The subtitle only claims a medium split when one actually exists in this
+  // project's data -- otherwise every bar renders solid (BrandShareRow/
+  // BrandSpendRow's own isMixedMedia check), and "TV/Cable TV/Radio split"
+  // would describe a breakdown that isn't there.
+  const hasMixedMediaGrps = brandShares.some(
+    (share) => [share.tvGrps, share.cableTvGrps, share.radioGrps].filter((g) => g > 0).length >= 2,
+  );
+  const hasMixedMediaSpend = brandShares.some(
+    (share) => [share.tvSpend, share.cableTvSpend, share.radioSpend].filter((s) => s > 0).length >= 2,
+  );
   const weakBuys = spotEfficiency.filter((row) => row.isWeak);
   const readingInsights = buildReadingOfThePeriod(brandShares);
   const latestDiaryPeriod = pickLatestDiaryPeriod(ratingsDatasets);
@@ -392,13 +402,11 @@ export default function OverviewSection({ project, refreshSignal }: { project: P
               <div className="panel-header">
                 <div>
                   <h2>Share of Voice</h2>
-                  <p>GRP-by-brand ranking and TV/Cable TV/Radio split</p>
+                  <p>{hasMixedMediaGrps ? 'GRP-by-brand ranking and TV/Cable TV/Radio split' : 'GRP-by-brand ranking'}</p>
                 </div>
                 <BarChart3 size={20} aria-hidden />
               </div>
-              {brandShares.some(
-                (share) => [share.tvGrps, share.cableTvGrps, share.radioGrps].filter((g) => g > 0).length >= 2,
-              ) && (
+              {hasMixedMediaGrps && (
                 <div className="medium-split-legend">
                   <span><i className="tv" /> TV</span>
                   {brandShares.some((share) => share.cableTvGrps > 0) && (
@@ -419,7 +427,7 @@ export default function OverviewSection({ project, refreshSignal }: { project: P
               <div className="panel-header">
                 <div>
                   <h2>Share of Expenditure</h2>
-                  <p>Spend-by-brand ranking and TV/Cable TV/Radio split</p>
+                  <p>{hasMixedMediaSpend ? 'Spend-by-brand ranking and TV/Cable TV/Radio split' : 'Spend-by-brand ranking'}</p>
                 </div>
                 <PieChart size={20} aria-hidden />
               </div>

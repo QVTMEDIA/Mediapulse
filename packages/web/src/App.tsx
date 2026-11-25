@@ -13,12 +13,14 @@ import {
   GitCompare,
   LayoutDashboard,
   LogOut,
+  Menu,
   Moon,
   Search,
   Settings,
   SlidersHorizontal,
   Sun,
   Upload,
+  X,
 } from 'lucide-react';
 import AuthScreen from './AuthScreen';
 import {
@@ -240,6 +242,40 @@ function Workspace({
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isSignOutConfirmOpen]);
+
+  // Below the sidebar's own collapse breakpoint (see styles.css), the full
+  // sidebar renders as an off-canvas drawer instead of stacked inline above
+  // page content -- opened by a hamburger button in the mobile topbar,
+  // closed by picking a destination, the backdrop, Escape, or its own close
+  // button. Desktop never sets this true (no hamburger button exists there
+  // to set it), so the drawer-specific CSS below never applies there either.
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isMobileNavOpen) return;
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') setIsMobileNavOpen(false);
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    // Stop the page itself from scrolling behind the open drawer -- without
+    // this, a long page (e.g. Projects' 60+ cards) still scrolls under a
+    // finger that meant to scroll the drawer's own nav list.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobileNavOpen]);
+
+  // Every nav click (both grouped lists, plus the profile shortcut below)
+  // should also close the drawer on mobile -- on desktop isMobileNavOpen is
+  // always false already, so this is a no-op there.
+  function selectSection(key: SectionKey) {
+    setActiveSection(key);
+    setIsMobileNavOpen(false);
+  }
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   // Pins the active project to the front of the Projects page's own list,
@@ -544,7 +580,29 @@ function Workspace({
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <div className="mobile-topbar">
+        <button
+          type="button"
+          className="icon-button"
+          aria-label="Open navigation"
+          aria-expanded={isMobileNavOpen}
+          onClick={() => setIsMobileNavOpen(true)}
+        >
+          <Menu size={20} aria-hidden />
+        </button>
+        <div className="mobile-topbar-brand">
+          <div className="brand-icon">
+            <Gauge size={18} aria-hidden />
+          </div>
+          <strong>Mediapulse</strong>
+        </div>
+      </div>
+
+      {isMobileNavOpen && (
+        <div className="mobile-nav-backdrop" onClick={() => setIsMobileNavOpen(false)} aria-hidden="true" />
+      )}
+
+      <aside className={isMobileNavOpen ? 'sidebar mobile-open' : 'sidebar'}>
         <div className="brand-mark">
           <div className="brand-icon">
             <Gauge size={22} aria-hidden />
@@ -553,6 +611,14 @@ function Workspace({
             <strong>Mediapulse</strong>
             <span>Media intelligence</span>
           </div>
+          <button
+            type="button"
+            className="icon-button sidebar-close"
+            aria-label="Close navigation"
+            onClick={() => setIsMobileNavOpen(false)}
+          >
+            <X size={18} aria-hidden />
+          </button>
         </div>
 
         <div className="sidebar-note">
@@ -577,7 +643,7 @@ function Workspace({
                         className={isActive ? 'nav-item active' : 'nav-item'}
                         key={item.key}
                         aria-current={isActive ? 'page' : undefined}
-                        onClick={() => setActiveSection(item.key)}
+                        onClick={() => selectSection(item.key)}
                       >
                         <Icon size={20} aria-hidden />
                         <span>{SECTION_LABELS[item.key]}</span>
@@ -602,7 +668,7 @@ function Workspace({
                       className={isActive ? 'nav-item active' : 'nav-item'}
                       key={item.key}
                       aria-current={isActive ? 'page' : undefined}
-                      onClick={() => setActiveSection(item.key)}
+                      onClick={() => selectSection(item.key)}
                     >
                       <Icon size={20} aria-hidden />
                       <span>{SECTION_LABELS[item.key]}</span>
@@ -619,11 +685,11 @@ function Workspace({
             role="button"
             tabIndex={0}
             aria-label="Open your profile"
-            onClick={() => setActiveSection('settings')}
+            onClick={() => selectSection('settings')}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                setActiveSection('settings');
+                selectSection('settings');
               }
             }}
           >

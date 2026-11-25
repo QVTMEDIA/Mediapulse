@@ -976,35 +976,68 @@ export default function MatchesSection({ project, refreshSignal }: { project: Pr
           )}
           <div className="match-list">
             {!loading && unmatched.length === 0 && <p className="empty-state">No unmatched spots.</p>}
-            {limitedUnmatched.visibleRows.map((match) => (
-              <div className="match-row" key={match.ratingMatchId}>
-                <p className="match-input">{describeActivity(activityById.get(match.mediaActivityId))}</p>
-                {ratingOptions.length === 0 ? (
-                  <p className="match-suggestion">
-                    {assignableRatingsLoading ? 'Loading ratings…' : 'No ratings attached to this project yet.'}
-                  </p>
-                ) : (
-                  <div className="form-actions">
-                    <RatingCombobox
-                      options={ratingOptions}
-                      value={assignSelections[match.ratingMatchId] ?? ''}
-                      onChange={(ratingRowId) =>
-                        setAssignSelections((current) => ({ ...current, [match.ratingMatchId]: ratingRowId }))
-                      }
-                      disabled={correctingId === match.ratingMatchId}
-                    />
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={!assignSelections[match.ratingMatchId] || correctingId === match.ratingMatchId}
-                      onClick={() => handleCorrect(match, assignSelections[match.ratingMatchId])}
-                    >
-                      Assign
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
+            {limitedUnmatched.visibleRows.map((match) => {
+              const activity = activityById.get(match.mediaActivityId);
+              const selectedRatingId = assignSelections[match.ratingMatchId] ?? '';
+              const selectedRating = selectedRatingId ? assignableRatingsById.get(selectedRatingId) : undefined;
+              // Same reasoning as the Suggested section's own stationsDiffer:
+              // only worth remembering a pairing when the picked rating's
+              // station text actually differs from the raw spend-file text --
+              // picking a rating that already reads the same station name is
+              // just a plain assign, nothing for an alias to shortcut next time.
+              const stationsDiffer = !!activity && !!selectedRating
+                && activity.station.trim().toLowerCase() !== selectedRating.station.trim().toLowerCase();
+              const saveAliasChecked = saveAliasSelections[match.ratingMatchId] ?? false;
+              return (
+                <div className="match-row" key={match.ratingMatchId}>
+                  <p className="match-input">{describeActivity(activity)}</p>
+                  {ratingOptions.length === 0 ? (
+                    <p className="match-suggestion">
+                      {assignableRatingsLoading ? 'Loading ratings…' : 'No ratings attached to this project yet.'}
+                    </p>
+                  ) : (
+                    <>
+                      <div className="form-actions">
+                        <RatingCombobox
+                          options={ratingOptions}
+                          value={selectedRatingId}
+                          onChange={(ratingRowId) =>
+                            setAssignSelections((current) => ({ ...current, [match.ratingMatchId]: ratingRowId }))
+                          }
+                          disabled={correctingId === match.ratingMatchId}
+                        />
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={!selectedRatingId || correctingId === match.ratingMatchId}
+                          onClick={() => handleCorrect(
+                            match, selectedRatingId,
+                            stationsDiffer && saveAliasChecked
+                              ? { aliasName: activity!.station, canonicalName: selectedRating!.station }
+                              : undefined,
+                          )}
+                        >
+                          Assign
+                        </button>
+                      </div>
+                      {stationsDiffer && (
+                        <label className="checkbox-field">
+                          <input
+                            type="checkbox"
+                            checked={saveAliasChecked}
+                            disabled={correctingId === match.ratingMatchId}
+                            onChange={(event) =>
+                              setSaveAliasSelections((current) => ({ ...current, [match.ratingMatchId]: event.target.checked }))
+                            }
+                          />
+                          Also remember "{activity!.station}" = "{selectedRating!.station}" for every future upload
+                        </label>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <LimitedRowsControls {...limitedUnmatched} total={unmatched.length} />
         </div>}

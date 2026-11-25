@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { SlidersHorizontal, Upload, X } from 'lucide-react';
+import { SlidersHorizontal, Trash2, Upload, X } from 'lucide-react';
 import {
   ApiError,
   deleteSoeUpload,
@@ -511,28 +511,46 @@ export default function SoeExplorerSection() {
           <p className="empty-state">No files uploaded yet — use the form above to add one.</p>
         )}
         {uploads.length > 0 && (
-          <div className="upload-form-row">
-            <label>
-              Uploaded file
-              <select value={selectedUploadId} onChange={(event) => setSelectedUploadId(event.target.value)}>
-                <option value="">Select a file…</option>
+          <div className="match-table-wrap">
+            <table className="match-table">
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th className="num">Rows</th>
+                  <th>Uploaded</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
                 {uploads.map((upload) => (
-                  <option value={upload.uploadId} key={upload.uploadId}>
-                    {upload.fileName} — {upload.mappedRows} row{upload.mappedRows === 1 ? '' : 's'} — {upload.uploadedAt}
-                  </option>
+                  <tr
+                    key={upload.uploadId}
+                    className={selectedUploadId === upload.uploadId ? 'active-row' : undefined}
+                    onClick={() => setSelectedUploadId(upload.uploadId)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <td>{upload.fileName}</td>
+                    <td className="num">{upload.mappedRows}</td>
+                    <td>{upload.uploadedAt}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="icon-button"
+                        title={`Delete "${upload.fileName}"`}
+                        aria-label={`Delete ${upload.fileName}`}
+                        disabled={deletingUploadId === upload.uploadId}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleDeleteUpload(upload.uploadId);
+                        }}
+                      >
+                        <Trash2 size={15} aria-hidden />
+                      </button>
+                    </td>
+                  </tr>
                 ))}
-              </select>
-            </label>
-            {selectedUploadId && (
-              <button
-                type="button"
-                className="secondary-button"
-                disabled={deletingUploadId === selectedUploadId}
-                onClick={() => void handleDeleteUpload(selectedUploadId)}
-              >
-                {deletingUploadId === selectedUploadId ? 'Deleting…' : 'Delete this file'}
-              </button>
-            )}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

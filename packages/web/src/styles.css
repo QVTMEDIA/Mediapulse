@@ -1125,6 +1125,16 @@ button:disabled {
 .upload-form input[type='date'],
 .upload-form input[type='file'],
 .upload-form textarea {
+  /* Without this, each control falls back to its own intrinsic content
+     width (a native file input's "Choose File" button + filename text, or
+     a select's widest option) instead of filling its label -- found live:
+     that intrinsic width doesn't shrink under flex-wrap the way text does,
+     so at a narrow viewport the whole .upload-form-row (and the page
+     itself) rendered wider than the screen instead of wrapping, forcing
+     horizontal scrolling to use the form at all (SOE Explorer's upload
+     form measured 1504px wide inside a 390px mobile viewport). */
+  width: 100%;
+  min-width: 0;
   height: 40px;
   padding: 0 12px;
   color: var(--ink);
@@ -1605,6 +1615,7 @@ h3.subsection {
 
 .form-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -1784,42 +1795,91 @@ h3.subsection {
   color: var(--muted);
 }
 
+/* Both hidden by default (desktop) -- the media query below turns them on.
+   Plain default rules, not scoped inside the media query, so they still win
+   if a browser doesn't support one of these features at all (base styles
+   are the safe fallback), and so they read as "off unless this specific
+   breakpoint says otherwise" rather than depending on cascade order against
+   the query. */
+.mobile-topbar,
+.sidebar-close {
+  display: none;
+}
+
+/* Mobile topbar + off-canvas nav drawer -- only exists below this
+   breakpoint; see App.tsx's isMobileNavOpen for the React side. Replaces an
+   earlier attempt at this same breakpoint that re-flowed the sidebar as a
+   horizontal-scrolling strip stacked above page content: that strip never
+   actually rendered as one (.nav-list's base rule sets flex-direction:
+   column and this override never reset it back to row), so in practice
+   every nav item still stacked in one tall vertical list ahead of the
+   actual page -- on Overview that alone pushed the dashboard a full screen
+   height down before showing anything. A drawer the user opens on demand,
+   rather than content that's always in the way until scrolled past, fixes
+   this regardless of whether the strip itself would have worked. */
 @media (max-width: 1100px) {
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    padding: 10px 16px;
+    background: var(--sidebar-bg);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .mobile-topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 800;
+    font-size: 15px;
+  }
+
+  .mobile-topbar .brand-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
   }
 
+  .mobile-nav-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgb(22 28 44 / 0.45);
+  }
+
   .sidebar {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    display: grid;
-    grid-template-columns: 1fr;
-    padding: 14px;
-    /* The base .sidebar rule pins it to height: 100vh for the desktop
-       two-column layout (see its own comment) -- left un-reset here, the
-       stacked single-column mobile layout below still gave it the full
-       viewport height, leaving most of that space empty (just a brand
-       mark, a horizontal nav strip, and the user chip) while pushing
-       every bit of actual page content a full screen-height down and,
-       because the sidebar stays position: sticky, intercepting clicks on
-       whatever scrolled underneath it. Auto-height here lets it hug its
-       own (much shorter) content instead. */
-    height: auto;
-  }
-
-  .nav-list {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 50;
     display: flex;
-    overflow-x: auto;
-    padding-bottom: 2px;
+    width: min(300px, 85vw);
+    height: 100vh;
+    padding: 16px;
+    border-right: none;
+    box-shadow: 0 20px 50px rgb(14 27 58 / 0.3);
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
   }
 
-  .nav-item {
-    flex: 0 0 auto;
+  .sidebar.mobile-open {
+    transform: translateX(0);
   }
 
-  .sidebar-note {
-    display: none;
+  .brand-mark {
+    position: relative;
+  }
+
+  .sidebar-close {
+    display: inline-flex;
+    margin-left: auto;
   }
 
   .metric-grid,
@@ -2065,7 +2125,8 @@ h3.subsection {
   .topbar,
   .toolbar,
   .project-main,
-  .issue-row {
+  .issue-row,
+  .panel-header {
     align-items: stretch;
     flex-direction: column;
   }
@@ -2075,9 +2136,23 @@ h3.subsection {
     width: 100%;
   }
 
+  /* .panel-header's own action buttons (e.g. Matches' Unmatched panel:
+     "Fast recompute"/"Full scan" next to a two-line title+subtitle) used to
+     fight the title for the same row and end up squeezed into whatever
+     space was left. Stacked by the rule above, they still need to fill
+     that row themselves rather than staying a cramped flex-start cluster. */
+  .panel-header .form-actions {
+    width: 100%;
+  }
+
+  .panel-header .form-actions .primary-button,
+  .panel-header .form-actions .secondary-button,
+  .panel-header .form-actions .danger-button {
+    flex: 1 1 auto;
+  }
+
   .metric-grid,
   .content-grid,
-  .project-meta,
   .dataset-row,
   .dataset-row.dataset-row-with-priority {
     /* minmax(0, 1fr), not a bare 1fr -- a bare 1fr track still honors
@@ -2094,6 +2169,17 @@ h3.subsection {
        the whole column. minmax(0, 1fr) caps the track to the
        container's actual available width regardless of content. */
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 2 columns rather than the single column every other grid above
+     collapses to -- a project card's 4 fields (Owner/Period/Audience/
+     Media) stacking one-per-row made a long Projects list (a real account
+     here runs 60+ projects) far taller to scroll than it needed to be,
+     especially since most fields read just "—" on an unfilled-in project.
+     2x2 halves that without the cramped, truncated feel repeat(4, ...)
+     has at this width. */
+  .project-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .dataset-stat {

@@ -32,3 +32,7 @@ class MatchJobOut(CamelModel):
     # of an indeterminate spinner. See match_jobs.py's MatchJob.
     total: int = 0
     processed: int = 0
+
+
+class MatchResetOut(CamelModel):
+    deleted_count: int

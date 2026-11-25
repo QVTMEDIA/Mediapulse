@@ -1,7 +1,9 @@
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from psycopg.errors import InvalidTextRepresentation
 
 from .routers import (
     activity_log,
@@ -63,6 +65,22 @@ app.include_router(soe.router)
 app.include_router(stubs.router)
 app.include_router(activity_log.router)
 app.include_router(station_aliases.router)
+
+
+# Every id column in db/schema.sql is `uuid`, and every repository's
+# get-by-id method (get_project, get_brand, ...) just passes whatever string
+# a path parameter handed it straight into a `WHERE id = %s` -- there's no
+# separate "is this even a valid id?" check anywhere before the query runs.
+# A real, malformed id (a stale bookmark, a copy-paste typo, a test script's
+# "does-not-exist" placeholder) makes Postgres itself reject the value with
+# "invalid input syntax for type uuid", which reaches here as an unhandled
+# InvalidTextRepresentation and would otherwise surface as a bare 500 -- found
+# live: GET /api/projects/does-not-exist 500'd instead of 404'ing, on every
+# such route across the app, not just one. A malformed id was never found,
+# which is exactly what 404 already means everywhere else in this API.
+@app.exception_handler(InvalidTextRepresentation)
+async def invalid_id_format_handler(request: Request, exc: InvalidTextRepresentation) -> JSONResponse:
+    return JSONResponse(status_code=404, content={'detail': 'Not found.'})
 
 
 @app.get('/api/health', tags=['health'])

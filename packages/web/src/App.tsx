@@ -241,12 +241,24 @@ function Workspace({
     };
   }, [isSignOutConfirmOpen]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const limitedProjects = useLimitedRows(projects);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  // Pins the active project to the front of the Projects page's own list,
+  // ahead of whatever order the backend returned it in (most-recently-
+  // updated-by-anyone — see refreshProjects below) -- the project someone's
+  // actually working in shouldn't require scrolling or paging to find again.
+  // Every other row keeps its existing relative order.
+  const orderedProjects = useMemo(() => {
+    if (!activeProjectId) return projects;
+    const activeIndex = projects.findIndex((project) => project.projectId === activeProjectId);
+    if (activeIndex <= 0) return projects;
+    const active = projects[activeIndex];
+    return [active, ...projects.slice(0, activeIndex), ...projects.slice(activeIndex + 1)];
+  }, [projects, activeProjectId]);
+  const limitedProjects = useLimitedRows(orderedProjects);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [showArchived, setShowArchived] = useState(false);
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [formError, setFormError] = useState<string | null>(null);

@@ -262,3 +262,74 @@ def test_detach_preserves_existing_matches_and_calculations(client):
     calcs = client.get(f"/api/projects/{project_id}/runs/{run['runId']}/calculations")
     assert calcs.status_code == 200
     assert len(calcs.json()) == 1
+
+
+# --- reset matches ----------------------------------------------------------
+
+
+def test_reset_matches_clears_and_recomputes_every_status(client):
+    # Unlike /recompute (which only ever retries 'unmatched' rows), /reset
+    # must also discard a row that's already 'manual' -- that's the whole
+    # point: making every row, decided or not, get a fresh shot at whatever
+    # ratings data is currently attached.
+    project = _project(client)
+    project_id = project['projectId']
+    brand = _brand(client, project_id)
+    _upload(client, project_id, brand['brandId'])
+    _attach_ratings(client, project_id)
+    [match] = client.get(f'/api/projects/{project_id}/matches').json()
+    assert match['matchStatus'] == 'exact'
+
+    client.post(
+        f"/api/projects/{project_id}/matches/{match['ratingMatchId']}/correct",
+        json={'matchedRatingId': None},
+    )
+    confirmed = client.get(f'/api/projects/{project_id}/matches').json()
+    assert confirmed[0]['matchStatus'] == 'manual'
+
+    response = client.post(f'/api/projects/{project_id}/matches/reset')
+    assert response.status_code == 200
+    assert response.json() == {'deletedCount': 1}
+
+    # recomputed from scratch -- back to 'exact' (the ratings are still
+    # attached), as a brand-new match row, not the 'manual' one revived
+    recomputed = client.get(f'/api/projects/{project_id}/matches').json()
+    assert len(recomputed) == 1
+    assert recomputed[0]['matchStatus'] == 'exact'
+    assert recomputed[0]['ratingMatchId'] != match['ratingMatchId']
+
+
+def test_reset_matches_is_a_noop_with_no_matches(client):
+    project = _project(client)
+    response = client.post(f"/api/projects/{project['projectId']}/matches/reset")
+    assert response.status_code == 200
+    assert response.json() == {'deletedCount': 0}
+
+
+def test_reset_matches_does_not_touch_an_already_calculated_run(client):
+    project = _project(client)
+    project_id = project['projectId']
+    brand = _brand(client, project_id)
+    _upload(client, project_id, brand['brandId'])
+    _attach_ratings(client, project_id)
+    run = client.post(f'/api/projects/{project_id}/calculate').json()
+
+    response = client.post(f'/api/projects/{project_id}/matches/reset')
+    assert response.status_code == 200
+    assert response.json() == {'deletedCount': 1}
+
+    calcs = client.get(f"/api/projects/{project_id}/runs/{run['runId']}/calculations")
+    assert calcs.status_code == 200
+    assert len(calcs.json()) == 1
+
+
+def test_reset_matches_rejects_missing_project(client):
+    response = client.post('/api/projects/does-not-exist/matches/reset')
+    assert response.status_code == 404
+
+
+def test_reset_matches_requires_owner_or_admin(client):
+    project = _project(client)
+    app.dependency_overrides[get_current_user] = _returning(make_test_user(role='member'))
+    response = client.post(f"/api/projects/{project['projectId']}/matches/reset")
+    assert response.status_code == 403

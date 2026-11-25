@@ -426,6 +426,10 @@ export interface MatchJob {
   processed: number;
 }
 
+export interface MatchResetResult {
+  deletedCount: number;
+}
+
 export interface DuplicateSibling {
   ratingRowId: string;
   station: string;

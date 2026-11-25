@@ -9,6 +9,7 @@ import {
   listBrands,
   listProjectRatingsDatasets,
   listUploads,
+  resetMatches,
   updateProject,
   type UpdateProjectInput,
 } from '../api/client';
@@ -62,6 +63,9 @@ export default function ProjectManagePanel({
   const canManageData = currentUser.role === 'owner' || currentUser.role === 'admin';
   const [isDeletingProject, setIsDeletingProject] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isResettingMatches, setIsResettingMatches] = useState(false);
+  const [resetMatchesError, setResetMatchesError] = useState<string | null>(null);
+  const [resetMatchesMessage, setResetMatchesMessage] = useState<string | null>(null);
 
   const [form, setForm] = useState(toFormState(project));
   const [isSaving, setIsSaving] = useState(false);
@@ -211,6 +215,36 @@ export default function ProjectManagePanel({
     } catch (error) {
       setDeleteError(error instanceof ApiError ? error.message : 'Could not delete this project.');
       setIsDeletingProject(false);
+    }
+  }
+
+  async function handleResetMatches() {
+    // Distinct from detaching/attaching a ratings dataset above: that only
+    // changes what future matching can see. Fast recompute/Full scan (on
+    // the Matches screen) only ever retry rows still sitting as 'unmatched'
+    // -- a row that already matched under the OLD ratings file keeps that
+    // match forever otherwise, even after the new file is attached. This is
+    // the only way to make every row, matched or not, get re-evaluated.
+    const confirmed = window.confirm(
+      `Reset every match in "${project.projectName}"? This clears all matches, including ones already confirmed. ` +
+        "It won't touch your spend uploads, ratings, or any calculated run -- just the matching, which gets " +
+        'recomputed from scratch (exact, then suggestions) the next time you open Matches.',
+    );
+    if (!confirmed) return;
+    setIsResettingMatches(true);
+    setResetMatchesError(null);
+    setResetMatchesMessage(null);
+    try {
+      const result = await resetMatches(project.projectId);
+      setResetMatchesMessage(
+        result.deletedCount > 0
+          ? `Cleared ${result.deletedCount} match${result.deletedCount === 1 ? '' : 'es'}. Open Matches to recompute.`
+          : 'No matches to clear.',
+      );
+    } catch (error) {
+      setResetMatchesError(error instanceof ApiError ? error.message : 'Could not reset matches.');
+    } finally {
+      setIsResettingMatches(false);
     }
   }
 
@@ -498,6 +532,21 @@ export default function ProjectManagePanel({
       {canManageData && (
         <div className="danger-zone">
           <h3>Danger zone</h3>
+
+          <p>
+            Swapped the ratings file for this project? Fast recompute/Full scan only ever retry rows still
+            unmatched — a row already matched under the old ratings data keeps that match forever otherwise.
+            Reset matches clears every match in this project (including confirmed ones) without touching your
+            uploads, ratings, or calculated runs, so the next visit to Matches re-evaluates everything from
+            scratch against whatever ratings are currently attached.
+          </p>
+          {resetMatchesError && <p className="inline-error">{resetMatchesError}</p>}
+          {resetMatchesMessage && <p className="empty-state">{resetMatchesMessage}</p>}
+          <button type="button" className="danger-button" disabled={isResettingMatches} onClick={handleResetMatches}>
+            <Trash2 size={15} aria-hidden />
+            {isResettingMatches ? 'Resetting…' : 'Reset matches'}
+          </button>
+
           <p>
             Deleting this project permanently removes every upload, brand, match, and calculated run in it. This
             cannot be undone.

@@ -10,6 +10,7 @@ import type {
   GrpRunSummary,
   MappingTemplate,
   MatchJob,
+  MatchResetResult,
   MediaActivityRow,
   ProgrammeShare,
   Project,
@@ -481,6 +482,15 @@ export function rejectMatch(projectId: string, ratingMatchId: string): Promise<R
 // useful after attaching ratings to a project that already had matches computed.
 export function recomputeMatches(projectId: string): Promise<RatingMatch[]> {
   return request<RatingMatch[]>(`/api/projects/${projectId}/matches/recompute`, { method: 'POST' });
+}
+
+// Discards EVERY match for the project, no matter its status — unlike
+// recomputeMatches(), which only ever retries 'unmatched' rows. For when the
+// ratings file behind a project was swapped and rows that already matched
+// under the old data need to be re-evaluated against the new one too. The
+// next time Matches is opened, every row is recomputed from scratch.
+export function resetMatches(projectId: string): Promise<MatchResetResult> {
+  return request<MatchResetResult>(`/api/projects/${projectId}/matches/reset`, { method: 'POST' });
 }
 
 export function listCalculations(projectId: string, runId: string): Promise<GrpCalculationRow[]> {

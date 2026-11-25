@@ -3,7 +3,7 @@ import io
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
-from ..auth import get_current_user
+from ..auth import get_current_user, require_role
 from ..calculations import resolve_rating_by_id
 from ..match_jobs import get_match_job, start_match_job
 from ..matches import build_unmatched_reason_context, compute_matches, describe_unmatched_reason
@@ -15,7 +15,7 @@ from ..repositories.ratings import RatingsRepository, get_ratings_repository
 from ..repositories.station_aliases import StationAliasesRepository, get_station_aliases_repository
 from ..repositories.uploads import UploadsRepository, get_uploads_repository
 from ..repositories.users import UserRecord
-from ..schemas.matches import MatchCorrection, MatchJobOut, RatingMatchOut
+from ..schemas.matches import MatchCorrection, MatchJobOut, MatchResetOut, RatingMatchOut
 from ..schemas.ratings import RatingRowOut
 
 router = APIRouter(prefix='/api/projects/{project_id}/matches', tags=['matches'], dependencies=[Depends(get_current_user)])
@@ -370,3 +370,45 @@ def recompute_matches(
         matches_repo.update_matches_bulk(updates)
 
     return [_to_out(record) for record in matches_repo.list_matches(project_id)]
+
+
+@router.post('/reset', response_model=MatchResetOut)
+def reset_matches(
+    project_id: str,
+    matches_repo: MatchesRepository = Depends(get_matches_repository),
+    uploads_repo: UploadsRepository = Depends(get_uploads_repository),
+    projects_repo: ProjectsRepository = Depends(get_projects_repository),
+    current_user: UserRecord = Depends(require_role('owner', 'admin')),
+    activity_repo: ActivityLogRepository = Depends(get_activity_log_repository),
+):
+    """Discards every match record for this project, including confirmed
+    ('manual') and rejected ones -- unlike /recompute (which only ever
+    retries rows already sitting as 'unmatched'), this is the one way to
+    make EVERY spend row, no matter its current status, get re-evaluated
+    from scratch. For when the ratings file behind a project was swapped
+    (old dataset detached, new one attached) and rows that already matched
+    under the old data need a real shot at the new data, not just the rows
+    that never matched at all -- see /recompute's and match_jobs.py's own
+    docstrings for why neither of those ever revisits a decided row.
+
+    The next GET .../matches (including the automatic one the Matches
+    screen fires on every visit) recomputes every row fresh, exact-then-
+    fuzzy, against whatever ratings are currently attached.
+
+    Does not touch media_activity, ratings, or any already-calculated run:
+    grp_calculations.rating_match_id is ON DELETE SET NULL (db/schema.sql),
+    so a frozen run's own GRP figures are untouched -- it only loses the
+    back-link to which match produced them at the time."""
+    project = projects_repo.get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail='Project not found')
+    activity_ids = [activity.id for activity in uploads_repo.list_media_activity(project_id)]
+    deleted_count = len(matches_repo.list_matches(project_id))
+    matches_repo.delete_matches_for_media_activity(activity_ids)
+    activity_repo.record(
+        actor_id=current_user.id, actor_name=current_user.display_name, action='match.reset',
+        summary=f'{current_user.display_name} reset all matches for project "{project.name}" '
+        f'({deleted_count} cleared).',
+        project_id=project.id, project_name=project.name,
+    )
+    return MatchResetOut(deleted_count=deleted_count)

@@ -1440,6 +1440,10 @@ h3.subsection {
   background: var(--hover-surface);
 }
 
+.match-table tr.active-row td {
+  background: var(--primary-tint);
+}
+
 .match-table td.num,
 .match-table th.num {
   font-variant-numeric: tabular-nums;
